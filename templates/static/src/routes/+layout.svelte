@@ -1,6 +1,8 @@
 <script lang="ts">
 	import '../app.css';
 
+	import favicon from '$lib/assets/favicon.svg';
+
 	import { ModeWatcher } from 'mode-watcher';
 	import { getFlash } from 'sveltekit-flash-message';
 	import { toast } from 'svelte-sonner';
@@ -26,6 +28,7 @@
 
 <svelte:head>
 	<title>{data.meta.appName}</title>
+	<link rel="icon" href={favicon} />
 </svelte:head>
 
 <MetaTags {...metaTags} />

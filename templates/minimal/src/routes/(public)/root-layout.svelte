@@ -1,4 +1,6 @@
 <script lang="ts">
+	import favicon from '$lib/assets/favicon.svg';
+
 	import { toggleMode } from 'mode-watcher';
 	import * as Navbar from '$lib/components/ui/navbar';
 	import { Button } from '$lib/components/ui/button';
@@ -9,7 +11,7 @@
 <div class="min-h-dvh grid grid-rows-[max-content_1fr_max-content] root-layout">
 	<Navbar.Root>
 		<Navbar.Brand href="/">
-			<Navbar.Logo src="/favicon.svg" alt="Logo" />
+			<Navbar.Logo src={favicon} alt="Logo" />
 		</Navbar.Brand>
 
 		<Navbar.MobileToggle />

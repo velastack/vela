@@ -1,4 +1,6 @@
 <script lang="ts">
+	import favicon from '$lib/assets/favicon.svg';
+
 	let { data } = $props();
 </script>
 
@@ -9,7 +11,7 @@
 				<span
 					class="bg-primary text-primary-foreground inline-flex size-6 items-center justify-center rounded-md"
 				>
-					<img src="/favicon.svg" alt="logo" class="size-4" />
+					<img src={favicon} alt="logo" class="size-4" />
 				</span>
 				{data.meta.appName}
 			</a>
