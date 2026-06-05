@@ -1,0 +1,19 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"resolveJsonModule": true,
+		"strict": true,
+		"noImplicitOverride": true,
+		"noUncheckedIndexedAccess": false,
+		"declaration": false,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"allowImportingTsExtensions": true,
+		"noEmit": true,
+		"types": ["vite/client", "node"]
+	},
+	"include": ["src/**/*", "vite.config.ts"],
+	"exclude": ["node_modules", "dist", "templates"]
+}
