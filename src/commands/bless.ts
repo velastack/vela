@@ -245,8 +245,9 @@ function copyDirShallow(src: string, dest: string) {
 }
 
 function mergeConfigFiles(projectPath: string) {
+	const runes = mergeSvelteConfig(projectPath);
 	const outcomes = [
-		['svelte.config.js', mergeSvelteConfig(path.join(projectPath, 'svelte.config.js'))],
+		[runes.file ?? 'svelte.config', runes],
 		['vite.config.ts', mergeViteConfig(path.join(projectPath, 'vite.config.ts'))],
 		['tsconfig.json', mergeTsconfig(path.join(projectPath, 'tsconfig.json'))],
 		['.gitignore', mergeGitignore(path.join(projectPath, '.gitignore'))]

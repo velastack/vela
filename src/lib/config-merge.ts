@@ -1,35 +1,96 @@
 import fs from 'node:fs';
+import path from 'node:path';
+import type { ObjectLiteralExpression } from 'ts-morph';
+import {
+	createSveltekitArg,
+	getOrCreateObjectLiteralProperty,
+	inspectViteSveltekit,
+	probeFirstExisting,
+	SVELTE_CONFIG_CANDIDATES,
+	type ViteSveltekit
+} from './config-target.ts';
 
 export interface MergeOutcome {
 	applied: boolean;
 	reason: string;
 	snippet?: string;
+	/** Basename of the config file the merge targeted, for reporting. */
+	file?: string;
 }
 
+const RUNES_VALUE = `({ filename }) => (filename.split(/[/\\\\]/).includes('node_modules') ? undefined : true)`;
+
 const RUNES_SNIPPET = `\tcompilerOptions: {
-\t\trunes: ({ filename }) => (filename.split(/[/\\\\]/).includes('node_modules') ? undefined : true)
+\t\trunes: ${RUNES_VALUE}
 \t},\n`;
 
 const TAILWIND_IMPORT = `import tailwindcss from '@tailwindcss/vite';`;
 
-export function mergeSvelteConfig(filePath: string): MergeOutcome {
-	if (!fs.existsSync(filePath)) {
-		return {
-			applied: false,
-			reason: 'svelte.config.js not found',
-			snippet: RUNES_SNIPPET
-		};
+/**
+ * Ensure the Svelte `runes` compiler option is set. Defaults to the inline
+ * `sveltekit()` arg in vite.config (the new SvelteKit approach), falling back to
+ * `svelte.config.*` when that's where the project keeps its config. Resolution
+ * mirrors SvelteKit's own precedence.
+ */
+export function mergeSvelteConfig(projectRoot: string): MergeOutcome {
+	const vite = inspectViteSveltekit(projectRoot);
+
+	// Rule 1: vite.config has an inline sveltekit() arg → inject runes there.
+	if (vite?.inlineArg) {
+		return mergeRunesIntoViteArg(vite, vite.inlineArg);
 	}
 
+	// Rule 2: a svelte.config.* file exists → use the legacy in-place injector.
+	const sveltePath = probeFirstExisting(projectRoot, SVELTE_CONFIG_CANDIDATES);
+	if (sveltePath) {
+		return mergeRunesIntoSvelteConfig(sveltePath);
+	}
+
+	// Rule 3: bare sveltekit() → create an arg and inject runes into it.
+	if (vite?.sveltekitCall && !vite.nonObjectArg) {
+		const arg = createSveltekitArg(vite);
+		if (arg) return mergeRunesIntoViteArg(vite, arg);
+	}
+
+	return {
+		applied: false,
+		reason: 'no svelte.config or vite.config sveltekit() found',
+		snippet: RUNES_SNIPPET
+	};
+}
+
+function mergeRunesIntoViteArg(vite: ViteSveltekit, arg: ObjectLiteralExpression): MergeOutcome {
+	const file = path.basename(vite.filePath);
+	const compilerOptions = getOrCreateObjectLiteralProperty(arg, 'compilerOptions', '{}');
+	if (!compilerOptions) {
+		return {
+			applied: false,
+			reason: 'could not access sveltekit() compilerOptions',
+			snippet: RUNES_SNIPPET,
+			file
+		};
+	}
+	if (compilerOptions.getProperty('runes')) {
+		return { applied: false, reason: 'runes already configured', file };
+	}
+	compilerOptions.addPropertyAssignment({ name: 'runes', initializer: RUNES_VALUE });
+	vite.sourceFile.formatText();
+	vite.sourceFile.saveSync();
+	return { applied: true, reason: 'added runes compilerOption', file };
+}
+
+function mergeRunesIntoSvelteConfig(filePath: string): MergeOutcome {
+	const file = path.basename(filePath);
 	const original = fs.readFileSync(filePath, 'utf8');
 	if (/runes\s*:/m.test(original)) {
-		return { applied: false, reason: 'runes already configured' };
+		return { applied: false, reason: 'runes already configured', file };
 	}
 	if (/compilerOptions\s*:/m.test(original)) {
 		return {
 			applied: false,
 			reason: 'compilerOptions already present — add `runes` manually',
-			snippet: `runes: ({ filename }) => (filename.split(/[/\\\\]/).includes('node_modules') ? undefined : true)`
+			snippet: `runes: ${RUNES_VALUE}`,
+			file
 		};
 	}
 
@@ -37,15 +98,16 @@ export function mergeSvelteConfig(filePath: string): MergeOutcome {
 	if (!anchor || anchor.index === undefined) {
 		return {
 			applied: false,
-			reason: 'svelte.config.js has a non-standard shape',
-			snippet: RUNES_SNIPPET
+			reason: `${file} has a non-standard shape`,
+			snippet: RUNES_SNIPPET,
+			file
 		};
 	}
 
 	const insertAt = anchor.index + anchor[0].length;
 	const updated = original.slice(0, insertAt) + RUNES_SNIPPET + original.slice(insertAt);
 	fs.writeFileSync(filePath, updated);
-	return { applied: true, reason: 'added runes compilerOption' };
+	return { applied: true, reason: 'added runes compilerOption', file };
 }
 
 export function mergeViteConfig(filePath: string): MergeOutcome {

@@ -41,7 +41,7 @@ const config = {
 export default config;
 `
 		);
-		const result = mergeSvelteConfig(filePath);
+		const result = mergeSvelteConfig(tmp);
 		expect(result.applied).toBe(true);
 		const updated = fs.readFileSync(filePath, 'utf8');
 		expect(updated).toMatch(/compilerOptions:\s*\{[\s\S]*runes/);
@@ -54,7 +54,7 @@ export default config;
 			`const config = {\n\tcompilerOptions: { runes: true }\n};`
 		);
 		const before = fs.readFileSync(filePath, 'utf8');
-		const result = mergeSvelteConfig(filePath);
+		const result = mergeSvelteConfig(tmp);
 		expect(result.applied).toBe(false);
 		expect(fs.readFileSync(filePath, 'utf8')).toBe(before);
 	});
@@ -65,10 +65,76 @@ export default config;
 			`const config = {\n\tcompilerOptions: { warningFilter: () => false }\n};`
 		);
 		const before = fs.readFileSync(filePath, 'utf8');
-		const result = mergeSvelteConfig(filePath);
+		const result = mergeSvelteConfig(tmp);
 		expect(result.applied).toBe(false);
 		expect(result.snippet).toBeDefined();
 		expect(fs.readFileSync(filePath, 'utf8')).toBe(before);
+	});
+});
+
+describe('mergeSvelteConfig — vite.config target', () => {
+	const VITE_INLINE = `import { sveltekit } from '@sveltejs/kit/vite';
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+	plugins: [sveltekit({})]
+});
+`;
+	const VITE_BARE = `import { sveltekit } from '@sveltejs/kit/vite';
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+	plugins: [sveltekit()]
+});
+`;
+
+	test('injects runes into an existing sveltekit() inline arg', () => {
+		write('vite.config.ts', VITE_INLINE);
+		const result = mergeSvelteConfig(tmp);
+		expect(result.applied).toBe(true);
+		expect(result.file).toBe('vite.config.ts');
+		const updated = fs.readFileSync(path.join(tmp, 'vite.config.ts'), 'utf8');
+		expect(updated).toMatch(/compilerOptions:\s*\{[\s\S]*runes/);
+	});
+
+	test('creates an arg on a bare sveltekit() and injects runes', () => {
+		write('vite.config.ts', VITE_BARE);
+		const result = mergeSvelteConfig(tmp);
+		expect(result.applied).toBe(true);
+		const updated = fs.readFileSync(path.join(tmp, 'vite.config.ts'), 'utf8');
+		expect(updated).toMatch(/sveltekit\(\{[\s\S]*runes/);
+	});
+
+	test('prefers vite-inline and leaves a leftover svelte.config untouched', () => {
+		write('vite.config.ts', VITE_INLINE);
+		const sveltePath = write(
+			'svelte.config.js',
+			`const config = {\n\tkit: {}\n};\nexport default config;\n`
+		);
+		const svelteBefore = fs.readFileSync(sveltePath, 'utf8');
+		const result = mergeSvelteConfig(tmp);
+		expect(result.applied).toBe(true);
+		expect(result.file).toBe('vite.config.ts');
+		expect(fs.readFileSync(sveltePath, 'utf8')).toBe(svelteBefore);
+		expect(fs.readFileSync(path.join(tmp, 'vite.config.ts'), 'utf8')).toMatch(/runes/);
+	});
+
+	test('skips when runes already present in the sveltekit() arg', () => {
+		write(
+			'vite.config.ts',
+			`import { sveltekit } from '@sveltejs/kit/vite';
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+	plugins: [sveltekit({ compilerOptions: { runes: true } })]
+});
+`
+		);
+		const before = fs.readFileSync(path.join(tmp, 'vite.config.ts'), 'utf8');
+		const result = mergeSvelteConfig(tmp);
+		expect(result.applied).toBe(false);
+		expect(result.reason).toMatch(/already configured/);
+		expect(fs.readFileSync(path.join(tmp, 'vite.config.ts'), 'utf8')).toBe(before);
 	});
 });
 
