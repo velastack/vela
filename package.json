@@ -31,7 +31,7 @@
 	"dependencies": {
 		"@clack/prompts": "^1.0.0-alpha.1",
 		"@faker-js/faker": "^10.4.0",
-		"@velastack/patterns": "^0.0.56",
+		"@velastack/patterns": "^0.0.58",
 		"@velastack/pocketbase": "^0.0.52",
 		"annotate-json-schema": "^0.1.0",
 		"commander": "^13.1.0",
