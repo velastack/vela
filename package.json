@@ -1,5 +1,5 @@
 {
-	"name": "velastack",
+	"name": "vela",
 	"version": "1.0.0",
 	"type": "module",
 	"description": "A CLI for creating and updating SvelteKit projects",
