@@ -18,6 +18,7 @@ import {
 } from '../lib/package-manager.ts';
 import { createSuperuser, withPocketbase } from '../lib/pocketbase.ts';
 import { writeEnvFile } from '../lib/env.ts';
+import { restoreTemplateNames } from '../lib/template-files.ts';
 import { reportResult } from '../lib/result-report.ts';
 
 const OptionsSchema = v.strictObject({
@@ -200,6 +201,7 @@ function copyTemplate(template: string, target: string): void {
 		recursive: true,
 		filter: (src) => path.basename(src) !== '.DS_Store'
 	});
+	restoreTemplateNames(target);
 }
 
 function writePackageJson(target: string, name: string): void {

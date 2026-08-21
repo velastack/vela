@@ -527,7 +527,13 @@ async function termsAction(): Promise<void> {
 		contact
 	});
 
-	const termsPage = path.join(workspaceRootDir, publicRoutesDir, LEGAL_DIR, 'terms', '+page.svelte');
+	const termsPage = path.join(
+		workspaceRootDir,
+		publicRoutesDir,
+		LEGAL_DIR,
+		'terms',
+		'+page.svelte'
+	);
 	const termsPageTs = path.join(workspaceRootDir, publicRoutesDir, LEGAL_DIR, 'terms', '+page.ts');
 	fs.mkdirSync(path.dirname(termsPage), { recursive: true });
 	fs.writeFileSync(termsPage, html);

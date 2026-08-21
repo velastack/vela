@@ -84,8 +84,7 @@ export const dev = new Command('dev')
 
 		await server.listen();
 
-		const hasExistingLogs =
-			process.stdout.bytesWritten > 0 || process.stderr.bytesWritten > 0;
+		const hasExistingLogs = process.stdout.bytesWritten > 0 || process.stderr.bytesWritten > 0;
 		const startupDurationString = pc.dim(
 			`ready in ${pc.reset(pc.bold(Math.ceil(performance.now() - startTime)))} ms`
 		);

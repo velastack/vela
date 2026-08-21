@@ -30,7 +30,9 @@ export function collectionSpecToArgv(spec: CollectionSpec): string[] {
 	for (const field of spec.fields) {
 		const type = typeArg(field);
 		if (type === null) {
-			p.log.warn(`Skipping field "${field.name}" (type "${field.type}" cannot be represented as a pattern argument)`);
+			p.log.warn(
+				`Skipping field "${field.name}" (type "${field.type}" cannot be represented as a pattern argument)`
+			);
 			continue;
 		}
 		const required = field.required ? '!' : '';

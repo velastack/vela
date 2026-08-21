@@ -22,11 +22,15 @@ function mockFetch(impl: (url: string, init: RequestInit) => Promise<Response>) 
 
 describe('aiSchema', () => {
 	beforeEach(() => {
-		mockFetch(async () =>
-			new Response(JSON.stringify({ result: { name: 'x', type: 'base', fields: [] }, turn: [] }), {
-				status: 200,
-				headers: { 'Content-Type': 'application/json' }
-			})
+		mockFetch(
+			async () =>
+				new Response(
+					JSON.stringify({ result: { name: 'x', type: 'base', fields: [] }, turn: [] }),
+					{
+						status: 200,
+						headers: { 'Content-Type': 'application/json' }
+					}
+				)
 		);
 	});
 
@@ -45,11 +49,12 @@ describe('aiSchema', () => {
 
 describe('aiForm', () => {
 	it('hits /v1/projects/<id>/ai/form', async () => {
-		mockFetch(async () =>
-			new Response(JSON.stringify({ result: { rows: [] }, turn: [] }), {
-				status: 200,
-				headers: { 'Content-Type': 'application/json' }
-			})
+		mockFetch(
+			async () =>
+				new Response(JSON.stringify({ result: { rows: [] }, turn: [] }), {
+					status: 200,
+					headers: { 'Content-Type': 'application/json' }
+				})
 		);
 		await aiForm('/cwd', { context: { model: { name: 'x', type: 'base', fields: [] } } });
 		const call = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;

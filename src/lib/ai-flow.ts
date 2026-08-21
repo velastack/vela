@@ -14,10 +14,8 @@ export type AiUseCase = 'scaffold' | 'form' | 'schema';
 const USE_CASE_HINT: Record<AiUseCase, string> = {
 	scaffold:
 		'Use case: scaffold — designing a new persisted PocketBase collection. Lean toward forward-thinking field choices.',
-	form:
-		'Use case: form — designing fields for a Svelte form with no DB persistence. Focus on user-input fields; relations only to existing collections.',
-	schema:
-		'Use case: schema — designing a standalone zod schema. Same considerations as form.'
+	form: 'Use case: form — designing fields for a Svelte form with no DB persistence. Focus on user-input fields; relations only to existing collections.',
+	schema: 'Use case: schema — designing a standalone zod schema. Same considerations as form.'
 };
 
 function renderModel(spec: CollectionSpec): void {
@@ -50,7 +48,9 @@ export interface RunSchemaStageResult {
 	workspaceRootDir: string;
 }
 
-export async function runSchemaStage(opts: RunSchemaStageOptions): Promise<RunSchemaStageResult | null> {
+export async function runSchemaStage(
+	opts: RunSchemaStageOptions
+): Promise<RunSchemaStageResult | null> {
 	const { workspaceRootDir } = await getWorkspace();
 	const existingModels = await loadExistingModels(workspaceRootDir);
 

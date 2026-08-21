@@ -898,8 +898,20 @@ async function privacyAction(): Promise<void> {
 		retention: retention as string | undefined
 	});
 
-	const privacyPage = path.join(workspaceRootDir, publicRoutesDir, LEGAL_DIR, 'privacy', '+page.svelte');
-	const privacyPageTs = path.join(workspaceRootDir, publicRoutesDir, LEGAL_DIR, 'privacy', '+page.ts');
+	const privacyPage = path.join(
+		workspaceRootDir,
+		publicRoutesDir,
+		LEGAL_DIR,
+		'privacy',
+		'+page.svelte'
+	);
+	const privacyPageTs = path.join(
+		workspaceRootDir,
+		publicRoutesDir,
+		LEGAL_DIR,
+		'privacy',
+		'+page.ts'
+	);
 	fs.mkdirSync(path.dirname(privacyPage), { recursive: true });
 	fs.writeFileSync(privacyPage, html);
 	fs.writeFileSync(

@@ -62,7 +62,9 @@ async function aiPost<T>(
 	const apiKey = requireApiKey();
 	const project = readProjectConfig(workspaceRootDir);
 	if (!project) {
-		throw new Error("This isn't a velastack project (no .vela/project.json). Run `vela create` first.");
+		throw new Error(
+			"This isn't a velastack project (no .vela/project.json). Run `vela create` first."
+		);
 	}
 
 	const res = await fetch(`${API_URL}/v1/projects/${project.projectId}/ai/${endpoint}`, {

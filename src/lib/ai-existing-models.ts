@@ -52,7 +52,9 @@ export async function loadExistingModels(workspaceRootDir: string): Promise<Coll
 		});
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
-		p.log.warn(`Could not load existing schema from PocketBase (${msg}). The AI agent will design without that context.`);
+		p.log.warn(
+			`Could not load existing schema from PocketBase (${msg}). The AI agent will design without that context.`
+		);
 		return [];
 	}
 	return result;

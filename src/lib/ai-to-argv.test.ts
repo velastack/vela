@@ -23,14 +23,9 @@ describe('collectionSpecToArgv', () => {
 		const spec: CollectionSpec = {
 			name: 'employees',
 			type: 'base',
-			fields: [
-				{ name: 'role', type: 'select', values: ['server', 'chef', 'host'], required: true }
-			]
+			fields: [{ name: 'role', type: 'select', values: ['server', 'chef', 'host'], required: true }]
 		};
-		expect(collectionSpecToArgv(spec)).toEqual([
-			'employees',
-			'role:select(server,chef,host)!'
-		]);
+		expect(collectionSpecToArgv(spec)).toEqual(['employees', 'role:select(server,chef,host)!']);
 	});
 
 	it('singularizes relation collectionName for relation fields', () => {

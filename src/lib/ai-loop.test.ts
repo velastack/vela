@@ -18,7 +18,9 @@ describe('aiLoop', () => {
 
 	it('returns the result on empty input (apply)', async () => {
 		textResponses = [''];
-		const call = vi.fn().mockResolvedValue({ result: { ok: 1 }, turn: [{ role: 'assistant', content: 'a' }] });
+		const call = vi
+			.fn()
+			.mockResolvedValue({ result: { ok: 1 }, turn: [{ role: 'assistant', content: 'a' }] });
 		const out = await aiLoop({
 			initialPrompt: 'first',
 			stageLabel: 'Designing',
@@ -37,7 +39,10 @@ describe('aiLoop', () => {
 			.fn()
 			.mockResolvedValueOnce({
 				result: { v: 1 },
-				turn: [{ role: 'user', content: 'first' }, { role: 'assistant', content: 'a1' }]
+				turn: [
+					{ role: 'user', content: 'first' },
+					{ role: 'assistant', content: 'a1' }
+				]
 			})
 			.mockResolvedValueOnce({ result: { v: 2 }, turn: [] });
 		const out = await aiLoop({

@@ -29,13 +29,13 @@ function colWidths(layout: FormLayout, terminalWidth: number): number[][] {
  * Render a FormLayout as an ASCII grid. Falls back to a list view when
  * the terminal is narrower than MIN_TERM_WIDTH.
  */
-export function renderGrid(layout: FormLayout, terminalWidth = process.stdout.columns ?? 80): string {
+export function renderGrid(
+	layout: FormLayout,
+	terminalWidth = process.stdout.columns ?? 80
+): string {
 	if (terminalWidth < MIN_TERM_WIDTH) {
 		return layout.rows
-			.map(
-				(row, i) =>
-					`row ${i + 1}: ${row.cols.map((c) => `${c.field}(${c.span})`).join(' | ')}`
-			)
+			.map((row, i) => `row ${i + 1}: ${row.cols.map((c) => `${c.field}(${c.span})`).join(' | ')}`)
 			.join('\n');
 	}
 

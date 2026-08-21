@@ -34,6 +34,7 @@ import {
 import { isVanillaRoutes } from '../lib/scaffold-detect.ts';
 import { getWorkspace } from '../lib/workspace.ts';
 import { reportResult } from '../lib/result-report.ts';
+import { templateName } from '../lib/template-files.ts';
 
 const OptionsSchema = v.strictObject({
 	install: v.union([v.boolean(), v.picklist(AGENT_NAMES)]),
@@ -214,7 +215,7 @@ function mergeDependencies(projectPath: string, templateDir: string) {
 
 function copyVelaOnlyFiles(templateDir: string, projectPath: string) {
 	for (const rel of VELA_ONLY_FILES) {
-		const src = path.join(templateDir, rel);
+		const src = path.join(templateDir, templateName(rel));
 		const dest = path.join(projectPath, rel);
 		if (!fs.existsSync(src)) continue;
 		if (fs.existsSync(dest)) continue;
