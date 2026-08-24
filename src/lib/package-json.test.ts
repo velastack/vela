@@ -1,5 +1,13 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { mergePackageJson, toValidPackageName } from './package-json.ts';
+import {
+	fillTemplatePlaceholders,
+	mergePackageJson,
+	readTemplatePackageJson,
+	toValidPackageName
+} from './package-json.ts';
+import { listProjectTemplates } from './templates.ts';
 
 describe('mergePackageJson', () => {
 	test('adds missing devDependencies', () => {
@@ -117,4 +125,78 @@ describe('toValidPackageName', () => {
 	test('replaces invalid characters with dashes', () => {
 		expect(toValidPackageName('hello@world!')).toBe('hello-world-');
 	});
+});
+
+describe('fillTemplatePlaceholders', () => {
+	test('substitutes the app name and the CLI version', () => {
+		const raw = '{"name":"~TODO~","devDependencies":{"vela":"^~VELA_VERSION~"}}';
+		expect(fillTemplatePlaceholders(raw, { appName: 'My App', cliVersion: '0.9.0' })).toBe(
+			'{"name":"my-app","devDependencies":{"vela":"^0.9.0"}}'
+		);
+	});
+
+	test('normalizes the app name but leaves the version verbatim', () => {
+		const raw = '{"name":"~TODO~","v":"~VELA_VERSION~"}';
+		expect(
+			fillTemplatePlaceholders(raw, { appName: '  Weird Name!  ', cliVersion: '1.2.3-beta.4' })
+		).toBe('{"name":"weird-name-","v":"1.2.3-beta.4"}');
+	});
+
+	test('replaces every occurrence', () => {
+		expect(
+			fillTemplatePlaceholders('~TODO~ ~TODO~ ~VELA_VERSION~ ~VELA_VERSION~', {
+				appName: 'app',
+				cliVersion: '0.9.0'
+			})
+		).toBe('app app 0.9.0 0.9.0');
+	});
+
+	test('leaves source without placeholders untouched', () => {
+		const raw = '{"name":"already-named"}';
+		expect(fillTemplatePlaceholders(raw, { appName: 'app', cliVersion: '0.9.0' })).toBe(raw);
+	});
+
+	// `~APP_NAME~` keeps the name the user typed, where `~TODO~` normalizes it.
+	test('substitutes the display name verbatim', () => {
+		expect(
+			fillTemplatePlaceholders("name: '~APP_NAME~', pkg: '~TODO~'", {
+				appName: 'My App',
+				cliVersion: '0.9.0'
+			})
+		).toBe("name: 'My App', pkg: 'my-app'");
+	});
+
+	test('escapes a display name that would break out of its string literal', () => {
+		expect(
+			fillTemplatePlaceholders("name: '~APP_NAME~'", {
+				appName: "Nathan's C:\\ App",
+				cliVersion: '0.9.0'
+			})
+		).toBe("name: 'Nathan\\'s C:\\\\ App'");
+	});
+
+	// A `$&` in an app name is text, not a replacement pattern.
+	test('treats dollar patterns in the app name as literal', () => {
+		expect(
+			fillTemplatePlaceholders("name: '~APP_NAME~'", { appName: '$& $1', cliVersion: '0.9.0' })
+		).toBe("name: '$& $1'");
+	});
+});
+
+describe('shipped templates', () => {
+	for (const { name, dir } of listProjectTemplates()) {
+		test(`${name} pins the CLI to the running version, not a hardcoded one`, () => {
+			const file = path.join(dir, 'package.template.json');
+			const pkg = readTemplatePackageJson(file, { appName: 'app', cliVersion: '9.9.9' });
+			const deps = pkg.devDependencies ?? {};
+			expect(deps.vela).toBe('^9.9.9');
+		});
+
+		test(`${name} leaves no unsubstituted placeholders`, () => {
+			const file = path.join(dir, 'package.template.json');
+			const raw = fs.readFileSync(file, 'utf8');
+			const filled = fillTemplatePlaceholders(raw, { appName: 'app', cliVersion: '9.9.9' });
+			expect(filled).not.toMatch(/~[A-Z_]+~|~TODO~/);
+		});
+	}
 });

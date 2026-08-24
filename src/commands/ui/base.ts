@@ -1,24 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
 import { reportResult } from '../../lib/result-report.ts';
+import { templatesDir } from '../../lib/templates.ts';
 
 const VALID_COLORS = ['slate', 'gray', 'zinc', 'stone', 'neutral'] as const;
 type BaseColor = (typeof VALID_COLORS)[number];
 
 function findThemeFile(color: BaseColor): string {
-	let dir = path.dirname(fileURLToPath(import.meta.url));
-	const { root } = path.parse(dir);
-	while (dir !== root) {
-		const candidate = path.join(dir, 'templates', 'ui', 'css', `${color}.css`);
-		if (fs.existsSync(candidate)) return candidate;
-		dir = path.dirname(dir);
+	const candidate = path.join(templatesDir(), 'ui', 'css', `${color}.css`);
+	if (!fs.existsSync(candidate)) {
+		throw new Error(`Theme file not found for color: ${color}`);
 	}
-	throw new Error(`Theme file not found for color: ${color}`);
+	return candidate;
 }
 
 function extractSelectors(css: string): { root: string; dark: string } {
@@ -67,7 +64,7 @@ export const base = new Command('base')
 				summary: `Set base color to ${color}.`,
 				filesModified: [path.relative(workspaceRootDir, appCssPath)],
 				nextSteps: [
-					'Run `vela dev` to preview the new palette.',
+					'Run your dev server to preview the new palette.',
 					'Tweak individual CSS variables in src/app.css if you want to customize the theme further.'
 				]
 			});

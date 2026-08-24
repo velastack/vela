@@ -46,7 +46,6 @@ export async function getWorkspace(): Promise<Workspace> {
 	const fullRoutesPath = path.join(workspaceRootDir, routesDir);
 
 	if (!fs.existsSync(fullRoutesPath)) {
-		console.log(fullRoutesPath);
 		throw new Error('Could not find src/routes directory');
 	}
 

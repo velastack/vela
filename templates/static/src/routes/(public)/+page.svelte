@@ -25,22 +25,22 @@
 
 			<div class="mt-8 flex items-center justify-center gap-3">
 				<a
-					href="/signup"
+					href="#features"
 					class="bg-primary text-primary-foreground inline-flex items-center rounded-md px-5 py-2.5"
 				>
 					Get started
 				</a>
 				<a
-					href="/login"
+					href="https://svelte.dev/docs/kit"
 					class="border border-border text-foreground inline-flex items-center rounded-md px-5 py-2.5"
 				>
-					Sign in
+					Read the docs
 				</a>
 			</div>
 		</div>
 	</section>
 
-	<section class="px-6 pb-16 md:pb-24">
+	<section id="features" class="px-6 pb-16 md:pb-24">
 		<div class="mx-auto grid max-w-5xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
 			<div class="bg-card text-card-foreground rounded-lg border p-6">
 				<h3 class="font-medium">Fast</h3>

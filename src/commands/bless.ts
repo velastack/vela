@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
 import * as v from 'valibot';
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
@@ -9,6 +8,8 @@ import pc from 'picocolors';
 import { resolveCommand } from 'package-manager-detector';
 import { helpConfig } from '../lib/help.ts';
 import { runCommand } from '../lib/run.ts';
+import { parseOptions } from '../lib/options.ts';
+import { DEFAULT_TEMPLATE, findProjectTemplate, projectTemplateNames } from '../lib/templates.ts';
 import {
 	AGENT_NAMES,
 	addPnpmBuildDependencies,
@@ -17,6 +18,7 @@ import {
 	installOption,
 	packageManagerPrompt
 } from '../lib/package-manager.ts';
+import pkg from '../../package.json' with { type: 'json' };
 import { createSuperuser } from '../lib/pocketbase.ts';
 import { writeEnvFile } from '../lib/env.ts';
 import {
@@ -36,24 +38,46 @@ import { getWorkspace } from '../lib/workspace.ts';
 import { reportResult } from '../lib/result-report.ts';
 import { templateName } from '../lib/template-files.ts';
 
-const OptionsSchema = v.strictObject({
-	install: v.union([v.boolean(), v.picklist(AGENT_NAMES)]),
-	template: v.optional(v.picklist(['minimal'])),
-	email: v.optional(v.pipe(v.string(), v.email())),
-	password: v.optional(v.pipe(v.string(), v.minLength(8))),
-	skipRoutes: v.optional(v.boolean()),
-	forceRoutes: v.optional(v.boolean())
-});
-type Options = v.InferOutput<typeof OptionsSchema>;
+/**
+ * Only backend templates: blessing is what adds PocketBase to a project, so a
+ * frontend-only template has nothing to bless a project with. Read per run so
+ * the list can't drift from the templates directory.
+ */
+function optionsSchema() {
+	const templates = projectTemplateNames({ backend: true });
+	return v.strictObject({
+		install: v.union([v.boolean(), v.picklist(AGENT_NAMES)], 'must be a package manager'),
+		template: v.optional(v.picklist(templates, `must be one of: ${templates.join(', ')}`)),
+		email: v.optional(v.pipe(v.string(), v.email('must be a valid email address'))),
+		password: v.optional(v.pipe(v.string(), v.minLength(8, 'must be at least 8 characters long'))),
+		skipRoutes: v.optional(v.boolean()),
+		forceRoutes: v.optional(v.boolean())
+	});
+}
+type Options = v.InferOutput<ReturnType<typeof optionsSchema>>;
 
-const VELA_ONLY_FILES = [
-	'src/hooks.server.ts',
-	'src/app.css',
-	'src/lib/index.ts',
-	'src/lib/utils.ts',
-	'components.json',
-	'.npmrc',
-	'.ignore'
+interface VelaFile {
+	/** Path in the blessed project. */
+	path: string;
+	/** What vela's copy carries, shown when the project already has its own. */
+	adds: string;
+}
+
+/**
+ * Files vela owns outright. A real project may already have some of them, so each
+ * one records what would be missed by keeping the existing version.
+ */
+const VELA_ONLY_FILES: VelaFile[] = [
+	{
+		path: 'src/hooks.server.ts',
+		adds: 'the handlePocketbase hook — the backend is not wired up without it'
+	},
+	{ path: 'src/app.css', adds: "vela's Tailwind imports and theme tokens" },
+	{ path: 'src/lib/index.ts', adds: 'a $lib placeholder comment' },
+	{ path: 'src/lib/utils.ts', adds: 'the cn helper and the component type utilities' },
+	{ path: 'components.json', adds: 'the shadcn-svelte config that `vela ui add` reads' },
+	{ path: '.npmrc', adds: 'engine-strict=true' },
+	{ path: '.ignore', adds: 'search ignores for generated files' }
 ];
 const VELA_ONLY_DIRS = ['src/lib/components', 'data', 'test', 'static'];
 
@@ -69,11 +93,11 @@ export const bless = new Command('bless')
 	.option('--force-routes', 'replace src/routes with the vela template without detection')
 	.configureHelp(helpConfig)
 	.action((projectPath: string | undefined, rawOpts) => {
-		const options = v.parse(OptionsSchema, rawOpts);
-		if (options.skipRoutes && options.forceRoutes) {
-			throw new Error('--skip-routes and --force-routes are mutually exclusive');
-		}
 		return runCommand(async () => {
+			const options = parseOptions(optionsSchema(), rawOpts);
+			if (options.skipRoutes && options.forceRoutes) {
+				throw new Error('--skip-routes and --force-routes are mutually exclusive');
+			}
 			await blessProject(projectPath, options);
 		}, 'Failed to bless project.');
 	});
@@ -83,7 +107,7 @@ async function blessProject(cwdArg: string | undefined, options: Options) {
 
 	assertNotAlreadyBlessed(projectPath);
 
-	const templateDir = findTemplateDir(options.template ?? 'minimal');
+	const templateDir = findProjectTemplate(options.template ?? DEFAULT_TEMPLATE).dir;
 
 	const { email, password } = await p.group(
 		{
@@ -187,7 +211,10 @@ function mergeDependencies(projectPath: string, templateDir: string) {
 
 	const userPkg = readPackageJson(userPkgPath);
 	const appName = typeof userPkg.name === 'string' ? userPkg.name : 'sveltekit';
-	const templatePkg = readTemplatePackageJson(templatePkgPath, appName);
+	const templatePkg = readTemplatePackageJson(templatePkgPath, {
+		appName,
+		cliVersion: pkg.version
+	});
 
 	const { merged, added, conflicts, replaced } = mergePackageJson(userPkg, templatePkg);
 	writePackageJson(userPkgPath, merged);
@@ -214,14 +241,21 @@ function mergeDependencies(projectPath: string, templateDir: string) {
 }
 
 function copyVelaOnlyFiles(templateDir: string, projectPath: string) {
-	for (const rel of VELA_ONLY_FILES) {
-		const src = path.join(templateDir, templateName(rel));
-		const dest = path.join(projectPath, rel);
+	const kept: VelaFile[] = [];
+
+	for (const file of VELA_ONLY_FILES) {
+		const src = path.join(templateDir, templateName(file.path));
+		const dest = path.join(projectPath, file.path);
 		if (!fs.existsSync(src)) continue;
-		if (fs.existsSync(dest)) continue;
+		if (fs.existsSync(dest)) {
+			kept.push(file);
+			continue;
+		}
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		fs.copyFileSync(src, dest);
 	}
+
+	reportKeptFiles(kept);
 
 	for (const rel of VELA_ONLY_DIRS) {
 		const src = path.join(templateDir, rel);
@@ -229,6 +263,20 @@ function copyVelaOnlyFiles(templateDir: string, projectPath: string) {
 		if (!fs.existsSync(src)) continue;
 		copyDirShallow(src, dest);
 	}
+}
+
+/**
+ * Keeping a file the project already had is the expected outcome of blessing a
+ * real project — but vela's version carries things the generators rely on, so
+ * name what was skipped instead of leaving the difference invisible.
+ */
+function reportKeptFiles(kept: VelaFile[]) {
+	if (kept.length === 0) return;
+	const padding = Math.max(...kept.map((f) => f.path.length));
+	const lines = kept.map((f) => `  ${pc.bold(f.path.padEnd(padding))}  ${pc.gray(f.adds)}`);
+	p.log.info(
+		`Kept ${kept.length} file(s) you already had. Merge by hand to pick up what vela adds:\n${lines.join('\n')}`
+	);
 }
 
 function copyDirShallow(src: string, dest: string) {
@@ -340,15 +388,4 @@ function printNextSteps(projectPath: string, packageManager: ReturnType<typeof g
 		summary: `Blessed project at ${projectPath}.`,
 		nextSteps
 	});
-}
-
-function findTemplateDir(template: string): string {
-	let dir = path.dirname(fileURLToPath(import.meta.url));
-	const { root } = path.parse(dir);
-	while (dir !== root) {
-		const candidate = path.join(dir, 'templates', template);
-		if (fs.existsSync(candidate)) return candidate;
-		dir = path.dirname(dir);
-	}
-	throw new Error(`Template not found: ${template}`);
 }

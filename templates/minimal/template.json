@@ -1,0 +1,4 @@
+{
+	"description": "SvelteKit with a PocketBase backend, wired up and migrated",
+	"backend": true
+}

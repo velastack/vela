@@ -1,14 +1,17 @@
 {
 	"name": "vela",
-	"version": "1.0.0",
+	"version": "0.9.0",
 	"type": "module",
 	"description": "A CLI for creating and updating SvelteKit projects",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/velastack/cli"
+		"url": "git+https://github.com/velastack/vela.git"
 	},
 	"homepage": "https://velastack.dev",
+	"engines": {
+		"node": ">=20"
+	},
 	"bin": {
 		"vela": "./dist/bin.js",
 		"velastack": "./dist/bin.js"
@@ -31,8 +34,8 @@
 	"dependencies": {
 		"@clack/prompts": "^1.7.0",
 		"@faker-js/faker": "^10.6.0",
-		"@velastack/patterns": "^0.0.58",
-		"@velastack/pocketbase": "^0.0.52",
+		"@velastack/patterns": "^0.0.59",
+		"@velastack/pocketbase": "^0.0.55",
 		"annotate-json-schema": "^0.1.0",
 		"commander": "^13.1.0",
 		"cross-spawn": "^7.0.6",

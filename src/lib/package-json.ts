@@ -81,8 +81,42 @@ export function readPackageJson(path: string): PkgJson {
 	return JSON.parse(fs.readFileSync(path, 'utf8')) as PkgJson;
 }
 
-export function readTemplatePackageJson(path: string, appName: string): PkgJson {
-	const raw = fs.readFileSync(path, 'utf8').replace(/~TODO~/g, toValidPackageName(appName));
+/**
+ * Placeholders a template file carries so it stays valid on disk while still
+ * being parameterized. `~TODO~` becomes the npm-safe package name and
+ * `~APP_NAME~` the name the user actually typed; the CLI writes its own version
+ * into `~VELA_VERSION~` so a generated project pins the exact CLI that produced
+ * it, rather than whatever was hardcoded when the template was last edited.
+ *
+ * `~APP_NAME~` is escaped for a single-quoted JS string, which is the only place
+ * a template uses it.
+ */
+const PACKAGE_NAME_PLACEHOLDER = /~TODO~/g;
+const APP_NAME_PLACEHOLDER = /~APP_NAME~/g;
+const CLI_VERSION_PLACEHOLDER = /~VELA_VERSION~/g;
+
+export interface TemplateValues {
+	appName: string;
+	cliVersion: string;
+}
+
+/** Substitute template placeholders in a raw template source string. */
+export function fillTemplatePlaceholders(raw: string, values: TemplateValues): string {
+	const packageName = toValidPackageName(values.appName);
+	const appName = escapeSingleQuoted(values.appName);
+	// Function replacements: `$&` and friends in an app name are literal text.
+	return raw
+		.replace(PACKAGE_NAME_PLACEHOLDER, () => packageName)
+		.replace(APP_NAME_PLACEHOLDER, () => appName)
+		.replace(CLI_VERSION_PLACEHOLDER, () => values.cliVersion);
+}
+
+function escapeSingleQuoted(value: string): string {
+	return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+export function readTemplatePackageJson(path: string, values: TemplateValues): PkgJson {
+	const raw = fillTemplatePlaceholders(fs.readFileSync(path, 'utf8'), values);
 	return JSON.parse(raw) as PkgJson;
 }
 
