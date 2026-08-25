@@ -79,7 +79,7 @@ export const dev = new Command('dev')
 				);
 			await pb.settings.update({ meta: { appURL: `http://${viteHost}:${vitePort}` } });
 
-			await startWatchingTypes(cwd);
+			await startWatchingTypes(cwd, pb);
 		});
 
 		await server.listen();
@@ -96,31 +96,40 @@ export const dev = new Command('dev')
 		server.bindCLIShortcuts({ print: true });
 	});
 
-async function startWatchingTypes(cwd: string): Promise<void> {
-	const { processTypes } = await import('@velastack/pocketbase/internal');
+async function startWatchingTypes(cwd: string, pb: PocketBase): Promise<void> {
+	const { processTypes } = await import('@velastack/pocketbase-codegen');
 
-	const config = {
-		pocketbaseUrl: process.env.POCKETBASE_URL!,
-		superuserEmail: process.env.POCKETBASE_SUPERUSER_EMAIL!,
-		superuserPassword: process.env.POCKETBASE_SUPERUSER_PASSWORD!
-	};
 	const typesDir = path.resolve(cwd, '.svelte-kit', 'types');
 	const pocketbaseDir = path.join(typesDir, 'pocketbase');
 	const pocketbaseTypes = path.join(pocketbaseDir, '$types.d.ts');
 
-	await processTypes(config, typesDir);
+	const regenerate = () => processTypes(pb, typesDir).catch(() => {});
 
-	const watcher = fs.promises.watch(pocketbaseDir);
-	(async () => {
-		for await (const event of watcher) {
-			if (
-				event.eventType === 'rename' &&
-				event.filename === '$types.d.ts' &&
-				!fs.existsSync(pocketbaseTypes)
-			) {
-				setTimeout(() => {
-					processTypes(config, typesDir).catch(() => {});
-				}, 100);
+	// Never let a first-run failure escape: this runs inside an async
+	// `listening` listener, where a rejection takes the process down, and it
+	// would also leave the session with no watcher at all. Both SvelteKit and
+	// handlePocketbase rely on that watcher to rebuild $types.d.ts after they
+	// delete it, so losing it silently disables type sync for the session.
+	await regenerate();
+
+	// Re-arm on failure: the watch is bound to the directory's inode, so
+	// `rm -rf .svelte-kit` would otherwise kill it permanently.
+	void (async () => {
+		for (;;) {
+			try {
+				await fs.promises.mkdir(pocketbaseDir, { recursive: true });
+				for await (const event of fs.promises.watch(pocketbaseDir)) {
+					if (
+						event.eventType === 'rename' &&
+						event.filename === '$types.d.ts' &&
+						!fs.existsSync(pocketbaseTypes)
+					) {
+						setTimeout(regenerate, 100);
+					}
+				}
+			} catch {
+				// directory vanished or the watch broke — rebuild and re-watch
+				await new Promise((r) => setTimeout(r, 200));
 			}
 		}
 	})();

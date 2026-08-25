@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Match } from '@velastack/pocketbase';
+import type { Match } from '@velastack/kit';
 import type { RouteId } from './$types';
 
 describe('/', () => {

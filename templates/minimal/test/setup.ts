@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, beforeAll } from 'vitest';
 import supertest, { type Agent } from 'supertest';
 import PocketBase from 'pocketbase-sveltekit';
-import type { TestContext } from '@velastack/pocketbase';
+import type { TestContext } from '@velastack/pocketbase/testing';
 
 const admin = new PocketBase(process.env.POCKETBASE_URL!) as App.Locals['admin'];
 const pb = new PocketBase(process.env.POCKETBASE_URL!) as App.Locals['pb'];

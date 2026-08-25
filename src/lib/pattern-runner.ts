@@ -1,6 +1,7 @@
 import path from 'node:path';
 import * as p from '@clack/prompts';
 import { bySlug, type Slug } from '@velastack/patterns';
+import { withPocketbase } from './pocketbase.ts';
 import { getWorkspace } from './workspace.ts';
 import { reportResult } from './result-report.ts';
 
@@ -41,6 +42,17 @@ export async function runPattern(
 			root: workspaceRootDir,
 			features,
 			input,
+			// Patterns no longer read the schema themselves: @velastack/pocketbase-codegen
+			// takes an injected client, and only the CLI knows how to reach (or spawn)
+			// a PocketBase for this workspace.
+			getCollections: async () => {
+				const { getCollections } = await import('@velastack/pocketbase-codegen');
+				let collections: Awaited<ReturnType<typeof getCollections>> = [];
+				await withPocketbase(workspaceRootDir, async (pb) => {
+					collections = await getCollections(pb);
+				});
+				return collections;
+			},
 			logger: { info: (message: string) => log.message(message) }
 		});
 		log.success(report.task.success);

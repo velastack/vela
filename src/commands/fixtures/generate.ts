@@ -6,7 +6,7 @@ import type PocketBase from 'pocketbase';
 import { annotate } from 'annotate-json-schema';
 import { createGenerator, type JsonSchema } from 'json-schema-faker';
 import { faker } from '@faker-js/faker';
-import { collectionToJsonSchema } from '@velastack/pocketbase/internal';
+import { collectionToJsonSchema } from '@velastack/pocketbase-codegen';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { withPocketbase } from '../../lib/pocketbase.ts';
