@@ -78,6 +78,16 @@ describe('program registration', () => {
 		}
 	});
 
+	test('dev declares the vite server flags `vela create` tells users to run', () => {
+		const dev = program.commands.find((c) => c.name() === 'dev')!;
+		const flags = dev.options.map((o) => o.long);
+		// `vela create` prints `npm run dev -- --open`, and the templates run
+		// `vela dev` — so dropping these turns that next step into an error.
+		expect(flags).toContain('--open');
+		expect(flags).toContain('--host');
+		expect(flags).toContain('--port');
+	});
+
 	test('migrate aliases are wired', () => {
 		const migrate = program.commands.find((c) => c.name() === 'migrate')!;
 		const byName = (n: string) => migrate.commands.find((c) => c.name() === n)!;

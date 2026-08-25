@@ -14,18 +14,6 @@ export default defineConfig({
 			adapter: adapter({
 				fallback: '200.html'
 			}),
-			prerender: {
-				handleHttpError: ({ path, message }) => {
-					// The footer links to these before they exist; `vela legal privacy`
-					// and `vela legal terms` generate them. Warn rather than fail the
-					// build, but keep every other broken link fatal.
-					if (path === '/privacy' || path === '/terms') {
-						console.warn(`${path} not generated yet — run \`vela legal ${path.slice(1)}\``);
-						return;
-					}
-					throw new Error(message);
-				}
-			}
 		})
 	]
 });

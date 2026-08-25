@@ -6,6 +6,7 @@ import pc from 'picocolors';
 import pkg from '../package.json' with { type: 'json' };
 import { helpConfig } from './lib/help.ts';
 import { isStub } from './lib/stub.ts';
+import { hasBackend } from './lib/workspace.ts';
 import { bless } from './commands/bless.ts';
 import { create } from './commands/create.ts';
 import { generate } from './commands/generate.ts';
@@ -33,6 +34,9 @@ import { i18n } from './commands/i18n.ts';
 import { oauth } from './commands/oauth.ts';
 import { schemas } from './commands/schemas.ts';
 
+/**
+ * Commands that never touch the database, whether or not the project has one.
+ */
 const NO_BACKEND_COMMMANDS = new Set([
 	'bless',
 	'create',
@@ -47,6 +51,13 @@ const NO_BACKEND_COMMMANDS = new Set([
 	'generate schema',
 	'generate form'
 ]);
+
+/**
+ * Commands that drive the frontend build and so work with or without a backend.
+ * In a backend project they still start PocketBase, which is why they are not in
+ * NO_BACKEND_COMMMANDS.
+ */
+const BACKEND_OPTIONAL_COMMANDS = new Set(['dev', 'build', 'preview', 'deploy']);
 
 export const program = new Command()
 	.name(pkg.name)
@@ -63,6 +74,22 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 	if (NO_BACKEND_COMMMANDS.has(path)) return;
 	const top = path.split(' ', 1)[0];
 	if (NO_BACKEND_COMMMANDS.has(top)) return;
+
+	// A static project has no PocketBase, so there are no credentials to ask for.
+	// Frontend commands carry on; anything that needs the database says so plainly
+	// rather than sending the user off to look for a .env that would not help.
+	if (!hasBackend()) {
+		if (BACKEND_OPTIONAL_COMMANDS.has(top)) return;
+
+		p.log.error(
+			`${pc.cyan(`vela ${path}`)} needs a backend, and this project does not have one.\n\n` +
+				`Static projects have no database to talk to.\n\n` +
+				`To add a backend to this project, run ${pc.cyan('vela bless')}.`
+		);
+		p.log.message();
+		p.cancel('Operation failed.');
+		process.exit(1);
+	}
 
 	if (!process.env.POCKETBASE_SUPERUSER_EMAIL || !process.env.POCKETBASE_SUPERUSER_PASSWORD) {
 		p.log.error(

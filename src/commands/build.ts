@@ -8,6 +8,7 @@ import { resolveCommand } from 'package-manager-detector/commands';
 import { helpConfig } from '../lib/help.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { startPocketbaseServe } from '../lib/pocketbase.ts';
+import { hasBackend } from '../lib/workspace.ts';
 
 export const build = new Command('build')
 	.description('build the app')
@@ -17,7 +18,8 @@ export const build = new Command('build')
 		const cwd = process.cwd();
 
 		let pbProc: ChildProcess | undefined;
-		const needsStart = !process.env.POCKETBASE_URL;
+		// A static project has no PocketBase to start, and no `data` dir to start it from.
+		const needsStart = hasBackend(cwd) && !process.env.POCKETBASE_URL;
 
 		const cleanup = () => {
 			if (pbProc?.pid) pbProc.kill();

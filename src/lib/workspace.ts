@@ -26,17 +26,38 @@ export interface Workspace {
 	features: Features;
 }
 
-export async function getWorkspace(): Promise<Workspace> {
-	let currentDir = process.cwd();
-	let workspaceRootDir = '';
+/**
+ * Nearest ancestor holding a package.json, or null when there is none.
+ */
+export function findWorkspaceRoot(from: string = process.cwd()): string | null {
+	let currentDir = from;
 
 	while (currentDir !== path.parse(currentDir).root) {
-		if (fs.existsSync(path.join(currentDir, 'package.json'))) {
-			workspaceRootDir = currentDir;
-			break;
-		}
+		if (fs.existsSync(path.join(currentDir, 'package.json'))) return currentDir;
 		currentDir = path.dirname(currentDir);
 	}
+
+	return null;
+}
+
+/**
+ * Whether the project has a PocketBase backend at all.
+ *
+ * The `data` directory is the marker: `vela create` writes it for backend
+ * templates and `vela bless` adds it to an existing project, while the static
+ * template has none. Commands that would start or talk to PocketBase have to
+ * check this first — a static project has no database, and therefore no
+ * credentials to ask for.
+ *
+ * Kept in step with `Features.backend`, which is derived from the same marker.
+ */
+export function hasBackend(from: string = process.cwd()): boolean {
+	const root = findWorkspaceRoot(from);
+	return root !== null && fs.existsSync(path.join(root, DATA_DIR));
+}
+
+export async function getWorkspace(): Promise<Workspace> {
+	const workspaceRootDir = findWorkspaceRoot();
 
 	if (!workspaceRootDir) {
 		throw new Error('Could not find workspace root (no package.json found)');

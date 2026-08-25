@@ -4,17 +4,36 @@ import process from 'node:process';
 import { performance } from 'node:perf_hooks';
 import type { ChildProcess } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
-import { Command } from 'commander';
+import { Command, InvalidArgumentError } from 'commander';
 import pc from 'picocolors';
 import PocketBase from 'pocketbase';
 import { helpConfig } from '../lib/help.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { startPocketbaseServe } from '../lib/pocketbase.ts';
+import { hasBackend } from '../lib/workspace.ts';
+
+/** Vite server flags worth forwarding; `--open` is what `vela create` tells users to run. */
+interface DevOptions {
+	open?: boolean;
+	host?: boolean | string;
+	port?: number;
+}
+
+function parsePort(value: string): number {
+	const port = Number(value);
+	if (!Number.isInteger(port) || port < 1 || port > 65535) {
+		throw new InvalidArgumentError('must be a whole number between 1 and 65535.');
+	}
+	return port;
+}
 
 export const dev = new Command('dev')
 	.description('start the development server')
+	.option('--open', 'open the app in a browser once the server is ready')
+	.option('--host [host]', 'expose the server on the network')
+	.option('--port <port>', 'port to listen on', parsePort)
 	.configureHelp(helpConfig)
-	.action(async () => {
+	.action(async (options: DevOptions) => {
 		const cwd = process.cwd();
 		const startTime = performance.now();
 
@@ -24,7 +43,9 @@ export const dev = new Command('dev')
 		const viteMetadataFile = path.join(viteMetadataDir, '_pocketbase_metadata.json');
 
 		let pbProc: ChildProcess | undefined;
-		const needsStart = !process.env.POCKETBASE_URL;
+		// A static project has no PocketBase to start, and nothing to sync types from.
+		const backend = hasBackend(cwd);
+		const needsStart = backend && !process.env.POCKETBASE_URL;
 
 		const cleanup = () => {
 			if (pbProc?.pid) pbProc.kill();
@@ -55,9 +76,18 @@ export const dev = new Command('dev')
 			});
 		}
 
-		const server = await createServer();
+		// Only forward what was actually passed: an explicit `undefined` here would
+		// still be merged over whatever vite.config.ts sets.
+		const serverOptions: { open?: boolean; host?: boolean | string; port?: number } = {};
+		if (options.open !== undefined) serverOptions.open = options.open;
+		if (options.host !== undefined) serverOptions.host = options.host;
+		if (options.port !== undefined) serverOptions.port = options.port;
+
+		const server = await createServer({ server: serverOptions });
 
 		server.httpServer?.on('listening', async () => {
+			if (!backend) return;
+
 			const { address, port: vitePort } = server.httpServer!.address() as AddressInfo;
 			const viteHost = address === '::1' ? 'localhost' : address;
 			await fs.promises.mkdir(viteMetadataDir, { recursive: true });

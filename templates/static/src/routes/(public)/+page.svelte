@@ -17,48 +17,65 @@
 			</a>
 
 			<h1 class="mt-6 text-4xl font-semibold tracking-tight sm:text-5xl">
-				A modern way to get things done
+				{data.meta.appName} is running on VelaStack
 			</h1>
 			<p class="text-muted-foreground mt-4 text-lg">
-				Everything you need to launch faster, collaborate better, and stay focused.
+				A SvelteKit site that prerenders to static HTML, so there is no server to run and nothing to
+				keep alive. This page is
+				<code class="bg-muted rounded px-1.5 py-0.5 font-mono text-base">src/routes/(public)/+page.svelte</code>,
+				and it is yours to delete.
 			</p>
 
 			<div class="mt-8 flex items-center justify-center gap-3">
 				<a
-					href="#features"
+					href="https://docs.velastack.dev"
 					class="bg-primary text-primary-foreground inline-flex items-center rounded-md px-5 py-2.5"
 				>
-					Get started
+					Read the docs
 				</a>
 				<a
-					href="https://svelte.dev/docs/kit"
+					href="https://velastack.dev/templates"
 					class="border border-border text-foreground inline-flex items-center rounded-md px-5 py-2.5"
 				>
-					Read the docs
+					Browse templates
 				</a>
 			</div>
 		</div>
 	</section>
 
-	<section id="features" class="px-6 pb-16 md:pb-24">
+	<section class="px-6 pb-16 md:pb-24">
 		<div class="mx-auto grid max-w-5xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
 			<div class="bg-card text-card-foreground rounded-lg border p-6">
-				<h3 class="font-medium">Fast</h3>
+				<h3 class="font-medium">Your address</h3>
 				<p class="text-muted-foreground mt-2">
-					Simple workflows that help you move from idea to done.
+					Canonical links and Open Graph images are built from one value at prerender time. Set it
+					before you ship.
 				</p>
+				<code
+					class="bg-muted text-muted-foreground mt-4 block overflow-x-auto rounded-md px-3 py-2 font-mono text-xs"
+					>src/lib/site.ts</code
+				>
 			</div>
 			<div class="bg-card text-card-foreground rounded-lg border p-6">
-				<h3 class="font-medium">Flexible</h3>
+				<h3 class="font-medium">Your interface</h3>
 				<p class="text-muted-foreground mt-2">
-					Works for teams of any size and adapts to your process.
+					shadcn components, copied into your project. Yours to restyle, with no dependency
+					to fight.
 				</p>
+				<code
+					class="bg-muted text-muted-foreground mt-4 block overflow-x-auto rounded-md px-3 py-2 font-mono text-xs"
+					>vela ui add button card dialog</code
+				>
 			</div>
 			<div class="bg-card text-card-foreground rounded-lg border p-6">
-				<h3 class="font-medium">Secure</h3>
+				<h3 class="font-medium">Your deploy</h3>
 				<p class="text-muted-foreground mt-2">
-					Built with best practices and modern standards in mind.
+					Every route built to plain HTML, ready for any CDN or static host.
 				</p>
+				<code
+					class="bg-muted text-muted-foreground mt-4 block overflow-x-auto rounded-md px-3 py-2 font-mono text-xs"
+					>vela build &amp;&amp; vela deploy</code
+				>
 			</div>
 		</div>
 	</section>

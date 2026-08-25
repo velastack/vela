@@ -4,6 +4,14 @@
 	import RootLayout from './(public)/root-layout.svelte';
 
 	let { data } = $props();
+
+	let notFound = $derived(page.status === 404);
+	let heading = $derived(notFound ? 'Page not found' : 'Something went wrong');
+	let detail = $derived(
+		notFound
+			? 'That page does not exist. The link may be wrong, or the page may have moved.'
+			: (page.error?.message ?? 'The request could not be completed.')
+	);
 </script>
 
 <RootLayout {data}>
@@ -14,15 +22,14 @@
 			</div>
 			<div class="relative">
 				<h1 class="text-4xl font-bold relative inline-block bg-background">
-					Oops! Something went wrong
+					{heading}
 				</h1>
 			</div>
 			<p class="text-xl text-muted-foreground max-w-lg mx-auto">
-				{page.error?.message ||
-					"We couldn't find what you were looking for. Let's get you back on track!"}
+				{detail}
 			</p>
 			<div>
-				<Button href="/" variant="default" size="lg">Take me home</Button>
+				<Button href="/" variant="default" size="lg">Back to home</Button>
 			</div>
 		</div>
 	</main>
