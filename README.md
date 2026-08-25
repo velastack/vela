@@ -23,6 +23,17 @@ cd my-app
 npm run dev
 ```
 
+No global install needed to start a project — `npm create vela` goes through
+[create-vela](https://github.com/velastack/create-vela), a shim that runs
+`vela create` for you. npm wants `--` before the flags:
+
+```sh
+npm create vela my-app
+npm create vela my-app -- --template static
+```
+
+`npx vela create my-app` does the same thing.
+
 `vela create` copies a template and installs dependencies. For a template with a backend it also initializes PocketBase and writes a `.env` holding the local superuser credentials that the other commands authenticate with. That `.env` is gitignored by the generated project.
 
 ### Templates
