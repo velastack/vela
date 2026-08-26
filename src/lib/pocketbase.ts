@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import process from 'node:process';
+import { createRequire } from 'node:module';
 import { spawn, type ChildProcess } from 'node:child_process';
 import PocketBase from 'pocketbase';
 import { detect } from 'package-manager-detector';
@@ -267,4 +268,16 @@ export async function launchPocketbase(
 		stop: () => proc.kill(),
 		url
 	};
+}
+
+/**
+ * The PocketBase version this CLI develops against.
+ *
+ * Servers install the same build, so a deployed app and a developer's machine
+ * never differ on the database engine.
+ */
+export function pocketbaseVersion(): string {
+	const require = createRequire(import.meta.url);
+	const pkg = require('pocketbase-server/package.json') as { version: string };
+	return pkg.version;
 }

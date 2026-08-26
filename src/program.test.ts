@@ -23,6 +23,11 @@ const EXPECTED_COMMANDS = [
 	'sync',
 	'provision',
 	'deploy',
+	'rollback',
+	'status',
+	'logs',
+	'env',
+	'link',
 	'test:server',
 	'routes',
 	'i18n',
@@ -46,10 +51,30 @@ const EXPECTED_ENABLE_SUBCOMMANDS = [
 
 const EXPECTED_MIGRATE_SUBCOMMANDS = ['up', 'down', 'create', 'collections', 'history-sync'];
 
+const EXPECTED_ENV_SUBCOMMANDS = ['list', 'set', 'unset', 'import'];
+
+const EXPECTED_DESTROY_SUBCOMMANDS = ['form', 'schema', 'resource', 'scaffold', 'deployment'];
+
 describe('program registration', () => {
 	test('every top-level command is registered', () => {
 		const names = program.commands.map((c) => c.name());
 		for (const expected of EXPECTED_COMMANDS) {
+			expect(names).toContain(expected);
+		}
+	});
+
+	test('env registers its subcommands', () => {
+		const env = program.commands.find((c) => c.name() === 'env')!;
+		const names = env.commands.map((c) => c.name());
+		for (const expected of EXPECTED_ENV_SUBCOMMANDS) {
+			expect(names).toContain(expected);
+		}
+	});
+
+	test('destroy registers its subcommands', () => {
+		const destroy = program.commands.find((c) => c.name() === 'destroy')!;
+		const names = destroy.commands.map((c) => c.name());
+		for (const expected of EXPECTED_DESTROY_SUBCOMMANDS) {
 			expect(names).toContain(expected);
 		}
 	});

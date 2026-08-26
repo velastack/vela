@@ -1,0 +1,41 @@
+[Unit]
+Description=vela PocketBase %i
+Documentation=https://docs.velastack.dev
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vela
+Group=vela
+WorkingDirectory=/var/lib/vela/apps/%i
+
+EnvironmentFile=-/etc/vela/apps/%i/env
+EnvironmentFile=/etc/vela/apps/%i/runtime.env
+
+ExecStart=/var/lib/vela/apps/%i/bin/pocketbase \
+	--dir /var/lib/vela/apps/%i/shared/pb_data \
+	--migrationsDir /var/lib/vela/apps/%i/current/migrations \
+	--hooksDir /var/lib/vela/apps/%i/current/hooks \
+	serve --http=127.0.0.1:${PB_PORT}
+
+Restart=on-failure
+RestartSec=2
+TimeoutStartSec=60
+TimeoutStopSec=30
+KillSignal=SIGINT
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vela-pb-%i
+
+LimitNOFILE=65535
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/vela/apps/%i
+
+[Install]
+WantedBy=multi-user.target

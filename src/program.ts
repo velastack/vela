@@ -28,6 +28,11 @@ import { preview } from './commands/preview.ts';
 import { sync } from './commands/sync.ts';
 import { provision } from './commands/provision.ts';
 import { deploy } from './commands/deploy.ts';
+import { link } from './commands/link.ts';
+import { env } from './commands/env.ts';
+import { status } from './commands/status.ts';
+import { rollback } from './commands/rollback.ts';
+import { logs } from './commands/logs.ts';
 import { testServer } from './commands/test.ts';
 import { routes } from './commands/routes.ts';
 import { i18n } from './commands/i18n.ts';
@@ -49,7 +54,14 @@ const NO_BACKEND_COMMMANDS = new Set([
 	'routes',
 	'i18n',
 	'generate schema',
-	'generate form'
+	'generate form',
+	// Server commands talk to a VPS over SSH, never to the local database.
+	'provision',
+	'env',
+	'status',
+	'rollback',
+	'logs',
+	'link'
 ]);
 
 /**
@@ -136,6 +148,11 @@ for (const command of [
 	sync,
 	provision,
 	deploy,
+	rollback,
+	status,
+	logs,
+	env,
+	link,
 	testServer,
 	routes,
 	i18n,

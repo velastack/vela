@@ -31,6 +31,26 @@ vela ui add button card dialog                       # components, into your pro
 
 Changed your mind? `vela destroy` and `vela disable` take it back out.
 
+## Ship it
+
+Deploys go to a server you own, over SSH. Prepare the box once, then deploy as often as you like.
+
+```sh
+vela provision root@your-server                                  # Caddy, Node, PocketBase, systemd, TLS
+vela env import .env.production --target root@your-server        # secrets live on the server, not in releases
+vela deploy root@your-server --domain example.com
+```
+
+Each deploy uploads an immutable release, runs migrations, restarts the app and health-checks it. A release that does not come up healthy is rolled back before the command exits.
+
+```sh
+vela status root@your-server     # what is running, on which release
+vela logs root@your-server -f    # journald, tailed
+vela rollback root@your-server   # previous release, with its down migrations
+```
+
+Same thing from CI with [`velastack/action`](https://github.com/velastack/action).
+
 ## Already have a project?
 
 ```sh

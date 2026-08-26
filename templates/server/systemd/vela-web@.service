@@ -1,0 +1,39 @@
+[Unit]
+Description=vela app %i
+Documentation=https://docs.velastack.dev
+After=network-online.target vela-pb@%i.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vela
+Group=vela
+WorkingDirectory=/var/lib/vela/apps/%i/current
+
+# Production secrets first, vela-generated runtime settings second, so PORT and
+# POCKETBASE_URL always match what the server actually assigned.
+EnvironmentFile=-/etc/vela/apps/%i/env
+EnvironmentFile=/etc/vela/apps/%i/runtime.env
+
+ExecStart=/usr/bin/node /var/lib/vela/apps/%i/current/build/index.js
+
+Restart=on-failure
+RestartSec=2
+TimeoutStartSec=60
+TimeoutStopSec=30
+KillSignal=SIGINT
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vela-web-%i
+
+LimitNOFILE=65535
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/vela/apps/%i
+
+[Install]
+WantedBy=multi-user.target
