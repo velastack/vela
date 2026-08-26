@@ -12,10 +12,11 @@ import { withSsh, type SshSession } from '../lib/ssh.ts';
 import { addSshOptions, SSH_OPTION_SCHEMA, sshOptionsFrom } from '../lib/ssh-options.ts';
 import { loadDeployConfig, recordDeployment, resolveAppIdentity } from '../lib/deploy-config.ts';
 import { instanceId, normalizeEnvTag, releaseId } from '../lib/instance.ts';
-import { ensureSuperuser, pocketbaseVersion } from '../lib/pocketbase.ts';
+import { ensureSuperuser, findFreePort, pocketbaseVersion } from '../lib/pocketbase.ts';
 import {
 	readInstanceStates,
 	remotePaths,
+	type InstanceState,
 	requireProvisioned,
 	runServerScript,
 	syncServerScripts
@@ -27,6 +28,7 @@ const OptionsSchema = v.object({
 	...SSH_OPTION_SCHEMA,
 	env: v.optional(v.string()),
 	project: v.optional(v.string()),
+	remoteDb: v.optional(v.boolean()),
 	domain: v.optional(v.string()),
 	healthPath: v.optional(v.string()),
 	keep: v.optional(v.string()),
@@ -47,6 +49,10 @@ export const deploy = addSshOptions(
 	.option('--keep <count>', 'how many old releases to keep on the server')
 	.option('--pb-version <version>', 'PocketBase version to run')
 	.option('--no-build', 'deploy the existing build output without rebuilding')
+	.option(
+		'--remote-db',
+		'render the build against the database on the server, over an SSH tunnel — needed when pages are prerendered from data'
+	)
 	.action((target: string, raw: unknown) =>
 		runCommand(async () => {
 			const options = parseOptions(OptionsSchema, raw);
@@ -65,18 +71,6 @@ export const deploy = addSshOptions(
 			p.intro(pc.bgCyan(pc.black(' vela deploy ')));
 			p.log.info(`${pc.cyan(app.name)} ${pc.dim('→')} ${pc.cyan(target)} ${pc.dim(`(${envTag})`)}`);
 
-			if (options.build !== false) {
-				p.log.step('Building');
-				// The build renders pages against a local database, and on a fresh
-				// checkout that database has no superuser yet. Done here as well as in
-				// `vela build` so a project still pinning an older CLI builds in CI.
-				if (backend) await ensureSuperuser(workspaceRootDir);
-				await runBuild(workspaceRootDir, config.deploy?.buildCommand);
-			}
-
-			const entries = collectArtifact(workspaceRootDir, config.deploy ?? {});
-			const sha = await gitSha(workspaceRootDir);
-
 			await withSsh(target, sshOptionsFrom(options), async (session) => {
 				await session.detectElevation();
 				await requireProvisioned(session);
@@ -84,6 +78,35 @@ export const deploy = addSshOptions(
 
 				const [existing] = await readInstanceStates(session, instance);
 				const domain = options.domain ?? config.deploy?.domain ?? existing?.domain ?? '';
+				const remoteDb = options.remoteDb ?? config.deploy?.buildAgainstRemote ?? false;
+
+				if (options.build !== false) {
+					let buildEnv: Record<string, string | undefined> = {};
+					let tunnel: Tunnel | null = null;
+
+					if (backend && remoteDb) {
+						tunnel = await openDatabaseTunnel(session, instance, existing);
+						buildEnv = tunnel.env;
+						p.log.info(
+							`Building against the ${pc.cyan(envTag)} database on ${target} ${pc.dim(`(port ${tunnel.pbPort})`)}`
+						);
+					} else if (backend) {
+						// The build renders pages against a local database, and on a fresh
+						// checkout that database has no superuser yet. Done here as well as
+						// in `vela build` so a project pinning an older CLI builds in CI.
+						await ensureSuperuser(workspaceRootDir);
+					}
+
+					p.log.step('Building');
+					try {
+						await runBuild(workspaceRootDir, config.deploy?.buildCommand, buildEnv);
+					} finally {
+						if (tunnel) await tunnel.close();
+					}
+				}
+
+				const entries = collectArtifact(workspaceRootDir, config.deploy ?? {});
+				const sha = await gitSha(workspaceRootDir);
 
 				p.log.step(`Uploading release ${pc.dim(release)}`);
 				await uploadRelease(session, instance, release, entries);
@@ -140,6 +163,58 @@ export const deploy = addSshOptions(
 			p.outro(`${pc.cyan(`vela status ${target}`)} to see what is running`);
 		}, 'Failed to deploy.')
 	);
+
+interface Tunnel {
+	env: Record<string, string>;
+	pbPort: number;
+	close: () => Promise<void>;
+}
+
+/**
+ * Point the build at the target's PocketBase through the SSH connection that is
+ * already open.
+ *
+ * Pages that prerender from data are rendered at build time, so whatever
+ * database the build can see is what gets baked into the static HTML. On a CI
+ * runner that is an empty throwaway database, which silently produces pages
+ * full of defaults. Building against the instance being deployed to is what a
+ * developer's own machine approximates, and what makes CI output match.
+ *
+ * The superuser credentials come off the server itself, so nothing new has to be
+ * stored in CI. The build should only ever read; a load function that writes
+ * would write to the live database.
+ */
+async function openDatabaseTunnel(
+	session: SshSession,
+	instance: string,
+	state: InstanceState | undefined
+): Promise<Tunnel> {
+	const pbPort = state?.pbPort;
+	if (!pbPort) {
+		throw new Error(
+			`--remote-db needs an existing deployment to build against, and ${instance} has not been deployed yet.\n\n` +
+				`Deploy once without it, then turn it on.`
+		);
+	}
+
+	const localPort = await findFreePort('127.0.0.1');
+	await session.forwardLocalPort(localPort, '127.0.0.1', pbPort);
+
+	const remoteEnv = await readRemoteEnv(session, instance);
+	return {
+		pbPort,
+		env: {
+			POCKETBASE_URL: `http://127.0.0.1:${localPort}`,
+			...(remoteEnv.POCKETBASE_SUPERUSER_EMAIL
+				? { POCKETBASE_SUPERUSER_EMAIL: remoteEnv.POCKETBASE_SUPERUSER_EMAIL }
+				: {}),
+			...(remoteEnv.POCKETBASE_SUPERUSER_PASSWORD
+				? { POCKETBASE_SUPERUSER_PASSWORD: remoteEnv.POCKETBASE_SUPERUSER_PASSWORD }
+				: {})
+		},
+		close: () => session.cancelForward(localPort, '127.0.0.1', pbPort)
+	};
+}
 
 async function uploadRelease(
 	session: SshSession,

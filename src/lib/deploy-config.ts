@@ -24,6 +24,12 @@ export interface VelaDeployConfig {
 	keepReleases?: number;
 	/** PocketBase version to run. Defaults to the one this CLI develops against. */
 	pocketbaseVersion?: string;
+	/**
+	 * Render the build against the deployed instance's database rather than a
+	 * throwaway local one. Needed when pages are prerendered from data, which
+	 * would otherwise bake in the defaults of an empty database.
+	 */
+	buildAgainstRemote?: boolean;
 }
 
 export interface VelaAppConfig {

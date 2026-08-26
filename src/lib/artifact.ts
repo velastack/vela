@@ -22,12 +22,17 @@ export class BuildError extends Error {}
  * which in a vela project is `vela build` — the same command used locally, so
  * what ships is what was tested.
  */
-export async function runBuild(cwd: string, buildCommand?: string): Promise<void> {
+export async function runBuild(
+	cwd: string,
+	buildCommand?: string,
+	env?: Record<string, string | undefined>
+): Promise<void> {
 	if (buildCommand) {
 		const result = await spawnCapture('bash', ['-lc', buildCommand], {
 			cwd,
 			stream: true,
-			streamStdout: true
+			streamStdout: true,
+			env
 		});
 		if (result.exitCode !== 0)
 			throw new BuildError(`\`${buildCommand}\` exited ${result.exitCode}.`);
@@ -40,7 +45,8 @@ export async function runBuild(cwd: string, buildCommand?: string): Promise<void
 	const result = await spawnCapture(resolved.command, resolved.args, {
 		cwd,
 		stream: true,
-		streamStdout: true
+		streamStdout: true,
+		env
 	});
 	if (result.exitCode !== 0) {
 		throw new BuildError(

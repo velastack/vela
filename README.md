@@ -43,6 +43,8 @@ vela deploy root@your-server --domain example.com
 
 Each deploy uploads an immutable release, runs migrations, restarts the app and health-checks it. A release that does not come up healthy is rolled back before the command exits.
 
+If any of your pages prerender from data, add `--remote-db` so the build renders against the database it is being deployed to, over the same SSH connection. Without it, a build on a fresh machine renders those pages against an empty database and bakes the defaults into your static HTML.
+
 ```sh
 vela status root@your-server     # what is running, on which release
 vela logs root@your-server -f    # journald, tailed

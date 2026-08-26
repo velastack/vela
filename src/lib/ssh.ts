@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import process from 'node:process';
 import { spawn, type StdioOptions } from 'node:child_process';
 
 export interface SshOptions {
@@ -169,6 +170,40 @@ mv -f "$tmp" "$dest"`,
 		);
 	}
 
+	/**
+	 * Tunnel a local port to a port on the server, through the connection that is
+	 * already open. Used to point a local build at the target's database.
+	 */
+	async forwardLocalPort(localPort: number, remoteHost: string, remotePort: number): Promise<void> {
+		if (!this.controlPath) throw new Error('Cannot forward a port without an open session.');
+		const spec = `${localPort}:${remoteHost}:${remotePort}`;
+		const result = await spawnCapture('ssh', [
+			...this.sshArgs(),
+			'-O',
+			'forward',
+			'-L',
+			spec,
+			this.target
+		]);
+		if (result.exitCode !== 0) {
+			throw new Error(
+				`Could not forward port ${spec} to ${this.target}.\n\n${result.stderr.trim()}`
+			);
+		}
+	}
+
+	async cancelForward(localPort: number, remoteHost: string, remotePort: number): Promise<void> {
+		if (!this.controlPath) return;
+		await spawnCapture('ssh', [
+			...this.sshArgs(),
+			'-O',
+			'cancel',
+			'-L',
+			`${localPort}:${remoteHost}:${remotePort}`,
+			this.target
+		]);
+	}
+
 	async readFile(remotePath: string): Promise<string | null> {
 		const result = await this.script(`cat "$1" 2>/dev/null || exit 44`, {
 			args: [remotePath],
@@ -277,6 +312,8 @@ export interface SpawnOptions {
 	/** Also echo stdout — for local builds, where stdout is the interesting half. */
 	streamStdout?: boolean;
 	cwd?: string;
+	/** Extra environment for the child, merged over the current process env. */
+	env?: Record<string, string | undefined>;
 }
 
 export function spawnCapture(
@@ -286,7 +323,11 @@ export function spawnCapture(
 ): Promise<RunResult> {
 	return new Promise((resolve, reject) => {
 		const stdio: StdioOptions = [opts.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'];
-		const child = spawn(command, args, { stdio, cwd: opts.cwd });
+		const child = spawn(command, args, {
+			stdio,
+			cwd: opts.cwd,
+			env: opts.env ? { ...process.env, ...opts.env } : undefined
+		});
 		let stdout = '';
 		let stderr = '';
 		child.stdout?.on('data', (chunk) => {
