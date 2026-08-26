@@ -83,9 +83,10 @@ describe('program registration', () => {
 		const flags = dev.options.map((o) => o.long);
 		// `vela create` prints `npm run dev -- --open`, and the templates run
 		// `vela dev` — so dropping these turns that next step into an error.
-		expect(flags).toContain('--open');
-		expect(flags).toContain('--host');
-		expect(flags).toContain('--port');
+		// The names mirror vite's own CLI so its docs carry over.
+		for (const flag of ['--open', '--host', '--port', '--strictPort', '--cors', '--force']) {
+			expect(flags).toContain(flag);
+		}
 	});
 
 	test('migrate aliases are wired', () => {

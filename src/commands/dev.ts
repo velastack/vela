@@ -12,12 +12,22 @@ import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { startPocketbaseServe } from '../lib/pocketbase.ts';
 import { hasBackend } from '../lib/workspace.ts';
 
-/** Vite server flags worth forwarding; `--open` is what `vela create` tells users to run. */
+/**
+ * Vite dev-server flags worth forwarding, spelled exactly as vite's own CLI
+ * spells them so anything learned there carries over. `--open` is the one
+ * `vela create` tells users to run.
+ */
 interface DevOptions {
-	open?: boolean;
+	open?: boolean | string;
 	host?: boolean | string;
 	port?: number;
+	cors?: boolean;
+	strictPort?: boolean;
+	force?: boolean;
 }
+
+/** Everything except `--force`, which vite routes outside `server`. */
+type ServerFlags = Omit<DevOptions, 'force'>;
 
 function parsePort(value: string): number {
 	const port = Number(value);
@@ -29,9 +39,12 @@ function parsePort(value: string): number {
 
 export const dev = new Command('dev')
 	.description('start the development server')
-	.option('--open', 'open the app in a browser once the server is ready')
+	.option('--open [path]', 'open the app in a browser once the server is ready')
 	.option('--host [host]', 'expose the server on the network')
 	.option('--port <port>', 'port to listen on', parsePort)
+	.option('--strictPort', 'exit if the port is already in use instead of taking the next one')
+	.option('--cors', 'enable CORS')
+	.option('--force', 're-bundle dependencies, ignoring the optimizer cache')
 	.configureHelp(helpConfig)
 	.action(async (options: DevOptions) => {
 		const cwd = process.cwd();
@@ -78,12 +91,21 @@ export const dev = new Command('dev')
 
 		// Only forward what was actually passed: an explicit `undefined` here would
 		// still be merged over whatever vite.config.ts sets.
-		const serverOptions: { open?: boolean; host?: boolean | string; port?: number } = {};
+		const serverOptions: ServerFlags = {};
 		if (options.open !== undefined) serverOptions.open = options.open;
 		if (options.host !== undefined) serverOptions.host = options.host;
 		if (options.port !== undefined) serverOptions.port = options.port;
+		if (options.cors !== undefined) serverOptions.cors = options.cors;
+		if (options.strictPort !== undefined) serverOptions.strictPort = options.strictPort;
 
-		const server = await createServer({ server: serverOptions });
+		// `--force` is not a server option: vite's CLI strips it from the server
+		// config and passes it as `forceOptimizeDeps`.
+		const inlineConfig: { server: ServerFlags; forceOptimizeDeps?: boolean } = {
+			server: serverOptions
+		};
+		if (options.force !== undefined) inlineConfig.forceOptimizeDeps = options.force;
+
+		const server = await createServer(inlineConfig);
 
 		server.httpServer?.on('listening', async () => {
 			if (!backend) return;
