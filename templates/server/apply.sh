@@ -45,6 +45,10 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
+# Commands that drop to the app user inherit this working directory, and the
+# directory the CLI happened to invoke from is usually one it cannot stat.
+cd "$VELA_ROOT"
+
 APP=$(app_dir "$INSTANCE")
 ETC=$(etc_dir "$INSTANCE")
 RELEASE_DIR="$APP/releases/$RELEASE"
