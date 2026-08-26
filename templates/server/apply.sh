@@ -233,6 +233,19 @@ wait_for_http "http://127.0.0.1:$WEB_PORT$HEALTH_PATH" 60 0.5 \
 
 ACTIVATED=1
 
+# --------------------------------------------------------------------- state
+
+state_merge "$INSTANCE" "$(jq -c -n \
+	--arg app "$APP_ID" --arg name "$APP_NAME" --arg env "$ENV_TAG" \
+	--arg instance "$INSTANCE" --arg release "$RELEASE" --arg previous "$PREVIOUS" \
+	--arg domain "$DOMAIN" --arg health "$HEALTH_PATH" --arg pb "$PB_VERSION" \
+	--arg sha "$GIT_SHA" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+	--argjson web "$WEB_PORT" --argjson pbport "$PB_PORT" --argjson backend "$BACKEND" \
+	'{appId: $app, name: $name, env: $env, instance: $instance,
+	  activeRelease: $release, previousRelease: $previous, domain: $domain,
+	  healthCheckPath: $health, pocketbaseVersion: $pb, gitSha: $sha,
+	  webPort: $web, pbPort: $pbport, backend: ($backend == 1), deployedAt: $at}')"
+
 # ------------------------------------------------------------------ routing
 
 CADDY_SNIPPET="$VELA_ETC/caddy/$INSTANCE.caddy"
@@ -255,19 +268,6 @@ elif [ -f "$CADDY_SNIPPET" ]; then
 	systemctl reload caddy || true
 fi
 
-
-# --------------------------------------------------------------------- state
-
-state_merge "$INSTANCE" "$(jq -c -n \
-	--arg app "$APP_ID" --arg name "$APP_NAME" --arg env "$ENV_TAG" \
-	--arg instance "$INSTANCE" --arg release "$RELEASE" --arg previous "$PREVIOUS" \
-	--arg domain "$DOMAIN" --arg health "$HEALTH_PATH" --arg pb "$PB_VERSION" \
-	--arg sha "$GIT_SHA" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-	--argjson web "$WEB_PORT" --argjson pbport "$PB_PORT" --argjson backend "$BACKEND" \
-	'{appId: $app, name: $name, env: $env, instance: $instance,
-	  activeRelease: $release, previousRelease: $previous, domain: $domain,
-	  healthCheckPath: $health, pocketbaseVersion: $pb, gitSha: $sha,
-	  webPort: $web, pbPort: $pbport, backend: ($backend == 1), deployedAt: $at}')"
 
 # ------------------------------------------------------------------- pruning
 
