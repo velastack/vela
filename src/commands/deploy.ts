@@ -12,7 +12,7 @@ import { withSsh, type SshSession } from '../lib/ssh.ts';
 import { addSshOptions, SSH_OPTION_SCHEMA, sshOptionsFrom } from '../lib/ssh-options.ts';
 import { loadDeployConfig, recordDeployment, resolveAppIdentity } from '../lib/deploy-config.ts';
 import { instanceId, normalizeEnvTag, releaseId } from '../lib/instance.ts';
-import { pocketbaseVersion } from '../lib/pocketbase.ts';
+import { ensureSuperuser, pocketbaseVersion } from '../lib/pocketbase.ts';
 import {
 	readInstanceStates,
 	remotePaths,
@@ -67,6 +67,10 @@ export const deploy = addSshOptions(
 
 			if (options.build !== false) {
 				p.log.step('Building');
+				// The build renders pages against a local database, and on a fresh
+				// checkout that database has no superuser yet. Done here as well as in
+				// `vela build` so a project still pinning an older CLI builds in CI.
+				if (backend) await ensureSuperuser(workspaceRootDir);
 				await runBuild(workspaceRootDir, config.deploy?.buildCommand);
 			}
 

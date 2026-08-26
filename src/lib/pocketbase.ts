@@ -281,3 +281,37 @@ export function pocketbaseVersion(): string {
 	const pkg = require('pocketbase-server/package.json') as { version: string };
 	return pkg.version;
 }
+
+/**
+ * Make sure the configured superuser exists in the local database.
+ *
+ * A vela app authenticates as its superuser while rendering, so a build needs
+ * one to exist. On a developer's machine it always does; on a fresh checkout —
+ * CI, a new clone, a wiped `data/` — the database is empty and the build fails
+ * at prerendering with "invalid login credentials". `upsert` is idempotent, so
+ * this is a no-op everywhere else.
+ */
+export async function ensureSuperuser(cwd: string): Promise<void> {
+	const email = process.env.POCKETBASE_SUPERUSER_EMAIL;
+	const password = process.env.POCKETBASE_SUPERUSER_PASSWORD;
+	if (!email || !password) return;
+
+	const dir = path.join(cwd, DATA_DIR);
+	if (!fs.existsSync(dir)) return;
+
+	const { getBinaryPath } = await import('pocketbase-server');
+	await x(
+		getBinaryPath(),
+		[
+			'--dir',
+			dir,
+			'--migrationsDir',
+			path.join(cwd, MIGRATIONS_DIR),
+			'superuser',
+			'upsert',
+			email,
+			password
+		],
+		{ nodeOptions: { cwd, stdio: 'ignore' } }
+	);
+}

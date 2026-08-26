@@ -7,7 +7,7 @@ import { detect } from 'package-manager-detector';
 import { resolveCommand } from 'package-manager-detector/commands';
 import { helpConfig } from '../lib/help.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
-import { startPocketbaseServe } from '../lib/pocketbase.ts';
+import { ensureSuperuser, startPocketbaseServe } from '../lib/pocketbase.ts';
 import { hasBackend } from '../lib/workspace.ts';
 
 export const build = new Command('build')
@@ -26,6 +26,7 @@ export const build = new Command('build')
 		};
 
 		if (needsStart) {
+			await ensureSuperuser(cwd);
 			const dataDir = path.join(cwd, DATA_DIR);
 			const started = await startPocketbaseServe({
 				dataDir,
