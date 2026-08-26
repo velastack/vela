@@ -197,20 +197,27 @@ async function openDatabaseTunnel(
 		);
 	}
 
+	const remoteEnv = await readRemoteEnv(session, instance);
+	const email = remoteEnv.POCKETBASE_SUPERUSER_EMAIL;
+	const password = remoteEnv.POCKETBASE_SUPERUSER_PASSWORD;
+	if (!email || !password) {
+		// Failing here beats failing thirty seconds later, inside the build, as an
+		// "invalid login credentials" stack trace from the app's own hooks.
+		throw new Error(
+			`--remote-db renders the build as the superuser of ${instance}, and that environment has no credentials for one.\n\n` +
+				`Set them with \`vela env set POCKETBASE_SUPERUSER_EMAIL\` and \`vela env set POCKETBASE_SUPERUSER_PASSWORD\`.`
+		);
+	}
+
 	const localPort = await findFreePort('127.0.0.1');
 	await session.forwardLocalPort(localPort, '127.0.0.1', pbPort);
 
-	const remoteEnv = await readRemoteEnv(session, instance);
 	return {
 		pbPort,
 		env: {
 			POCKETBASE_URL: `http://127.0.0.1:${localPort}`,
-			...(remoteEnv.POCKETBASE_SUPERUSER_EMAIL
-				? { POCKETBASE_SUPERUSER_EMAIL: remoteEnv.POCKETBASE_SUPERUSER_EMAIL }
-				: {}),
-			...(remoteEnv.POCKETBASE_SUPERUSER_PASSWORD
-				? { POCKETBASE_SUPERUSER_PASSWORD: remoteEnv.POCKETBASE_SUPERUSER_PASSWORD }
-				: {})
+			POCKETBASE_SUPERUSER_EMAIL: email,
+			POCKETBASE_SUPERUSER_PASSWORD: password
 		},
 		close: () => session.cancelForward(localPort, '127.0.0.1', pbPort)
 	};
