@@ -71,6 +71,6 @@ export const provision = addSshOptions(
 				);
 			});
 
-			p.outro(`Deploy with ${pc.cyan(`vela deploy ${target}`)}`);
+			p.outro(`Deploy with ${pc.cyan(`vela deploy --server ${target}`)}`);
 		}, 'Failed to provision.')
 	);

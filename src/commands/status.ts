@@ -3,34 +3,39 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { helpConfig } from '../lib/help.ts';
 import { runCommand } from '../lib/run.ts';
-import { addServerOptions, withServer, withServerContext } from '../lib/server-command.ts';
+import { addTargetOptions, withServerSession, withTarget } from '../lib/server-command.ts';
 import { readInstanceStates, type InstanceState } from '../lib/remote.ts';
 
-export const status = addServerOptions(
-	new Command('status')
-		.description('show what is deployed on a server')
-		.argument('[target]', 'SSH target (defaults to where this app was last deployed)')
-		.configureHelp(helpConfig)
+export const status = addTargetOptions(
+	new Command('status').description('show what is deployed').configureHelp(helpConfig),
+	'production'
 )
 	.option('--all', 'show every app on the server, not just this project')
 	.option('--json', 'print raw JSON')
-	.action((target: string | undefined, raw: unknown) =>
+	.action((raw: unknown) =>
 		runCommand(async () => {
 			const options = raw as { all?: boolean; json?: boolean };
 
+			// `--all` is a question about the machine, so it needs a server but not
+			// an instance — and `--server` alone answers it outside a project.
 			if (options.all) {
-				await withServer(target, raw, async (session) => {
+				await withServerSession(raw, async (session) => {
 					report(await readInstanceStates(session), options.json);
 				});
 				return;
 			}
 
-			await withServerContext(
+			await withTarget(
 				raw,
-				async (ctx) => {
-					report(await readInstanceStates(ctx.session, ctx.instance), options.json);
+				{
+					remote: async (ctx) => {
+						report(await readInstanceStates(ctx.session, ctx.instance), options.json);
+					}
 				},
-				target
+				{
+					label: 'status',
+					localHint: 'Nothing is deployed locally — `vela dev` reports what it is running.'
+				}
 			);
 		}, 'Failed to read status.')
 	);

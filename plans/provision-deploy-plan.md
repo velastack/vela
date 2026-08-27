@@ -1,3 +1,7 @@
+> **Historical.** Written before the `-t/--target` selector landed. The command
+> examples below use the old `<ssh-target>` positional and `--env <tag>`, which no
+> longer exist: read them for the design intent, not the syntax.
+
 # Provision & Deploy — Implementation Plan
 
 Companion to `plans/provision-deploy.md` (the product spec). This document is about **how** we build it in the Node CLI, not what it does.

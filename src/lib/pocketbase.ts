@@ -143,7 +143,7 @@ export async function authWithRetries(
 
 export function getPocketbaseMetadata(
 	cwd: string
-): { pocketbaseUrl: string; vitePort: number } | null {
+): { pocketbaseUrl: string; vitePort: number; viteHost: string } | null {
 	const metadataPath = path.join(cwd, 'node_modules', '.vite', '_pocketbase_metadata.json');
 	if (fs.existsSync(metadataPath)) {
 		return JSON.parse(fs.readFileSync(metadataPath, 'utf8'));

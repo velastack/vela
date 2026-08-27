@@ -29,6 +29,7 @@ KEEP=5
 PB_VERSION=""
 BACKEND=1
 GIT_SHA=""
+SU_CREATED=0
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -206,6 +207,52 @@ if [ "$BACKEND" = "1" ]; then
 			--migrationsDir "$RELEASE_DIR/migrations" \
 			migrate up >&2
 	fi
+
+	# ---------------------------------------------------- superuser bootstrap
+	#
+	# The app authenticates to its own PocketBase as a superuser on every render,
+	# so a database without one answers every request with a 401 and the deploy
+	# fails its health check. A brand new instance has an empty pb_data, which is
+	# why the account is created here rather than assumed to exist.
+	#
+	# $ETC/env is otherwise `vela env`'s alone. This is the single exception, and
+	# it writes only on the deploy that creates the account. From then on the env
+	# file is the source of truth: a value changed there is pushed into the
+	# database by the next deploy, which is what keeps the two from drifting.
+	SU_EMAIL=$(env_file_get "$ETC/env" POCKETBASE_SUPERUSER_EMAIL || true)
+	SU_PASSWORD=$(env_file_get "$ETC/env" POCKETBASE_SUPERUSER_PASSWORD || true)
+
+	if [ -z "$SU_EMAIL" ] || [ -z "$SU_PASSWORD" ]; then
+		SU_EMAIL=${SU_EMAIL:-admin@${PRIMARY_DOMAIN:-$INSTANCE.invalid}}
+		SU_PASSWORD=$(random_secret)
+		SU_CREATED=1
+	fi
+
+	# The password reaches PocketBase as an argument, so the upsert runs only on
+	# the deploys that need it rather than on every one.
+	SU_STAMP="$ETC/.superuser"
+	SU_FINGERPRINT=$(printf '%s\n%s' "$SU_EMAIL" "$SU_PASSWORD" | sha256sum | cut -d' ' -f1)
+	if [ "$SU_CREATED" = "1" ] || [ "$(cat "$SU_STAMP" 2>/dev/null || true)" != "$SU_FINGERPRINT" ]; then
+		if [ "$SU_CREATED" = "1" ]; then
+			log "creating the PocketBase superuser"
+		else
+			log "updating the PocketBase superuser"
+		fi
+		runuser -u "$VELA_USER" -- "$APP/bin/pocketbase" \
+			--dir "$APP/shared/pb_data" \
+			superuser upsert "$SU_EMAIL" "$SU_PASSWORD" >&2 \
+			|| die "could not create the PocketBase superuser"
+
+		# Recorded only once the database holds the account, so a failure above
+		# leaves nothing behind and the next deploy simply tries again.
+		if [ "$SU_CREATED" = "1" ]; then
+			env_file_append "$ETC/env" POCKETBASE_SUPERUSER_EMAIL "$SU_EMAIL"
+			env_file_append "$ETC/env" POCKETBASE_SUPERUSER_PASSWORD "$SU_PASSWORD"
+		fi
+		printf '%s\n' "$SU_FINGERPRINT" > "$SU_STAMP"
+		chmod 0600 "$SU_STAMP"
+		chown root:root "$SU_STAMP"
+	fi
 fi
 
 log "activating release $RELEASE"
@@ -297,5 +344,6 @@ fi
 
 emit_result \
 	--arg instance "$INSTANCE" --arg release "$RELEASE" --arg domain "$DOMAIN" \
-	--arg url "$ORIGIN" --argjson web "$WEB_PORT" --argjson pb "$PB_PORT" \
-	'{instance: $instance, release: $release, domain: $domain, url: $url, webPort: $web, pbPort: $pb}'
+	--arg url "$ORIGIN" --argjson web "$WEB_PORT" --argjson pb "$PB_PORT" --argjson su "$SU_CREATED" \
+	'{instance: $instance, release: $release, domain: $domain, url: $url,
+	  webPort: $web, pbPort: $pb, superuserCreated: ($su == 1)}'

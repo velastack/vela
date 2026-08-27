@@ -27,6 +27,12 @@ export function normalizeEnvTag(tag: string | undefined): string {
 		.replace(/-{3,}/g, '--')
 		.replace(/^-+|-+$/g, '');
 	if (!normalized) throw new Error(`Invalid environment tag: ${tag}`);
+	// `local` is the copy on this machine and has no instance on any server.
+	// Closed here rather than in the target parser so that no future caller can
+	// route around it and create `<appId>--local`.
+	if (normalized === 'local') {
+		throw new Error('`local` is not a deployable environment — it is the copy on this machine.');
+	}
 	return normalized === 'production' ? PROD_ENV : normalized;
 }
 

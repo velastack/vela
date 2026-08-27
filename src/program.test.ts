@@ -122,3 +122,53 @@ describe('program registration', () => {
 		expect(byName('collections').aliases()).toContain('snapshot');
 	});
 });
+
+/**
+ * One selector, everywhere. These assertions are the executable form of the
+ * decisions: a positional server or a stray `--env` creeping back into any of
+ * these commands is a regression, not a style choice.
+ */
+describe('target selection', () => {
+	const find = (path: string) => {
+		const [name, sub] = path.split(' ');
+		const command = program.commands.find((c) => c.name() === name)!;
+		return sub ? command.commands.find((c) => c.name() === sub)! : command;
+	};
+
+	const TARGET_AWARE: [string, string][] = [
+		['deploy', 'production'],
+		['status', 'production'],
+		['logs', 'production'],
+		['rollback', 'production'],
+		['destroy deployment', 'production'],
+		['env list', 'local'],
+		['env set', 'local'],
+		['env unset', 'local'],
+		['env import', 'local'],
+		['admin create', 'local']
+	];
+
+	test.each(TARGET_AWARE)('%s takes -t and no longer takes --env', (path) => {
+		const flags = find(path).options.map((o) => o.long);
+		expect(flags).toContain('--target');
+		expect(flags).toContain('--server');
+		expect(flags).not.toContain('--env');
+	});
+
+	test.each(TARGET_AWARE)('%s defaults to %s', (path, fallback) => {
+		const option = find(path).options.find((o) => o.long === '--target')!;
+		expect(option.defaultValue).toBe(fallback);
+	});
+
+	test.each(TARGET_AWARE.map(([path]) => path))('%s takes no positional server', (path) => {
+		// The old shape accepted the SSH host positionally on half of these.
+		const positionals = find(path).registeredArguments.map((a) => a.name());
+		expect(positionals).not.toContain('target');
+	});
+
+	test('provision keeps a machine, not a target', () => {
+		const provision = program.commands.find((c) => c.name() === 'provision')!;
+		expect(provision.options.map((o) => o.long)).not.toContain('--target');
+		expect(provision.registeredArguments.map((a) => a.name())).toEqual(['target']);
+	});
+});

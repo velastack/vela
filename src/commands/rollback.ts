@@ -3,39 +3,44 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { helpConfig } from '../lib/help.ts';
 import { runCommand } from '../lib/run.ts';
-import { addServerOptions, withServerContext } from '../lib/server-command.ts';
+import { addTargetOptions, withTarget } from '../lib/server-command.ts';
 import { runServerScript } from '../lib/remote.ts';
 
-export const rollback = addServerOptions(
-	new Command('rollback')
-		.description('put the previous release back')
-		.argument('[target]', 'SSH target (defaults to where this app was last deployed)')
-		.configureHelp(helpConfig)
+export const rollback = addTargetOptions(
+	new Command('rollback').description('put the previous release back').configureHelp(helpConfig),
+	'production'
 )
 	.option('--to <release>', 'roll back to a specific release instead of the previous one')
-	.action((target: string | undefined, raw: unknown) =>
+	.action((raw: unknown) =>
 		runCommand(async () => {
 			const options = raw as { to?: string };
-			await withServerContext(
+			await withTarget(
 				raw,
-				async (ctx) => {
-					p.log.step(`Rolling back ${pc.cyan(ctx.appName)} on ${ctx.target}`);
+				{
+					remote: async (ctx) => {
+						p.log.step(
+							`Rolling back ${pc.cyan(ctx.appName)} ${pc.dim(`(${ctx.targetName})`)} on ${ctx.server}`
+						);
 
-					const result = await runServerScript<{ release: string; from: string }>(
-						ctx.session,
-						'rollback.sh',
-						{
-							args: [ctx.instance, ...(options.to ? ['--to', options.to] : [])],
-							stream: true
-						}
-					);
+						const result = await runServerScript<{ release: string; from: string }>(
+							ctx.session,
+							'rollback.sh',
+							{
+								args: [ctx.instance, ...(options.to ? ['--to', options.to] : [])],
+								stream: true
+							}
+						);
 
-					p.log.success(
-						`Rolled back to ${pc.cyan(result?.release ?? 'the previous release')}` +
-							(result?.from ? ` ${pc.dim(`(was ${result.from})`)}` : '')
-					);
+						p.log.success(
+							`Rolled back to ${pc.cyan(result?.release ?? 'the previous release')}` +
+								(result?.from ? ` ${pc.dim(`(was ${result.from})`)}` : '')
+						);
+					}
 				},
-				target
+				{
+					label: 'rollback',
+					localHint: 'Nothing is released locally — `vela dev` always runs the working tree.'
+				}
 			);
 		}, 'Failed to roll back.')
 	);

@@ -97,6 +97,26 @@ export async function writeRemoteEnv(
 	await session.script(`chown root:root "$1" && chmod 0600 "$1"`, { args: [file] });
 }
 
+/**
+ * Credentials the app authenticates to its own PocketBase with.
+ *
+ * Not ordinary variables: the value here has to match a record in the
+ * instance's database, and only a deploy can put it there. Changing one and
+ * restarting on the spot would leave the app unable to authenticate, so the
+ * env commands write the value and leave the restart to `vela deploy`.
+ */
+export const SUPERUSER_KEYS = [
+	'POCKETBASE_SUPERUSER_EMAIL',
+	'POCKETBASE_SUPERUSER_PASSWORD'
+] as const;
+
+export function touchesSuperuser(keys: Iterable<string>): boolean {
+	for (const key of keys) {
+		if ((SUPERUSER_KEYS as readonly string[]).includes(key)) return true;
+	}
+	return false;
+}
+
 export interface RestartOutcome {
 	deployed: boolean;
 	restarted: boolean;

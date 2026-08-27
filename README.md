@@ -36,9 +36,18 @@ Changed your mind? `vela destroy` and `vela disable` take it back out.
 Deploys go to a server you own, over SSH. Prepare the box once, then deploy as often as you like.
 
 ```sh
-vela provision root@your-server                                  # Caddy, Node, PocketBase, systemd, TLS
-vela env import .env.production --target root@your-server        # secrets live on the server, not in releases
-vela deploy root@your-server --domain example.com
+vela provision root@your-server                        # Caddy, Node, PocketBase, systemd, TLS
+vela deploy --server root@your-server --domain example.com
+```
+
+That first deploy binds `production` to the server, so nothing after it names a
+machine again. Every command takes the same selector — `-t local`, `-t production`
+(or `prod`), or any name you choose such as `-t staging`:
+
+```sh
+vela targets                       # what exists, and where
+vela env import .env.production -t production
+vela admin create -t production    # a login for the admin panel
 ```
 
 Each deploy uploads an immutable release, runs migrations, restarts the app and health-checks it. A release that does not come up healthy is rolled back before the command exits.
@@ -46,10 +55,13 @@ Each deploy uploads an immutable release, runs migrations, restarts the app and 
 If any of your pages prerender from data, add `--remote-db` so the build renders against the database it is being deployed to, over the same SSH connection. Without it, a build on a fresh machine renders those pages against an empty database and bakes the defaults into your static HTML.
 
 ```sh
-vela status root@your-server     # what is running, on which release
-vela logs root@your-server -f    # journald, tailed
-vela rollback root@your-server   # previous release, with its down migrations
+vela status          # what is running, on which release
+vela logs -f         # journald, tailed
+vela rollback        # previous release, with its down migrations
 ```
+
+These default to `production`; `vela env` and `vela admin` default to `local`,
+because that is the copy you are usually standing in.
 
 Same thing from CI with [`velastack/action`](https://github.com/velastack/action).
 

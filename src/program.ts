@@ -1,12 +1,13 @@
 import process from 'node:process';
 import * as p from '@clack/prompts';
 import { Command } from 'commander';
+import nodePath from 'node:path';
 import dotenv from 'dotenv';
 import pc from 'picocolors';
 import pkg from '../package.json' with { type: 'json' };
 import { helpConfig } from './lib/help.ts';
 import { isStub } from './lib/stub.ts';
-import { hasBackend } from './lib/workspace.ts';
+import { findWorkspaceRoot, hasBackend } from './lib/workspace.ts';
 import { bless } from './commands/bless.ts';
 import { create } from './commands/create.ts';
 import { generate } from './commands/generate.ts';
@@ -33,6 +34,8 @@ import { env } from './commands/env.ts';
 import { status } from './commands/status.ts';
 import { rollback } from './commands/rollback.ts';
 import { logs } from './commands/logs.ts';
+import { admin } from './commands/admin.ts';
+import { targets } from './commands/targets.ts';
 import { testServer } from './commands/test.ts';
 import { routes } from './commands/routes.ts';
 import { i18n } from './commands/i18n.ts';
@@ -61,6 +64,8 @@ const NO_BACKEND_COMMMANDS = new Set([
 	'status',
 	'rollback',
 	'logs',
+	'admin',
+	'targets',
 	'link'
 ]);
 
@@ -80,7 +85,11 @@ export const program = new Command()
 program.hook('preAction', (_thisCommand, actionCommand) => {
 	if (isStub(actionCommand)) return;
 
-	dotenv.config({ quiet: true });
+	// Resolved from the workspace root rather than the cwd: dotenv's default
+	// would miss `.env` for anything run from a subdirectory, which `-t local`
+	// makes visible the moment a command reads or writes it.
+	const envRoot = findWorkspaceRoot() ?? process.cwd();
+	dotenv.config({ path: nodePath.join(envRoot, '.env'), quiet: true });
 
 	const path = getCommandPath(actionCommand);
 	if (NO_BACKEND_COMMMANDS.has(path)) return;
@@ -152,6 +161,8 @@ for (const command of [
 	status,
 	logs,
 	env,
+	admin,
+	targets,
 	link,
 	testServer,
 	routes,

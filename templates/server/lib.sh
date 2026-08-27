@@ -135,3 +135,32 @@ migrations_ahead() {
 }
 
 emit_result() { printf 'VELA_RESULT %s\n' "$(jq -c -n "$@")"; }
+
+# Read one value out of a vela-managed env file. `vela env` writes values with
+# systemd's quoting, whose escapes (\\, \", \n, \t) are also JSON's, so jq
+# decodes them exactly.
+env_file_get() {
+	local file=$1 key=$2 raw
+	[ -f "$file" ] || return 1
+	raw=$(sed -n "s/^[[:space:]]*${key}=//p" "$file" | head -n1)
+	[ -n "$raw" ] || return 1
+	case "$raw" in
+		'"'*) printf '%s' "$raw" | jq -r . ;;
+		*) printf '%s' "$raw" ;;
+	esac
+}
+
+# Append a value in the same quoted form `vela env` uses, so it round-trips.
+env_file_append() {
+	local file=$1 key=$2 value=$3
+	[ -f "$file" ] || : > "$file"
+	if [ -s "$file" ] && [ -n "$(tail -c1 "$file")" ]; then printf '\n' >> "$file"; fi
+	printf '%s=%s\n' "$key" "$(jq -rn --arg v "$value" '$v | @json')" >> "$file"
+	chmod 0600 "$file"
+	chown root:root "$file"
+}
+
+# 24 bytes of hex - no shell metacharacters, nothing to escape anywhere it goes.
+random_secret() {
+	head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n'
+}

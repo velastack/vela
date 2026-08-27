@@ -33,8 +33,26 @@ export function readProjectConfig(workspaceRootDir: string): ProjectConfig | nul
 	}
 }
 
+/**
+ * Record the velastack.dev link, keeping everything else in the file.
+ *
+ * `.vela/project.json` is written by two modules: this one for the link, and
+ * `deploy-config.ts` for the app id and target bindings. Replacing the file
+ * wholesale here would drop the app id — which server paths, systemd units and
+ * databases all hang off — and strand the deployment on the server.
+ */
 export function writeProjectConfig(workspaceRootDir: string, config: ProjectConfig): void {
 	const file = projectConfigPath(workspaceRootDir);
 	fs.mkdirSync(path.dirname(file), { recursive: true });
-	fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
+
+	let existing: Record<string, unknown> = {};
+	if (fs.existsSync(file)) {
+		try {
+			existing = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+		} catch {
+			// A corrupt file is replaced rather than merged into.
+		}
+	}
+
+	fs.writeFileSync(file, JSON.stringify({ ...existing, ...config }, null, 2) + '\n');
 }

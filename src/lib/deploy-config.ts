@@ -106,7 +106,13 @@ interface ProjectFile {
 	teamId?: string;
 	projectName?: string;
 	appId?: string;
-	deployments?: Record<string, DeploymentRecord>;
+	targets?: Record<string, TargetBinding>;
+	/**
+	 * The shape before targets were named. Still read, never written: a project
+	 * deployed with an older CLI keeps working, and is rewritten into `targets`
+	 * the next time it deploys.
+	 */
+	deployments?: Record<string, LegacyDeployment>;
 }
 
 function projectFilePath(workspaceRootDir: string): string {
@@ -191,45 +197,59 @@ function slug(value: string): string {
 	);
 }
 
-export interface DeploymentRecord {
-	/** SSH target the last deploy of this environment used. */
+export interface TargetBinding {
+	/** SSH destination, exactly as `ssh` would take it. */
+	server: string;
+	/** Hostname(s) Caddy serves this target on. */
+	domain?: string;
+}
+
+interface LegacyDeployment {
 	target: string;
 	domain?: string;
 }
 
 /**
- * Remember where an environment was last deployed, so `vela env`, `vela status`
- * and `vela rollback` do not need the server spelled out every time.
+ * Where a target runs.
  *
- * This is ordinary project metadata — the SSH target, never a credential — and
- * belongs in version control alongside the app id.
+ * This is ordinary project metadata — a hostname, never a credential — and
+ * belongs in version control beside the app id. Binding a target to a server
+ * once is what lets every other command take `-t staging` and nothing else.
  */
-export function recordDeployment(
+export function readBinding(workspaceRootDir: string, envTag: string): TargetBinding | null {
+	const project = readProjectFile(workspaceRootDir);
+	const bound = project.targets?.[envTag];
+	if (bound?.server) return bound;
+
+	const legacy = project.deployments?.[envTag];
+	if (legacy?.target) return { server: legacy.target, domain: legacy.domain };
+
+	return null;
+}
+
+/** Every bound target, newest shape taking precedence over the old one. */
+export function readBindings(workspaceRootDir: string): Record<string, TargetBinding> {
+	const project = readProjectFile(workspaceRootDir);
+	const bindings: Record<string, TargetBinding> = {};
+
+	for (const [envTag, legacy] of Object.entries(project.deployments ?? {})) {
+		if (legacy?.target) bindings[envTag] = { server: legacy.target, domain: legacy.domain };
+	}
+	for (const [envTag, bound] of Object.entries(project.targets ?? {})) {
+		if (bound?.server) bindings[envTag] = bound;
+	}
+
+	return bindings;
+}
+
+export function writeBinding(
 	workspaceRootDir: string,
 	envTag: string,
-	record: DeploymentRecord
+	binding: TargetBinding
 ): void {
-	const project = readProjectFile(workspaceRootDir) as ProjectFile & {
-		deployments?: Record<string, DeploymentRecord>;
-	};
-	const deployments = { ...project.deployments, [envTag]: record };
-	writeProjectFile(workspaceRootDir, { ...project, deployments });
-}
-
-export function readDeployment(workspaceRootDir: string, envTag: string): DeploymentRecord | null {
-	const project = readProjectFile(workspaceRootDir) as ProjectFile & {
-		deployments?: Record<string, DeploymentRecord>;
-	};
-	return project.deployments?.[envTag] ?? null;
-}
-
-/** The SSH target for a command that did not name one. */
-export function resolveTarget(workspaceRootDir: string, envTag: string, explicit?: string): string {
-	if (explicit) return explicit;
-	const recorded = readDeployment(workspaceRootDir, envTag)?.target;
-	if (recorded) return recorded;
-	throw new Error(
-		`No server given, and ${envTag} has not been deployed from this project yet.\n\n` +
-			`Pass the SSH target, for example \`vela deploy myserver\`.`
-	);
+	const project = readProjectFile(workspaceRootDir);
+	writeProjectFile(workspaceRootDir, {
+		...project,
+		targets: { ...project.targets, [envTag]: binding }
+	});
 }

@@ -6,7 +6,7 @@ import { envUnset } from './env/unset.ts';
 import { envImport } from './env/import.ts';
 
 export const env = new Command('env')
-	.description('manage production environment variables')
+	.description('manage environment variables, locally or on a target')
 	.configureHelp(helpConfig)
 	.addCommand(envList)
 	.addCommand(envSet)

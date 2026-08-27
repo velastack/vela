@@ -1,3 +1,7 @@
+> **Historical.** Written before the `-t/--target` selector landed. The command
+> examples below use the old `<ssh-target>` positional and `--env <tag>`, which no
+> longer exist: read them for the design intent, not the syntax.
+
 ## VelaStack Provisioning and Deploys Spec
 
 This spec defines how VelaStack CLI provisions servers and deploys applications, including production and optional preview branch environments.

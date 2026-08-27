@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { isValidKey, parseEnv, serializeEnv } from './remote-env.ts';
+import { isValidKey, parseEnv, serializeEnv, touchesSuperuser } from './remote-env.ts';
 
 describe('serializeEnv', () => {
 	test('sorts keys and quotes every value', () => {
@@ -43,5 +43,35 @@ describe('isValidKey', () => {
 		expect(isValidKey('2FA')).toBe(false);
 		expect(isValidKey('WITH-DASH')).toBe(false);
 		expect(isValidKey('')).toBe(false);
+	});
+});
+
+describe('touchesSuperuser', () => {
+	test('recognizes the credentials the app authenticates with', () => {
+		expect(touchesSuperuser(['POCKETBASE_SUPERUSER_PASSWORD'])).toBe(true);
+		expect(touchesSuperuser(['STRIPE_SECRET_KEY', 'POCKETBASE_SUPERUSER_EMAIL'])).toBe(true);
+	});
+
+	test('leaves ordinary variables alone', () => {
+		expect(touchesSuperuser(['POCKETBASE_URL', 'STRIPE_SECRET_KEY'])).toBe(false);
+		expect(touchesSuperuser([])).toBe(false);
+	});
+});
+
+describe('the env file apply.sh seeds', () => {
+	// `env_file_append` in templates/server/lib.sh writes the superuser it
+	// creates straight into this file. Its output has to read back the same way
+	// `vela env` writes it, or the next `vela env set` would drop the account.
+	test('parses lines appended by the server script', () => {
+		const seeded =
+			serializeEnv({ STRIPE_SECRET_KEY: 'sk_live' }) +
+			'POCKETBASE_SUPERUSER_EMAIL="admin@velabase.dev"\n' +
+			'POCKETBASE_SUPERUSER_PASSWORD="c1b4e0b82cdf9c2da09bda5c50a23348"\n';
+
+		expect(parseEnv(seeded)).toEqual({
+			STRIPE_SECRET_KEY: 'sk_live',
+			POCKETBASE_SUPERUSER_EMAIL: 'admin@velabase.dev',
+			POCKETBASE_SUPERUSER_PASSWORD: 'c1b4e0b82cdf9c2da09bda5c50a23348'
+		});
 	});
 });
