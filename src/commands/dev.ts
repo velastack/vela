@@ -5,12 +5,14 @@ import { performance } from 'node:perf_hooks';
 import type { ChildProcess } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
 import { Command, InvalidArgumentError } from 'commander';
+import type { InlineConfig } from 'vite';
 import pc from 'picocolors';
 import PocketBase from 'pocketbase';
 import { helpConfig } from '../lib/help.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { startPocketbaseServe } from '../lib/pocketbase.ts';
 import { hasBackend } from '../lib/workspace.ts';
+import { loadVite } from '../lib/vite.ts';
 
 /**
  * Vite dev-server flags worth forwarding, spelled exactly as vite's own CLI
@@ -50,7 +52,7 @@ export const dev = new Command('dev')
 		const cwd = process.cwd();
 		const startTime = performance.now();
 
-		const { createServer, version } = await import('vite');
+		const { createServer, version } = await loadVite(cwd);
 
 		const viteMetadataDir = path.join(cwd, 'node_modules', '.vite');
 		const viteMetadataFile = path.join(viteMetadataDir, '_pocketbase_metadata.json');
@@ -99,8 +101,10 @@ export const dev = new Command('dev')
 		if (options.strictPort !== undefined) serverOptions.strictPort = options.strictPort;
 
 		// `--force` is not a server option: vite's CLI strips it from the server
-		// config and passes it as `forceOptimizeDeps`.
-		const inlineConfig: { server: ServerFlags; forceOptimizeDeps?: boolean } = {
+		// config and passes it as `forceOptimizeDeps`. Typed as vite's own
+		// `InlineConfig` so a renamed or dropped option fails `lint:ts` here
+		// rather than being silently ignored at runtime.
+		const inlineConfig: InlineConfig = {
 			server: serverOptions
 		};
 		if (options.force !== undefined) inlineConfig.forceOptimizeDeps = options.force;

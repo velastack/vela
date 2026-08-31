@@ -9,6 +9,8 @@ import { resolveCommand } from 'package-manager-detector/commands';
 import fs from 'node:fs';
 import { helpConfig } from '../lib/help.ts';
 import { authWithRetries, findFreePort, launchPocketbase } from '../lib/pocketbase.ts';
+import { loadVite } from '../lib/vite.ts';
+import type { Plugin } from 'vite';
 
 export const testServer = new Command('test:server')
 	.description('run server tests')
@@ -37,7 +39,7 @@ export const testServer = new Command('test:server')
 
 		console.log(`${pc.greenBright('✓')} Created test database`);
 
-		const { createServer } = await import('vite');
+		const { createServer } = await loadVite(cwd);
 		const vite = await createServer({
 			mode: 'test',
 			plugins: [stubPagesPlugin()],
@@ -92,7 +94,7 @@ export const testServer = new Command('test:server')
 		}
 	});
 
-function stubPagesPlugin() {
+function stubPagesPlugin(): Plugin {
 	const stub = `<script>export const render = () => '';</script>`;
 	return {
 		name: 'stub-pages',
