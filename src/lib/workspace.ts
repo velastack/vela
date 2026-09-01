@@ -56,6 +56,20 @@ export function hasBackend(from: string = process.cwd()): boolean {
 	return root !== null && fs.existsSync(path.join(root, DATA_DIR));
 }
 
+/**
+ * Where this project keeps the state that is not source.
+ *
+ * The same directory on a server is `shared/pb_data`, which is the whole reason
+ * `vela` puts it in the environment as `VELA_DATA_DIR` instead of letting an app
+ * work it out from its own working directory. That one is the project root here
+ * and a release directory there, so an app that derives the path lands its
+ * database inside a release — where the next deploy leaves it behind and the
+ * pruner eventually deletes it.
+ */
+export function localDataDir(from: string = process.cwd()): string {
+	return path.join(findWorkspaceRoot(from) ?? from, DATA_DIR);
+}
+
 export async function getWorkspace(): Promise<Workspace> {
 	const workspaceRootDir = findWorkspaceRoot();
 

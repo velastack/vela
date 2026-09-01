@@ -4,6 +4,8 @@ import { SshSession, type RunResult } from './ssh.ts';
 
 export const VELA_ROOT = '/var/lib/vela';
 export const VELA_ETC = '/etc/vela';
+/** The unprivileged account every app's files and processes belong to. */
+export const VELA_USER = 'vela';
 export const SCRIPTS_DIR = `${VELA_ROOT}/scripts`;
 export const PROVISIONED_MARKER = `${VELA_ETC}/provisioned`;
 

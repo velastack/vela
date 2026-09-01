@@ -11,7 +11,7 @@ import { resolveCommand } from 'package-manager-detector/commands';
 import { helpConfig } from '../lib/help.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { ensureSuperuser, startPocketbaseServe } from '../lib/pocketbase.ts';
-import { findWorkspaceRoot, hasBackend } from '../lib/workspace.ts';
+import { findWorkspaceRoot, hasBackend, localDataDir } from '../lib/workspace.ts';
 import { loadDeployConfig } from '../lib/deploy-config.ts';
 import { parseTarget, PRODUCTION_TARGET } from '../lib/target.ts';
 import { resolveOrigin } from '../lib/origin.ts';
@@ -25,6 +25,11 @@ export const build = new Command('build')
 	.option('-t, --target <target>', 'which copy of the app to build for', PRODUCTION_TARGET)
 	.action(async (options: { target?: string }) => {
 		const cwd = process.cwd();
+
+		// Every other context reads the data directory out of the environment, so
+		// the one this machine uses has to be there too — otherwise the fallback
+		// is the only code path local development ever exercises.
+		process.env.VELA_DATA_DIR ??= localDataDir(cwd);
 
 		// Prerendering has no request to take an origin from, so the domain the
 		// app is served on has to arrive as configuration or not at all.

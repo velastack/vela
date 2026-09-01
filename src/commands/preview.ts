@@ -8,13 +8,18 @@ import { resolveCommand } from 'package-manager-detector/commands';
 import { helpConfig } from '../lib/help.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { startPocketbaseServe } from '../lib/pocketbase.ts';
-import { hasBackend } from '../lib/workspace.ts';
+import { hasBackend, localDataDir } from '../lib/workspace.ts';
 
 export const preview = new Command('preview')
 	.description('preview the built app')
 	.configureHelp(helpConfig)
 	.action(async () => {
 		const cwd = process.cwd();
+
+		// Every other context reads the data directory out of the environment, so
+		// the one this machine uses has to be there too — otherwise the fallback
+		// is the only code path local development ever exercises.
+		process.env.VELA_DATA_DIR ??= localDataDir(cwd);
 
 		let pbProc: ChildProcess | undefined;
 		// A static project has no PocketBase to start, and no `data` dir to start it from.

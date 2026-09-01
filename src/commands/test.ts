@@ -35,6 +35,11 @@ export const testServer = new Command('test:server')
 		process.env.POCKETBASE_URL = url;
 		process.env.POCKETBASE_SUPERUSER_EMAIL = email;
 		process.env.POCKETBASE_SUPERUSER_PASSWORD = password;
+		// The app's data directory is PocketBase's, here as everywhere else. It
+		// points at the throwaway one so that a database or an uploaded file the
+		// suite creates is removed with it, rather than accumulating in the
+		// directory the developer actually works against.
+		process.env.VELA_DATA_DIR = testDataDir;
 		process.env.TEST = 'true';
 
 		console.log(`${pc.greenBright('✓')} Created test database`);

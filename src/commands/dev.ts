@@ -11,7 +11,7 @@ import PocketBase from 'pocketbase';
 import { helpConfig } from '../lib/help.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { startPocketbaseServe } from '../lib/pocketbase.ts';
-import { hasBackend } from '../lib/workspace.ts';
+import { hasBackend, localDataDir } from '../lib/workspace.ts';
 import { loadVite } from '../lib/vite.ts';
 
 /**
@@ -50,6 +50,11 @@ export const dev = new Command('dev')
 	.configureHelp(helpConfig)
 	.action(async (options: DevOptions) => {
 		const cwd = process.cwd();
+
+		// Every other context reads the data directory out of the environment, so
+		// the one this machine uses has to be there too — otherwise the fallback
+		// is the only code path local development ever exercises.
+		process.env.VELA_DATA_DIR ??= localDataDir(cwd);
 		const startTime = performance.now();
 
 		const { createServer, version } = await loadVite(cwd);

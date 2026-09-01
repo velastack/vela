@@ -1,4 +1,6 @@
 import type PocketBase from 'pocketbase';
+import { remotePaths, VELA_USER } from './remote.ts';
+import type { SshSession } from './ssh.ts';
 
 /**
  * What PocketBase will accept as a backup name.
@@ -112,6 +114,42 @@ export async function createBackup(
 			`${Math.round(pollTimeout / 60_000)} minutes.\n\n` +
 			`PocketBase may still be working on it — check \`vela logs\` and ` +
 			`\`vela backup list\` before trying again.`
+	);
+}
+
+/**
+ * Fold any app-owned write-ahead log back into the database file it belongs to.
+ *
+ * PocketBase checkpoints the databases it owns before archiving `pb_data` — in
+ * an archive its `-wal` files are empty. A database the app opened for itself
+ * gets no such treatment: its `-wal` is copied as it was found, and a checkpoint
+ * landing between the moments the archiver reads the two files leaves the pair
+ * describing different instants.
+ *
+ * Every SQLite file in the directory is offered a checkpoint rather than a list
+ * of the ones known to be app-owned: PocketBase's own are already flushed, so
+ * the redundant work is one no-op each, and a guessed list is a list that goes
+ * stale the first time a build adds a database to `pb_data`.
+ *
+ * Two things are deliberate. It runs as the app user, because a checkpoint run
+ * as root recreates `-wal` and `-shm` owned by root and the app can no longer
+ * write to its own database afterwards. And every step is best-effort: a
+ * database busy enough to refuse is a database whose backup is slightly less
+ * consistent, which is not worth failing the backup over.
+ *
+ * Remote only. Locally PocketBase and the app share a directory that no deploy
+ * moves, `sqlite3` is not guaranteed to be installed, and a backup of a
+ * development database is a convenience rather than a promise.
+ */
+export async function checkpointAppDatabases(session: SshSession, instance: string): Promise<void> {
+	await session.script(
+		`command -v sqlite3 >/dev/null 2>&1 || exit 0
+		for db in "$1"/*.db "$1"/*.sqlite; do
+			[ -f "$db-wal" ] || continue
+			runuser -u "$2" -- sqlite3 "$db" \
+				'PRAGMA busy_timeout=5000; PRAGMA wal_checkpoint(TRUNCATE);' >/dev/null 2>&1 || true
+		done`,
+		{ args: [remotePaths.pbData(instance), VELA_USER], check: false }
 	);
 }
 

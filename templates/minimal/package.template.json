@@ -23,7 +23,7 @@
 		"@tailwindcss/typography": "^0.5.19",
 		"@tailwindcss/vite": "^4.3.3",
 		"@types/supertest": "^6.0.3",
-		"@velastack/kit": "^0.2.0",
+		"@velastack/kit": "^0.3.0",
 		"@velastack/pocketbase": "^0.2.2",
 		"clsx": "^2.1.1",
 		"formsnap": "^2.0.1",

@@ -10,6 +10,7 @@ import { addTargetOptions } from '../../lib/server-command.ts';
 import { withBackupTarget, type BackupContext } from '../../lib/backup-target.ts';
 import {
 	backupName,
+	checkpointAppDatabases,
 	createBackup,
 	formatBytes,
 	isBackupKey,
@@ -49,6 +50,12 @@ export const backupCreate = addTargetOptions(
 						`Your bucket's own versioning is what protects the uploaded files.`
 				);
 			}
+
+			// PocketBase flushes the write-ahead logs of its own databases before it
+			// archives the directory. Anything the app keeps alongside them has to be
+			// asked separately, or the archive holds a database and a log that
+			// describe different moments.
+			if (ctx.session) await checkpointAppDatabases(ctx.session, ctx.instance);
 
 			const spinner = p.spinner();
 			spinner.start(`Backing up ${ctx.targetName}`);
