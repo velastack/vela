@@ -30,6 +30,11 @@ export interface InstanceState {
 	backend?: boolean;
 	deployedAt?: string;
 	rolledBackAt?: string;
+	restoredAt?: string;
+	/** Backup key or uploaded filename the last restore came from. */
+	restoredFrom?: string;
+	/** The pb_data the last restore set aside, kept as the only undo. */
+	previousDataDir?: string;
 	current?: string;
 	releases?: string[];
 	services?: { web: string; pocketbase: string };
@@ -129,6 +134,14 @@ export const remotePaths = {
 	releases: (instance: string) => `${VELA_ROOT}/apps/${instance}/releases`,
 	release: (instance: string, release: string) =>
 		`${VELA_ROOT}/apps/${instance}/releases/${release}`,
+	shared: (instance: string) => `${VELA_ROOT}/apps/${instance}/shared`,
+	pbData: (instance: string) => `${VELA_ROOT}/apps/${instance}/shared/pb_data`,
+	storage: (instance: string) => `${VELA_ROOT}/apps/${instance}/shared/pb_data/storage`,
+	backups: (instance: string) => `${VELA_ROOT}/apps/${instance}/shared/pb_data/backups`,
+	backup: (instance: string, key: string) =>
+		`${VELA_ROOT}/apps/${instance}/shared/pb_data/backups/${key}`,
+	/** Where an archive uploaded from this machine waits, outside pb_data. */
+	restoreStage: (instance: string) => `${VELA_ROOT}/apps/${instance}/shared/.restore`,
 	env: (instance: string) => `${VELA_ETC}/apps/${instance}/env`,
 	runtimeEnv: (instance: string) => `${VELA_ETC}/apps/${instance}/runtime.env`,
 	caddy: (instance: string) => `${VELA_ETC}/caddy/${instance}.caddy`,

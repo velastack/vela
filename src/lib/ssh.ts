@@ -238,6 +238,34 @@ mv -f "$tmp" "$dest"`,
 		return this.elevation === 'sudo' ? ['--rsync-path=sudo -n rsync'] : [];
 	}
 
+	/**
+	 * rsync one remote path down to a local one.
+	 *
+	 * No `-z`: the only thing this moves is a backup archive, which is already
+	 * compressed, and asking gzip to compress a zip costs CPU on both ends for
+	 * nothing. `--partial` keeps what arrived when a large transfer is
+	 * interrupted, so retrying resumes rather than starting over.
+	 *
+	 * The remote path reaches rsync through a login shell, so it is quoted here
+	 * even though the paths this is called with are vela's own.
+	 */
+	async download(remotePath: string, localPath: string, extraArgs: string[] = []): Promise<void> {
+		const args = [
+			'-a',
+			'--partial',
+			'-e',
+			this.rsyncShell(),
+			...this.rsyncPath(),
+			...extraArgs,
+			`${this.target}:${shellQuote(remotePath)}`,
+			localPath
+		];
+		const result = await spawnCapture('rsync', args);
+		if (result.exitCode !== 0) {
+			throw new Error(`rsync from ${this.target}:${remotePath} failed.\n\n${result.stderr.trim()}`);
+		}
+	}
+
 	/** rsync one or more local paths to a remote directory. */
 	async upload(localPaths: string[], remoteDir: string, extraArgs: string[] = []): Promise<void> {
 		const args = [

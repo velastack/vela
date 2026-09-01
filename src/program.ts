@@ -35,6 +35,8 @@ import { status } from './commands/status.ts';
 import { rollback } from './commands/rollback.ts';
 import { logs } from './commands/logs.ts';
 import { admin } from './commands/admin.ts';
+import { backup } from './commands/backup.ts';
+import { restore } from './commands/restore.ts';
 import { targets } from './commands/targets.ts';
 import { testServer } from './commands/test.ts';
 import { routes } from './commands/routes.ts';
@@ -66,7 +68,11 @@ const NO_BACKEND_COMMMANDS = new Set([
 	'logs',
 	'admin',
 	'targets',
-	'link'
+	'link',
+	// Acts on whichever target `-t` names; the local path reads the project's
+	// own credentials rather than requiring them in this process.
+	'backup',
+	'restore'
 ]);
 
 /**
@@ -162,6 +168,8 @@ for (const command of [
 	logs,
 	env,
 	admin,
+	backup,
+	restore,
 	targets,
 	link,
 	testServer,

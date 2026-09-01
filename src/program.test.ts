@@ -27,6 +27,8 @@ const EXPECTED_COMMANDS = [
 	'status',
 	'logs',
 	'env',
+	'backup',
+	'restore',
 	'link',
 	'test:server',
 	'routes',
@@ -55,6 +57,8 @@ const EXPECTED_ENV_SUBCOMMANDS = ['list', 'set', 'unset', 'import'];
 
 const EXPECTED_DESTROY_SUBCOMMANDS = ['form', 'schema', 'resource', 'scaffold', 'deployment'];
 
+const EXPECTED_BACKUP_SUBCOMMANDS = ['create', 'list', 'download', 'delete', 'schedule'];
+
 describe('program registration', () => {
 	test('every top-level command is registered', () => {
 		const names = program.commands.map((c) => c.name());
@@ -67,6 +71,14 @@ describe('program registration', () => {
 		const env = program.commands.find((c) => c.name() === 'env')!;
 		const names = env.commands.map((c) => c.name());
 		for (const expected of EXPECTED_ENV_SUBCOMMANDS) {
+			expect(names).toContain(expected);
+		}
+	});
+
+	test('backup registers its subcommands', () => {
+		const backup = program.commands.find((c) => c.name() === 'backup')!;
+		const names = backup.commands.map((c) => c.name());
+		for (const expected of EXPECTED_BACKUP_SUBCOMMANDS) {
 			expect(names).toContain(expected);
 		}
 	});
@@ -145,7 +157,15 @@ describe('target selection', () => {
 		['env set', 'local'],
 		['env unset', 'local'],
 		['env import', 'local'],
-		['admin create', 'local']
+		['admin create', 'local'],
+		['backup create', 'production'],
+		['backup list', 'production'],
+		['backup download', 'production'],
+		['backup delete', 'production'],
+		['backup schedule', 'production'],
+		['restore', 'production'],
+		['enable s3', 'local'],
+		['disable s3', 'local']
 	];
 
 	test.each(TARGET_AWARE)('%s takes -t and no longer takes --env', (path) => {

@@ -63,8 +63,24 @@ PB_UNIT=$(unit_pb "$INSTANCE")
 mkdir -p "$APP"/{releases,shared,bin,deps} "$APP/shared/pb_data"
 mkdir -p "$ETC"
 chmod 0700 "$ETC"
-chown -R "$VELA_USER:$VELA_USER" "$APP"
-chown "$VELA_USER:$VELA_USER" "$RELEASE_DIR"
+
+# Only the directories just created need their ownership set, and only at the
+# top level: everything below pb_data is written by PocketBase as $VELA_USER
+# already. Recursing here would walk every uploaded file on every deploy, which
+# makes deploy time grow with the size of the app's storage forever.
+chown "$VELA_USER:$VELA_USER" \
+	"$APP" "$APP/releases" "$APP/shared" "$APP/shared/pb_data" "$APP/bin" "$APP/deps"
+# The release is the exception - rsync uploaded it as whoever we ssh'd in as.
+chown -R "$VELA_USER:$VELA_USER" "$RELEASE_DIR"
+
+# A pb_data the app cannot write is a dead instance, and it fails as an opaque
+# 500 rather than anything that names a cause. This is what the blanket recurse
+# above used to paper over; checking costs one stat, repairing costs a walk that
+# now happens only when something is actually wrong.
+if ! runuser -u "$VELA_USER" -- test -w "$APP/shared/pb_data"; then
+	log "repairing ownership under shared/"
+	chown -R "$VELA_USER:$VELA_USER" "$APP/shared"
+fi
 
 # ---------------------------------------------------------------- ports & env
 
@@ -228,30 +244,13 @@ if [ "$BACKEND" = "1" ]; then
 		SU_CREATED=1
 	fi
 
-	# The password reaches PocketBase as an argument, so the upsert runs only on
-	# the deploys that need it rather than on every one.
-	SU_STAMP="$ETC/.superuser"
-	SU_FINGERPRINT=$(printf '%s\n%s' "$SU_EMAIL" "$SU_PASSWORD" | sha256sum | cut -d' ' -f1)
-	if [ "$SU_CREATED" = "1" ] || [ "$(cat "$SU_STAMP" 2>/dev/null || true)" != "$SU_FINGERPRINT" ]; then
-		if [ "$SU_CREATED" = "1" ]; then
-			log "creating the PocketBase superuser"
-		else
-			log "updating the PocketBase superuser"
-		fi
-		runuser -u "$VELA_USER" -- "$APP/bin/pocketbase" \
-			--dir "$APP/shared/pb_data" \
-			superuser upsert "$SU_EMAIL" "$SU_PASSWORD" >&2 \
-			|| die "could not create the PocketBase superuser"
+	reconcile_superuser "$APP" "$ETC" "$SU_EMAIL" "$SU_PASSWORD"
 
-		# Recorded only once the database holds the account, so a failure above
-		# leaves nothing behind and the next deploy simply tries again.
-		if [ "$SU_CREATED" = "1" ]; then
-			env_file_append "$ETC/env" POCKETBASE_SUPERUSER_EMAIL "$SU_EMAIL"
-			env_file_append "$ETC/env" POCKETBASE_SUPERUSER_PASSWORD "$SU_PASSWORD"
-		fi
-		printf '%s\n' "$SU_FINGERPRINT" > "$SU_STAMP"
-		chmod 0600 "$SU_STAMP"
-		chown root:root "$SU_STAMP"
+	# Written only once the database holds the account, so a failure above leaves
+	# nothing behind and the next deploy simply tries again.
+	if [ "$SU_CREATED" = "1" ]; then
+		env_file_append "$ETC/env" POCKETBASE_SUPERUSER_EMAIL "$SU_EMAIL"
+		env_file_append "$ETC/env" POCKETBASE_SUPERUSER_PASSWORD "$SU_PASSWORD"
 	fi
 fi
 
@@ -274,6 +273,25 @@ if [ "$BACKEND" = "1" ]; then
 	systemctl restart "$PB_UNIT"
 	wait_for_http "http://127.0.0.1:$PB_PORT/api/health" 60 0.5 \
 		|| die "PocketBase did not become healthy - journalctl -u $PB_UNIT"
+
+	# Answering on the port is not the same as agreeing with $ETC/env, and a
+	# disagreement shows up as every render 401ing rather than as a failed start.
+	#
+	# The fingerprint above cannot see a database that was replaced underneath
+	# an env file that did not change, so a first failure is repaired rather than
+	# reported: force the upsert and ask again. Only a second failure is real.
+	if ! assert_superuser_auth "$PB_PORT" "$SU_EMAIL" "$SU_PASSWORD"; then
+		log "the database disagrees with this instance's credentials - repairing"
+		# Stopped for the upsert: it opens the same SQLite file directly, and a
+		# running PocketBase is one writer too many to reason about.
+		systemctl stop "$PB_UNIT" >/dev/null 2>&1 || true
+		reconcile_superuser "$APP" "$ETC" "$SU_EMAIL" "$SU_PASSWORD" --force
+		systemctl start "$PB_UNIT"
+		wait_for_http "http://127.0.0.1:$PB_PORT/api/health" 60 0.5 \
+			|| die "PocketBase did not come back after the credential repair"
+		assert_superuser_auth "$PB_PORT" "$SU_EMAIL" "$SU_PASSWORD" \
+			|| die "PocketBase does not accept this instance's superuser credentials"
+	fi
 fi
 
 log "starting app on 127.0.0.1:$WEB_PORT"

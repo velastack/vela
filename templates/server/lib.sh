@@ -19,6 +19,14 @@ require_provisioned() {
 	[ -f "$VELA_ETC/provisioned" ] || die "server is not provisioned - run 'vela provision' first"
 }
 
+# Refuse on a frontend-only instance. Absent state is treated as having one, so
+# this only ever fires on an instance that was deployed with --backend 0.
+require_backend() {
+	local instance=$1
+	[ "$(state_get "$instance" backend 2>/dev/null || echo true)" = "true" ] \
+		|| die "$instance has no database - there is nothing to back up or restore"
+}
+
 # Read a top-level key out of an instance's state file.
 state_get() {
 	local instance=$1 key=$2 file
@@ -163,4 +171,60 @@ env_file_append() {
 # 24 bytes of hex - no shell metacharacters, nothing to escape anywhere it goes.
 random_secret() {
 	head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n'
+}
+
+# Make the instance's database agree with the credentials in its env file.
+#
+# The app authenticates to its own PocketBase as a superuser on every render, so
+# the two have to match or every request answers 401. `$ETC/env` is the source of
+# truth: this pushes whatever it holds into the database and records a
+# fingerprint of it, which is what lets an ordinary deploy skip the upsert when
+# nothing has moved. A caller that replaced the database underneath the env file
+# passes --force, because the fingerprint alone cannot see that.
+#
+# usage: reconcile_superuser <app_dir> <etc_dir> <email> <password> [--force]
+reconcile_superuser() {
+	local app=$1 etc=$2 email=$3 password=$4 force=${5:-}
+	local stamp="$etc/.superuser" fingerprint
+	fingerprint=$(printf '%s\n%s' "$email" "$password" | sha256sum | cut -d' ' -f1)
+
+	if [ "$force" != "--force" ] && [ "$(cat "$stamp" 2>/dev/null || true)" = "$fingerprint" ]; then
+		return 0
+	fi
+
+	# The stamp is written only after a successful upsert, so its absence is what
+	# distinguishes a first account from a changed one.
+	if [ -f "$stamp" ]; then
+		log "updating the PocketBase superuser"
+	else
+		log "creating the PocketBase superuser"
+	fi
+
+	# The password reaches PocketBase as an argument, which is why this runs only
+	# on the deploys that need it rather than on every one.
+	runuser -u "$VELA_USER" -- "$app/bin/pocketbase" \
+		--dir "$app/shared/pb_data" \
+		superuser upsert "$email" "$password" >&2 \
+		|| die "could not write the PocketBase superuser"
+
+	# Recorded only once the database holds the account, so a failure above
+	# leaves nothing behind and the next deploy simply tries again.
+	printf '%s\n' "$fingerprint" > "$stamp"
+	chmod 0600 "$stamp"
+	chown root:root "$stamp"
+}
+
+# Prove the app's own credentials actually sign in to its database.
+#
+# `wait_for_http` accepts 4xx as healthy, so a PocketBase whose database no
+# longer matches `$ETC/env` sails through the health gate and then answers every
+# render with a 401. Only an actual login catches that. The password travels
+# through the environment rather than argv, so it never appears in `ps`.
+assert_superuser_auth() {
+	local port=$1 email=$2 password=$3
+	VELA_SU_EMAIL=$email VELA_SU_PASSWORD=$password \
+		jq -nc '{identity: env.VELA_SU_EMAIL, password: env.VELA_SU_PASSWORD}' \
+		| curl -fsS -o /dev/null --max-time 10 \
+			-X POST -H 'content-type: application/json' --data-binary @- \
+			"http://127.0.0.1:$port/api/collections/_superusers/auth-with-password"
 }
