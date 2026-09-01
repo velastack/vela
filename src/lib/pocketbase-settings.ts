@@ -56,6 +56,29 @@ export async function readLocalMeta(cwd: string): Promise<Meta | null> {
 }
 
 /**
+ * Read the `appURL` a deployment is currently telling itself it has.
+ *
+ * Only ever used to report a mismatch, so a database that cannot be reached is
+ * not worth a word: the deploy has already succeeded either way.
+ */
+export async function readRemoteAppURL(
+	session: SshSession,
+	instance: string
+): Promise<string | null> {
+	try {
+		let appURL: string | null = null;
+		await withRemotePocketbase(session, instance, async (pb) => {
+			const settings = (await pb.settings.getAll()) as { meta?: Meta };
+			const value = settings.meta?.appURL;
+			appURL = typeof value === 'string' && value.trim() ? value : null;
+		});
+		return appURL;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Give a freshly created deployment the project's branding.
  *
  * Only ever called for a database this deploy created: re-running it would

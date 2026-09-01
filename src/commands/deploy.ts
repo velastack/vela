@@ -1,6 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import * as v from 'valibot';
@@ -14,7 +14,8 @@ import { writeBinding } from '../lib/deploy-config.ts';
 import { addTargetOptions, withTarget } from '../lib/server-command.ts';
 import { instanceId, normalizeEnvTag, releaseId } from '../lib/instance.ts';
 import { ensureSuperuser, findFreePort, pocketbaseVersion } from '../lib/pocketbase.ts';
-import { readLocalMeta, seedRemoteMeta } from '../lib/pocketbase-settings.ts';
+import { readLocalMeta, readRemoteAppURL, seedRemoteMeta } from '../lib/pocketbase-settings.ts';
+import { normalizeOrigin } from '../lib/origin.ts';
 import { restartInstance } from '../lib/remote-env.ts';
 import {
 	readInstanceStates,
@@ -49,9 +50,19 @@ export const deploy = addTargetOptions(
 	.option('--keep <count>', 'how many old releases to keep on the server')
 	.option('--pb-version <version>', 'PocketBase version to run')
 	.option('--no-build', 'deploy the existing build output without rebuilding')
-	.option(
-		'--remote-db',
-		'render the build against the database on the server, over an SSH tunnel — needed when pages are prerendered from data'
+	// Both spellings, with no default, so "neither flag given" stays
+	// distinguishable from an explicit choice: commander would otherwise make
+	// `--no-remote-db` alone default the value to true.
+	.addOption(
+		new Option(
+			'--remote-db',
+			'render the build against the database on the server, over an SSH tunnel — on by default once the target has been deployed to'
+		).default(undefined)
+	)
+	.addOption(
+		new Option('--no-remote-db', 'render the build against a throwaway local database').default(
+			undefined
+		)
 	)
 	.action((raw: unknown) =>
 		runCommand(async () => {
@@ -79,15 +90,39 @@ export const deploy = addTargetOptions(
 							config.deploy?.domain ??
 							existing?.domain ??
 							'';
-						const remoteDb = options.remoteDb ?? config.deploy?.buildAgainstRemote ?? false;
+						// Rendering against the database being deployed to is the default
+						// once there is one to render against. Left off, a build quietly
+						// used a throwaway local database instead, which is how prerendered
+						// pages shipped with a developer's own data baked into them.
+						const askedForRemoteDb = options.remoteDb ?? config.deploy?.buildAgainstRemote;
+						const remoteDb = askedForRemoteDb ?? Boolean(existing?.pbPort);
 
 						if (options.build !== false) {
-							let buildEnv: Record<string, string | undefined> = {};
+							// Prerendering has no request to take an origin from, and the
+							// binding is not written until further down, so a first deploy
+							// learns its domain from here or not at all.
+							const origin = normalizeOrigin(process.env.VELA_ORIGIN ?? domain);
+							let buildEnv: Record<string, string | undefined> = origin
+								? { VELA_ORIGIN: origin }
+								: {};
 							let tunnel: Tunnel | null = null;
 
 							if (backend && remoteDb) {
-								tunnel = await openDatabaseTunnel(session, instance, existing);
-								buildEnv = tunnel.env;
+								try {
+									tunnel = await openDatabaseTunnel(session, instance, existing);
+								} catch (err) {
+									// Asked for explicitly, the failure is the answer. Merely
+									// defaulted on, it is only a reason to build the older way.
+									if (askedForRemoteDb) throw err;
+									p.log.warn(
+										`Could not build against the ${pc.cyan(ctx.targetName)} database, ` +
+											`using a local one instead.\n${pc.dim(String(err))}`
+									);
+								}
+							}
+
+							if (tunnel) {
+								buildEnv = { ...buildEnv, ...tunnel.env };
 								p.log.info(
 									`Building against the ${pc.cyan(ctx.targetName)} database on ${ctx.server} ${pc.dim(`(port ${tunnel.pbPort})`)}`
 								);
@@ -173,6 +208,8 @@ export const deploy = addTargetOptions(
 									`your own instead, ${pc.cyan('vela env set POCKETBASE_SUPERUSER_PASSWORD')}\n` +
 									`and deploy again.`
 							);
+						} else if (backend && domain) {
+							await reportAppURLDrift(session, instance, domain);
 						}
 
 						if (!domain) {
@@ -189,6 +226,34 @@ export const deploy = addTargetOptions(
 			p.outro(`${pc.cyan('vela status')} to see what is running`);
 		}, 'Failed to deploy.')
 	);
+
+/**
+ * Point out an `appURL` that no longer matches the domain being deployed to.
+ *
+ * `appURL` is seeded once and belongs to the deployed admin panel from then on,
+ * which is deliberate — it is how an app serves one canonical domain while being
+ * deployed to another. That also makes it the one setting that can quietly go
+ * stale after a domain change, taking password-reset emails and every other link
+ * PocketBase renders with it. Reported rather than corrected, so the override
+ * keeps working.
+ */
+async function reportAppURLDrift(
+	session: SshSession,
+	instance: string,
+	domain: string
+): Promise<void> {
+	const expected = normalizeOrigin(domain);
+	if (!expected) return;
+
+	const current = await readRemoteAppURL(session, instance);
+	if (!current || normalizeOrigin(current) === expected) return;
+
+	p.log.warn(
+		`This app's PocketBase ${pc.cyan('appURL')} is ${pc.dim(current)}, but it is served on ${pc.dim(expected)}.\n\n` +
+			`Emails and anything else PocketBase links to will use the former. Update it in\n` +
+			`the admin panel if that is not deliberate.`
+	);
+}
 
 /**
  * Give a database this deploy created the branding the project already has.

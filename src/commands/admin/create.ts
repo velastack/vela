@@ -97,7 +97,7 @@ async function upsertSuperuser(pb: PocketBase, email: string, password: string):
 	const existing = await findSuperuser(pb, email);
 	if (existing) {
 		const confirmed = await p.confirm({
-			message: `${email} can already sign in. Reset its password?`,
+			message: `${email} already has an account, update its password?`,
 			initialValue: false
 		});
 		if (p.isCancel(confirmed) || !confirmed) {
@@ -105,7 +105,7 @@ async function upsertSuperuser(pb: PocketBase, email: string, password: string):
 			process.exit(0);
 		}
 		await pb.collection('_superusers').update(existing, { password, passwordConfirm: password });
-		p.log.success(`Password reset for ${pc.cyan(email)}`);
+		p.log.success(`Password updated for ${pc.cyan(email)}, you can sign in now`);
 		return;
 	}
 
