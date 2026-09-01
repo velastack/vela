@@ -3,7 +3,7 @@ import * as p from '@clack/prompts';
 import { bySlug, type Slug } from '@velastack/patterns';
 import { withPocketbase } from './pocketbase.ts';
 import { getWorkspace } from './workspace.ts';
-import { reportResult } from './result-report.ts';
+import { reportResult, type ReportFailure } from './result-report.ts';
 
 export interface PatternReport {
 	summary?: string;
@@ -18,6 +18,23 @@ export interface PatternReport {
 function toRelative(root: string, filePath: string): string {
 	return path.isAbsolute(filePath) ? path.relative(root, filePath) : filePath;
 }
+
+/**
+ * What a pattern hands back for one file.
+ *
+ * A modifier that refuses to touch a file it doesn't recognise reports
+ * `failed` / `not-found` plus a remediation snippet. Those entries are new
+ * here: `writeResult` used to drop them, so a partial application was reported
+ * as a clean success and the snippet was never seen. Partitioning on `status`
+ * is what keeps a failure out of the "created"/"modified" lists.
+ */
+interface ResultFile {
+	path: string;
+	status?: 'success' | 'failed' | 'not-found';
+	message?: string;
+}
+
+const isSuccess = (f: ResultFile) => (f.status ?? 'success') === 'success';
 
 export async function runPattern(
 	slug: Slug,
@@ -62,27 +79,45 @@ export async function runPattern(
 	}
 
 	const rel = (f: string) => toRelative(workspaceRootDir, f);
+
+	const files: ResultFile[] = [...result.creates, ...result.modifies, ...result.deletes];
+	const failures: ReportFailure[] = files
+		.filter((f) => !isSuccess(f))
+		.map((f) => ({
+			path: rel(f.path),
+			status: f.status === 'not-found' ? 'not-found' : 'failed',
+			message: f.message
+		}));
+
+	const created = result.creates.filter(isSuccess);
+	const modified = result.modifies.filter(isSuccess);
+	const deleted = result.deletes.filter(isSuccess);
+
 	const totalChanges =
-		result.creates.length +
-		result.modifies.length +
-		result.deletes.length +
+		created.length +
+		modified.length +
+		deleted.length +
 		result.components.length +
 		result.packages.length +
 		result.collections.length;
 
-	if (totalChanges === 0) {
+	// A run that only produced failures still has something to say.
+	if (totalChanges === 0 && failures.length === 0) {
 		p.log.info(`${pattern.title ?? slug} produced no changes.`);
 		return;
 	}
 
 	reportResult({
 		summary: report.summary ?? `Applied ${pattern.title ?? slug}.`,
-		filesCreated: result.creates.map((f: { path: string }) => rel(f.path)),
-		filesModified: result.modifies.map((f: { path: string }) => rel(f.path)),
-		filesDeleted: result.deletes.map((f: { path: string }) => rel(f.path)),
+		filesCreated: created.map((f: { path: string }) => rel(f.path)),
+		filesModified: modified.map((f: { path: string }) => rel(f.path)),
+		filesDeleted: deleted.map((f: { path: string }) => rel(f.path)),
 		componentsAdded: result.components,
 		packagesInstalled: result.packages,
 		collectionsAdded: result.collections.map((c: { name: string }) => c.name),
-		nextSteps: report.nextSteps
+		failures,
+		// Next steps assume the pattern applied; when part of it didn't, the
+		// remediation snippets above are the actual next step.
+		nextSteps: failures.length > 0 ? undefined : report.nextSteps
 	});
 }
