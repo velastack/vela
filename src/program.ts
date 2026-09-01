@@ -43,6 +43,7 @@ import { routes } from './commands/routes.ts';
 import { i18n } from './commands/i18n.ts';
 import { oauth } from './commands/oauth.ts';
 import { schemas } from './commands/schemas.ts';
+import { cms } from './commands/cms.ts';
 
 /**
  * Commands that never touch the database, whether or not the project has one.
@@ -60,6 +61,9 @@ const NO_BACKEND_COMMMANDS = new Set([
 	'i18n',
 	'generate schema',
 	'generate form',
+	// The CMS keeps its own SQLite database and editors; PocketBase is never involved.
+	'enable cms',
+	'cms',
 	// Server commands talk to a VPS over SSH, never to the local database.
 	'provision',
 	'env',
@@ -176,7 +180,8 @@ for (const command of [
 	routes,
 	i18n,
 	oauth,
-	schemas
+	schemas,
+	cms
 ]) {
 	program.addCommand(command);
 }

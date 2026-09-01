@@ -14,6 +14,7 @@ export interface Features {
 	payments: boolean;
 	blog: boolean;
 	contentNegotiation: boolean;
+	cms: boolean;
 }
 
 export interface Workspace {
@@ -124,10 +125,11 @@ function detectFeatures(
 		api: has('src/routes/api'),
 		apiKeys: has('src/routes/api/api-keys') || has('src/routes/(app)/api-keys'),
 		backend: has(DATA_DIR),
-		i18n: has('src/lib/i18n') || has('messages'),
+		i18n: has('wuchale.config.js') || hasDep('wuchale'),
 		teams: has('src/routes/(app)/teams') || has('src/lib/teams'),
 		payments: isPaymentsMode,
 		blog: hasDep('mdsvex'),
-		contentNegotiation: hasDep('sveltekit-negotiate')
+		contentNegotiation: hasDep('sveltekit-negotiate'),
+		cms: hasDep('@velastack/cms')
 	};
 }

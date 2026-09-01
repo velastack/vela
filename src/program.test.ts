@@ -34,7 +34,8 @@ const EXPECTED_COMMANDS = [
 	'routes',
 	'i18n',
 	'oauth',
-	'schemas'
+	'schemas',
+	'cms'
 ];
 
 const EXPECTED_GENERATE_SUBCOMMANDS = ['form', 'schema', 'resource', 'scaffold', 'migration'];
@@ -58,6 +59,8 @@ const EXPECTED_ENV_SUBCOMMANDS = ['list', 'set', 'unset', 'import'];
 const EXPECTED_DESTROY_SUBCOMMANDS = ['form', 'schema', 'resource', 'scaffold', 'deployment'];
 
 const EXPECTED_BACKUP_SUBCOMMANDS = ['create', 'list', 'download', 'delete', 'schedule'];
+
+const EXPECTED_CMS_EDITOR_SUBCOMMANDS = ['add', 'password', 'list'];
 
 describe('program registration', () => {
 	test('every top-level command is registered', () => {
@@ -103,6 +106,15 @@ describe('program registration', () => {
 		const enable = program.commands.find((c) => c.name() === 'enable')!;
 		const names = enable.commands.map((c) => c.name());
 		for (const expected of EXPECTED_ENABLE_SUBCOMMANDS) {
+			expect(names).toContain(expected);
+		}
+	});
+
+	test('cms editor registers its subcommands', () => {
+		const cms = program.commands.find((c) => c.name() === 'cms')!;
+		const editor = cms.commands.find((c) => c.name() === 'editor')!;
+		const names = editor.commands.map((c) => c.name());
+		for (const expected of EXPECTED_CMS_EDITOR_SUBCOMMANDS) {
 			expect(names).toContain(expected);
 		}
 	});
