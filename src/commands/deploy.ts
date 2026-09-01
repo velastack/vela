@@ -344,6 +344,30 @@ async function openDatabaseTunnel(
 	const localPort = await findFreePort('127.0.0.1');
 	await session.forwardLocalPort(localPort, '127.0.0.1', pbPort);
 
+	// Having credentials is not the same as having ones the database accepts, and
+	// the difference is invisible until the build is already running: the app
+	// renders every page as an unauthenticated 500, and the deploy dies as
+	// `[500] GET /` with nothing naming the cause.
+	//
+	// The two drift whenever the superuser password is changed in the admin panel,
+	// because `$ETC/env` is what a deploy reconciles the database against, and
+	// that reconciliation happens in `apply.sh` — after this build. So the first
+	// deploy after such a change cannot repair itself; it fails here instead, and
+	// this is where it has to be explained.
+	if (!(await superuserAuthenticates(localPort, email, password))) {
+		await session.cancelForward(localPort, '127.0.0.1', pbPort);
+		throw new Error(
+			`${instance} does not accept the superuser credentials in its own environment.\n\n` +
+				`They are what \`--remote-db\` renders the build as. The usual cause is a password\n` +
+				`changed in the PocketBase admin panel, which leaves the database and\n` +
+				`${pc.cyan(`/etc/vela/apps/${instance}/env`)} disagreeing.\n\n` +
+				`Point the environment at the password the database has:\n` +
+				`  ${pc.cyan('vela env set POCKETBASE_SUPERUSER_PASSWORD')}\n\n` +
+				`or build against a throwaway local database instead:\n` +
+				`  ${pc.cyan('vela deploy --no-remote-db')}`
+		);
+	}
+
 	return {
 		pbPort,
 		env: {
@@ -353,6 +377,34 @@ async function openDatabaseTunnel(
 		},
 		close: () => session.cancelForward(localPort, '127.0.0.1', pbPort)
 	};
+}
+
+/**
+ * Whether the instance's own superuser credentials sign in to its database.
+ *
+ * A plain request rather than a PocketBase client: this runs before the build,
+ * and all it needs to know is whether the password is the one on record.
+ */
+async function superuserAuthenticates(
+	port: number,
+	identity: string,
+	password: string
+): Promise<boolean> {
+	try {
+		const response = await fetch(
+			`http://127.0.0.1:${port}/api/collections/_superusers/auth-with-password`,
+			{
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ identity, password })
+			}
+		);
+		return response.ok;
+	} catch {
+		// Unreachable is not the same as unauthorized, and the tunnel has its own
+		// failure modes. Let the build proceed and report whatever it finds.
+		return true;
+	}
 }
 
 async function uploadRelease(
