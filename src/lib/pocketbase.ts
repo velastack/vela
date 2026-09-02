@@ -227,9 +227,10 @@ export async function launchPocketbase(
 	{
 		dir,
 		migrationsDir,
+		hooksDir,
 		email,
 		password
-	}: { dir: string; migrationsDir: string; email: string; password: string }
+	}: { dir: string; migrationsDir: string; hooksDir?: string; email: string; password: string }
 ) {
 	const host = 'localhost';
 	fs.mkdirSync(dir, { recursive: true });
@@ -260,6 +261,7 @@ export async function launchPocketbase(
 	const { proc, url } = await startPocketbaseServe({
 		dataDir: dir,
 		migrationsDir,
+		hooksDir,
 		host,
 		stdio: 'pipe'
 	});
