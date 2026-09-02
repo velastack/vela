@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
@@ -84,6 +85,16 @@ export async function withCmsBackend<T>(
 	}
 
 	const { createCmsBackend } = await loadBackendModule(root);
+
+	// These commands manage the editors of a backend this app hosts. A project
+	// that reads from a hosted CMS has none here; its editors live with the host.
+	if (!fs.existsSync(path.join(root, 'src', 'lib', 'server', 'cms.ts'))) {
+		throw new Error(
+			`This project does not host a CMS backend (no src/lib/server/cms.ts).\n\n` +
+				`If it reads from a hosted CMS, manage its editors there. ` +
+				`To host the backend in this app, run ${pc.cyan('vela enable cms')} without --endpoint.`
+		);
+	}
 	const dataDir = localDataDir(root);
 	// A missing driver throws a message naming better-sqlite3 and how to
 	// install it, which is exactly what should be shown.
