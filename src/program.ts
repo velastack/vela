@@ -86,6 +86,12 @@ const NO_BACKEND_COMMMANDS = new Set([
  */
 const BACKEND_OPTIONAL_COMMANDS = new Set(['dev', 'build', 'preview', 'deploy']);
 
+/**
+ * Commands that create their own superuser for a throwaway database, so the
+ * credentials in `.env` are never read.
+ */
+const SELF_CREDENTIALED_COMMANDS = new Set(['test:server']);
+
 export const program = new Command()
 	.name(pkg.name)
 	.description(pkg.description)
@@ -121,6 +127,8 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 		p.cancel('Operation failed.');
 		process.exit(1);
 	}
+
+	if (SELF_CREDENTIALED_COMMANDS.has(path)) return;
 
 	if (!process.env.POCKETBASE_SUPERUSER_EMAIL || !process.env.POCKETBASE_SUPERUSER_PASSWORD) {
 		p.log.error(

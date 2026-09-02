@@ -12,10 +12,15 @@ import { runCommand } from '../../lib/run.ts';
 import { withPocketbase } from '../../lib/pocketbase.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
 import { dependencyOrder } from '../../lib/collections.ts';
-import { FIXTURE_PREFIX } from '../../lib/constants.ts';
+import { DATA_DIR, FIXTURE_PREFIX } from '../../lib/constants.ts';
 import { reportResult } from '../../lib/result-report.ts';
-import { clearFixtures } from './clear.ts';
-import { getFixtureFiles } from './load.ts';
+import {
+	clearFixtures,
+	dataDir,
+	getFixtureFiles,
+	hasLoadedFixtures,
+	readSeedIds
+} from '../../lib/data.ts';
 
 const SKIP_TYPES = new Set(['autodate', 'file', 'relation']);
 const AUTH_OVERRIDE_FIELDS = ['email', 'password', 'passwordConfirm', 'tokenKey'];
@@ -38,20 +43,6 @@ function parseSeed(value: string): number {
 		throw new InvalidArgumentError('seed must be an integer');
 	}
 	return n;
-}
-
-export async function hasLoadedFixtures(pb: PocketBase): Promise<boolean> {
-	const fullList = await pb.collections.getFullList();
-	for (const collection of fullList) {
-		if (collection.name.startsWith('_')) continue;
-		const shortName = collection.name.slice(0, 6);
-		const page = await pb.collection(collection.name).getList(1, 1, {
-			filter: `id ~ "${FIXTURE_PREFIX}${shortName}%"`,
-			fields: 'id'
-		});
-		if (page.totalItems > 0) return true;
-	}
-	return false;
 }
 
 type CollectionSummary = Parameters<typeof collectionToJsonSchema>[0];
@@ -82,7 +73,7 @@ export async function generateFixtureFiles(
 	workspaceRootDir: string,
 	opts: GenerateFixturesOptions
 ): Promise<GenerateFixturesResult> {
-	const fixturesDir = path.join(workspaceRootDir, 'data', 'fixtures');
+	const fixturesDir = dataDir(workspaceRootDir, 'fixtures');
 	fs.mkdirSync(fixturesDir, { recursive: true });
 	for (const file of fs.readdirSync(fixturesDir)) {
 		if (file.endsWith('.json')) fs.unlinkSync(path.join(fixturesDir, file));
@@ -99,8 +90,13 @@ export async function generateFixtureFiles(
 	const eligible = collections.filter((c) => !c.name.startsWith('_') && c.type !== 'view');
 	const { ids } = dependencyOrder(eligible);
 
+	// Fixtures load after seeds, so a relation may point at a seeded record —
+	// the seeded plans and roles are exactly what fixture rows should refer to.
+	const seedIds = readSeedIds(workspaceRootDir);
 	const recordIds = new Map<string, string[]>();
-	ids.forEach((id) => recordIds.set(id, []));
+	for (const collection of eligible) {
+		recordIds.set(collection.id, [...(seedIds.get(collection.name) ?? [])]);
+	}
 
 	const writtenFiles: string[] = [];
 	const warnings: string[] = [];
@@ -116,7 +112,7 @@ export async function generateFixtureFiles(
 				const target = collections.find((c) => c.id === f.collectionId);
 				const targetLabel = target?.name ?? f.collectionId ?? '<unknown>';
 				warnings.push(
-					`${collection.name}.${f.name} requires a ${targetLabel} record, but none were generated yet`
+					`${collection.name}.${f.name} requires a ${targetLabel} record, but there are none in seeds or generated fixtures yet`
 				);
 			}
 		}
@@ -165,7 +161,7 @@ export async function generateFixtureFiles(
 
 		const filename = `${padZeros(fileIndex, 2)}-${collection.name}.json`;
 		fs.writeFileSync(path.join(fixturesDir, filename), JSON.stringify(items, null, 2));
-		writtenFiles.push(`${path.join('data', 'fixtures', filename)} (${items.length} records)`);
+		writtenFiles.push(`${path.join(DATA_DIR, 'fixtures', filename)} (${items.length} records)`);
 		fileIndex++;
 	}
 

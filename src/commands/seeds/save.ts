@@ -7,7 +7,8 @@ import { withPocketbase } from '../../lib/pocketbase.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
 import { dependencyOrder } from '../../lib/collections.ts';
 import { reportResult } from '../../lib/result-report.ts';
-import { getSeedFiles } from './load.ts';
+import { DATA_DIR } from '../../lib/constants.ts';
+import { dataDir, getSeedFiles } from '../../lib/data.ts';
 
 const padZeros = (num: number, length: number) => num.toString().padStart(length, '0');
 
@@ -31,7 +32,7 @@ export const save = new Command('save')
 	.action((opts: { force?: boolean }) =>
 		runCommand(async () => {
 			const { workspaceRootDir } = await getWorkspace();
-			const seedsPath = path.join(workspaceRootDir, 'data', 'seeds');
+			const seedsPath = dataDir(workspaceRootDir, 'seeds');
 
 			const existing = getSeedFiles(workspaceRootDir);
 			if (existing.length > 0 && !opts.force) {
@@ -78,7 +79,7 @@ export const save = new Command('save')
 					);
 
 					const relativeSeedPath = path.join(
-						'data',
+						DATA_DIR,
 						'seeds',
 						`${padZeros(count, 2)}-${collectionName}.json`
 					);

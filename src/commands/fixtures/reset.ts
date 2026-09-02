@@ -4,8 +4,7 @@ import { runCommand } from '../../lib/run.ts';
 import { withPocketbase } from '../../lib/pocketbase.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
 import { reportResult } from '../../lib/result-report.ts';
-import { clearFixtures } from './clear.ts';
-import { loadFixtures } from './load.ts';
+import { clearFixtures, loadFixtures } from '../../lib/data.ts';
 
 export const reset = new Command('reset')
 	.description('clear and reload fixtures')

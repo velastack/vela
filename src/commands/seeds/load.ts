@@ -1,27 +1,10 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { Command } from 'commander';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { withPocketbase } from '../../lib/pocketbase.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
 import { reportResult } from '../../lib/result-report.ts';
-
-export function getSeedFiles(cwd: string): Array<{ collectionName: string; seedPath: string }> {
-	const seedsDir = path.join(cwd, 'data', 'seeds');
-	if (!fs.existsSync(seedsDir)) return [];
-	return fs
-		.readdirSync(seedsDir)
-		.filter((file) => file.endsWith('.json'))
-		.map((file) => path.join(seedsDir, file))
-		.sort((a, b) => a.localeCompare(b))
-		.map((seedPath) => {
-			const file = path.basename(seedPath);
-			const nameWithoutExt = file.replace(/\.json$/i, '');
-			const collectionName = nameWithoutExt.replace(/^\d+[-_]?/, '');
-			return { collectionName, seedPath };
-		});
-}
+import { getSeedFiles, loadSeeds } from '../../lib/data.ts';
 
 export const load = new Command('load')
 	.description('load seeds into the database')
@@ -40,7 +23,7 @@ export const load = new Command('load')
 				return;
 			}
 
-			const loaded: string[] = [];
+			let loaded: string[] = [];
 
 			await withPocketbase(workspaceRootDir, async (pb) => {
 				if (!opts.force) {
@@ -54,15 +37,7 @@ export const load = new Command('load')
 					}
 				}
 
-				for (const { collectionName, seedPath } of seedFiles) {
-					const seeds = JSON.parse(fs.readFileSync(seedPath, 'utf8')) as Array<
-						Record<string, unknown>
-					>;
-					for (const seed of seeds) {
-						await pb.collection(collectionName).create(seed);
-					}
-					loaded.push(`${path.relative(workspaceRootDir, seedPath)} (${seeds.length} records)`);
-				}
+				loaded = await loadSeeds(pb, workspaceRootDir, seedFiles);
 			});
 
 			reportResult({
