@@ -9,6 +9,7 @@ import { resolveCommand } from 'package-manager-detector/commands';
 import fs from 'node:fs';
 import { helpConfig } from '../lib/help.ts';
 import { authWithRetries, findFreePort, launchPocketbase } from '../lib/pocketbase.ts';
+import { DATA_DIR } from '../lib/constants.ts';
 import { loadVite } from '../lib/vite.ts';
 import type { Plugin } from 'vite';
 
@@ -28,6 +29,10 @@ export const testServer = new Command('test:server')
 		const { stop, url } = await launchPocketbase(cwd, {
 			dir: testDataDir,
 			migrationsDir: path.join(cwd, 'migrations'),
+			// The app's PocketBase hooks (slug generation, personal teams, …) are part
+			// of its behaviour; the suite runs against the same server dev and build
+			// start, so it loads them from the same place.
+			hooksDir: path.join(cwd, DATA_DIR, 'hooks'),
 			email,
 			password
 		});
