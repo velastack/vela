@@ -28,6 +28,9 @@ vela generate scaffold post title:text body:editor   # model, forms, list and de
 vela migrate up                                      # schema, versioned and in git
 vela ui add button card dialog                       # shadcn-svelte components, into your project
 vela ui add data-table multiselect                   # vela's own components, same command
+vela ui list                                         # what's installed, what vela ships, what the registry offers
+vela ui style nova                                   # switch shadcn-svelte style, re-adding its components
+vela ui base zinc                                    # base palette; `vela ui theme blue` for an accent
 ```
 
 Changed your mind? `vela destroy` and `vela disable` take it back out.

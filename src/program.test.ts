@@ -62,7 +62,7 @@ const EXPECTED_BACKUP_SUBCOMMANDS = ['create', 'list', 'download', 'delete', 'sc
 
 const EXPECTED_CMS_EDITOR_SUBCOMMANDS = ['add', 'password', 'list'];
 
-const EXPECTED_UI_SUBCOMMANDS = ['add', 'base'];
+const EXPECTED_UI_SUBCOMMANDS = ['add', 'list', 'style', 'base', 'theme'];
 
 describe('program registration', () => {
 	test('every top-level command is registered', () => {
@@ -129,6 +129,14 @@ describe('program registration', () => {
 		}
 		const add = ui.commands.find((c) => c.name() === 'add')!;
 		expect(add.options.map((o) => o.long)).toContain('--overwrite');
+		// A style switch replaces files, so it confirms unless told not to, and
+		// the font is opt-out because it is most of what makes a style look right.
+		const style = ui.commands.find((c) => c.name() === 'style')!;
+		expect(style.options.map((o) => o.long)).toEqual(
+			expect.arrayContaining(['--yes', '--no-font'])
+		);
+		const list = ui.commands.find((c) => c.name() === 'list')!;
+		expect(list.options.map((o) => o.long)).toContain('--json');
 	});
 
 	test('migrate registers all subcommands', () => {

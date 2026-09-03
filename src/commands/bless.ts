@@ -21,7 +21,7 @@ import {
 import pkg from '../../package.json' with { type: 'json' };
 import { createSuperuser } from '../lib/pocketbase.ts';
 import { writeEnvFile } from '../lib/env.ts';
-import { ensureShadcnVariants } from '../lib/app-css.ts';
+import { ensureShadcnImport } from '../lib/app-css.ts';
 import { componentsJsonHints, readComponentsJson } from '../lib/components-json.ts';
 import {
 	mergePackageJson,
@@ -76,7 +76,7 @@ const VELA_ONLY_FILES: VelaFile[] = [
 	},
 	{
 		path: 'src/app.css',
-		adds: "vela's Tailwind imports, theme tokens and the shadcn-svelte variants"
+		adds: "vela's Tailwind imports, theme tokens and the shadcn-svelte/tailwind.css import"
 	},
 	{ path: 'src/lib/index.ts', adds: 'a $lib placeholder comment' },
 	{ path: 'src/lib/utils.ts', adds: 'the cn helper and the component type utilities' },
@@ -191,12 +191,14 @@ async function blessProject(cwdArg: string | undefined, options: Options) {
 }
 
 /**
- * A kept `src/app.css` predates the shadcn-svelte variants block the template
- * carries; the registry components `vela ui add` installs need it.
+ * A kept `src/app.css` predates the `shadcn-svelte/tailwind.css` import the
+ * template carries; the registry components `vela ui add` installs need it.
  */
 function ensureShadcnCss(projectPath: string) {
-	if (ensureShadcnVariants(path.join(projectPath, 'src', 'app.css'))) {
-		p.log.info('src/app.css: added the shadcn-svelte variants its registry components rely on.');
+	if (ensureShadcnImport(path.join(projectPath, 'src', 'app.css'))) {
+		p.log.info(
+			'src/app.css: added the shadcn-svelte/tailwind.css import its registry components rely on.'
+		);
 	}
 }
 

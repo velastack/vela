@@ -1,70 +1,39 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { Command, InvalidArgumentError } from 'commander';
+import { Command } from 'commander';
+import * as p from '@clack/prompts';
+import { applyBaseColor } from '@velastack/patterns';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
 import { reportResult } from '../../lib/result-report.ts';
-import { templatesDir } from '../../lib/templates.ts';
-
-const VALID_COLORS = ['slate', 'gray', 'zinc', 'stone', 'neutral'] as const;
-type BaseColor = (typeof VALID_COLORS)[number];
-
-function findThemeFile(color: BaseColor): string {
-	const candidate = path.join(templatesDir(), 'ui', 'css', `${color}.css`);
-	if (!fs.existsSync(candidate)) {
-		throw new Error(`Theme file not found for color: ${color}`);
-	}
-	return candidate;
-}
-
-function extractSelectors(css: string): { root: string; dark: string } {
-	const rootMatch = css.match(/:root\s*{[^}]*}/);
-	const darkMatch = css.match(/\.dark\s*{[^}]*}/);
-	if (!rootMatch || !darkMatch) {
-		throw new Error('Invalid theme file: missing :root or .dark selector');
-	}
-	return { root: rootMatch[0], dark: darkMatch[0] };
-}
-
-function applyTheme(appCss: string, selectors: { root: string; dark: string }): string {
-	let out = appCss;
-	out = out.match(/:root\s*{[^}]*}/)
-		? out.replace(/:root\s*{[^}]*}/, selectors.root)
-		: `${selectors.root}\n\n${out}`;
-	out = out.match(/\.dark\s*{[^}]*}/)
-		? out.replace(/\.dark\s*{[^}]*}/, selectors.dark)
-		: `${out}\n\n${selectors.dark}`;
-	return out;
-}
+import { BASE_COLORS } from '../../lib/ui-add.ts';
 
 export const base = new Command('base')
-	.description('change the base color')
-	.argument('<color>', 'base color to use', (value) => {
-		if (!(VALID_COLORS as readonly string[]).includes(value)) {
-			throw new InvalidArgumentError(`Valid colors are: ${VALID_COLORS.join(', ')}`);
-		}
-		return value as BaseColor;
-	})
+	.description('change the base (gray) palette')
+	.argument('<color>', `base color to use (${BASE_COLORS.join(', ')})`)
 	.configureHelp(helpConfig)
-	.action((color: BaseColor) =>
+	.action((color: string) =>
 		runCommand(async () => {
 			const { workspaceRootDir } = await getWorkspace();
-			const appCssPath = path.join(workspaceRootDir, 'src', 'app.css');
-			if (!fs.existsSync(appCssPath)) {
-				throw new Error(`Could not find ${path.relative(workspaceRootDir, appCssPath)}`);
+
+			// The palette is what `shadcn-svelte apply --only theme` produces for
+			// the project's own style, so the tokens never need hand-maintenance.
+			// The accepted colors come from the installed shadcn-svelte.
+			const log = p.taskLog({ title: `Applying the ${color} palette...` });
+			let outcome;
+			try {
+				outcome = await applyBaseColor({ root: workspaceRootDir, color });
+				log.success('Palette applied');
+			} catch (e) {
+				log.error('Could not change the base color');
+				throw e;
 			}
 
-			const themeContent = fs.readFileSync(findThemeFile(color), 'utf8');
-			const selectors = extractSelectors(themeContent);
-			const appCss = fs.readFileSync(appCssPath, 'utf8');
-			fs.writeFileSync(appCssPath, applyTheme(appCss, selectors));
-
 			reportResult({
-				summary: `Set base color to ${color}.`,
-				filesModified: [path.relative(workspaceRootDir, appCssPath)],
+				summary: `Set base color to ${outcome.baseColor}.`,
+				filesModified: outcome.filesModified,
 				nextSteps: [
 					'Run your dev server to preview the new palette.',
+					'Run `vela ui theme <accent>` to put an accent color on top of it.',
 					'Tweak individual CSS variables in src/app.css if you want to customize the theme further.'
 				]
 			});

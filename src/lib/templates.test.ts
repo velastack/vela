@@ -14,14 +14,6 @@ describe('templatesDir', () => {
 	test('resolves the packaged templates directory', () => {
 		expect(fs.existsSync(templatesDir())).toBe(true);
 	});
-
-	test('holds the ui theme files `vela ui base` reads', () => {
-		expect(fs.existsSync(path.join(templatesDir(), 'ui', 'css', 'slate.css'))).toBe(true);
-	});
-
-	test('holds the shadcn variants block `vela bless` appends', () => {
-		expect(fs.existsSync(path.join(templatesDir(), 'ui', 'css', 'shadcn-variants.css'))).toBe(true);
-	});
 });
 
 describe('listProjectTemplates', () => {
@@ -29,10 +21,10 @@ describe('listProjectTemplates', () => {
 		expect(listProjectTemplates().map((t) => t.name)).toEqual(['minimal', 'static']);
 	});
 
-	// `templates/ui` holds shadcn theme files, not a scaffoldable project.
+	// `templates/server` holds the provisioning scripts, not a scaffoldable project.
 	test('ignores template directories without a manifest', () => {
-		expect(fs.existsSync(path.join(templatesDir(), 'ui'))).toBe(true);
-		expect(listProjectTemplates().map((t) => t.name)).not.toContain('ui');
+		expect(fs.existsSync(path.join(templatesDir(), 'server'))).toBe(true);
+		expect(listProjectTemplates().map((t) => t.name)).not.toContain('server');
 	});
 
 	test('every template describes itself', () => {
