@@ -1,6 +1,6 @@
 {
 	"name": "vela",
-	"version": "0.10.13",
+	"version": "0.10.14",
 	"type": "module",
 	"description": "A CLI for creating and updating SvelteKit projects",
 	"license": "MIT",
