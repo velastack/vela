@@ -15,7 +15,7 @@ That's a running app with a database behind it. No separate PocketBase install, 
 ## What you get
 
 - **A backend on day one.** PocketBase, migrated and running locally, with types synced from your schema as it changes.
-- **Auth, payments, teams, email, i18n** — one command each, generated into your project as code you own.
+- **Auth, payments, teams, notifications, email, i18n** — one command each, generated into your project as code you own.
 - **CRUD you didn't write.** `vela generate scaffold post title:text body:editor` gives you the model, schema, forms, and pages.
 - **Describe it instead.** Pass `--ai "a blog post with tags and a cover image"` and review the collection it designs before anything is written.
 - **shadcn-svelte components** on tap, and fixtures and seeds for realistic data while you work.

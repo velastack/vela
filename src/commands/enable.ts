@@ -8,6 +8,7 @@ import { i18n } from './enable/i18n.ts';
 import { teams } from './enable/teams.ts';
 import { payments } from './enable/payments.ts';
 import { subscriptions } from './enable/subscriptions.ts';
+import { notifications } from './enable/notifications.ts';
 import { s3 } from './enable/s3.ts';
 import { smtp } from './enable/smtp.ts';
 import { cms } from './enable/cms.ts';
@@ -26,6 +27,7 @@ export const enable = new Command('enable')
 	.addCommand(teams)
 	.addCommand(payments)
 	.addCommand(subscriptions)
+	.addCommand(notifications)
 	.addCommand(s3)
 	.addCommand(smtp)
 	.addCommand(cms)

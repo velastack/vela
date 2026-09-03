@@ -47,6 +47,8 @@ const EXPECTED_ENABLE_SUBCOMMANDS = [
 	'i18n',
 	'teams',
 	'payments',
+	'subscriptions',
+	'notifications',
 	's3',
 	'smtp',
 	'cms'
