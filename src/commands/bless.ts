@@ -21,6 +21,8 @@ import {
 import pkg from '../../package.json' with { type: 'json' };
 import { createSuperuser } from '../lib/pocketbase.ts';
 import { writeEnvFile } from '../lib/env.ts';
+import { ensureShadcnVariants } from '../lib/app-css.ts';
+import { componentsJsonHints, readComponentsJson } from '../lib/components-json.ts';
 import {
 	mergePackageJson,
 	readPackageJson,
@@ -72,10 +74,16 @@ const VELA_ONLY_FILES: VelaFile[] = [
 		path: 'src/hooks.server.ts',
 		adds: 'the handlePocketbase hook — the backend is not wired up without it'
 	},
-	{ path: 'src/app.css', adds: "vela's Tailwind imports and theme tokens" },
+	{
+		path: 'src/app.css',
+		adds: "vela's Tailwind imports, theme tokens and the shadcn-svelte variants"
+	},
 	{ path: 'src/lib/index.ts', adds: 'a $lib placeholder comment' },
 	{ path: 'src/lib/utils.ts', adds: 'the cn helper and the component type utilities' },
-	{ path: 'components.json', adds: 'the shadcn-svelte config that `vela ui add` reads' },
+	{
+		path: 'components.json',
+		adds: 'the shadcn-svelte config (vega style, lucide icons) that `vela ui add` reads'
+	},
 	{ path: '.npmrc', adds: 'engine-strict=true' },
 	{ path: '.ignore', adds: 'search ignores for generated files' }
 ];
@@ -143,6 +151,8 @@ async function blessProject(cwdArg: string | undefined, options: Options) {
 
 	mergeDependencies(projectPath, templateDir);
 	copyVelaOnlyFiles(templateDir, projectPath);
+	ensureShadcnCss(projectPath);
+	hintComponentsJson(projectPath);
 	mergeConfigFiles(projectPath);
 	mergeAppDts(templateDir, projectPath);
 	maybeReplaceRoutes(projectPath, templateDir, options);
@@ -178,6 +188,23 @@ async function blessProject(cwdArg: string | undefined, options: Options) {
 	p.log.success('PocketBase initialized');
 
 	printNextSteps(projectPath, packageManager);
+}
+
+/**
+ * A kept `src/app.css` predates the shadcn-svelte variants block the template
+ * carries; the registry components `vela ui add` installs need it.
+ */
+function ensureShadcnCss(projectPath: string) {
+	if (ensureShadcnVariants(path.join(projectPath, 'src', 'app.css'))) {
+		p.log.info('src/app.css: added the shadcn-svelte variants its registry components rely on.');
+	}
+}
+
+/** A kept `components.json` is left alone, but a missing style is worth knowing about. */
+function hintComponentsJson(projectPath: string) {
+	const config = readComponentsJson(projectPath);
+	if (!config) return;
+	for (const hint of componentsJsonHints(config)) p.log.warn(hint);
 }
 
 function resolveProjectPath(cwdArg: string): string {

@@ -18,6 +18,10 @@ describe('templatesDir', () => {
 	test('holds the ui theme files `vela ui base` reads', () => {
 		expect(fs.existsSync(path.join(templatesDir(), 'ui', 'css', 'slate.css'))).toBe(true);
 	});
+
+	test('holds the shadcn variants block `vela bless` appends', () => {
+		expect(fs.existsSync(path.join(templatesDir(), 'ui', 'css', 'shadcn-variants.css'))).toBe(true);
+	});
 });
 
 describe('listProjectTemplates', () => {

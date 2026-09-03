@@ -26,7 +26,8 @@ That's a running app with a database behind it. No separate PocketBase install, 
 vela enable auth                                     # sign-in, sessions, OAuth scaffold
 vela generate scaffold post title:text body:editor   # model, forms, list and detail pages
 vela migrate up                                      # schema, versioned and in git
-vela ui add button card dialog                       # components, into your project
+vela ui add button card dialog                       # shadcn-svelte components, into your project
+vela ui add data-table multiselect                   # vela's own components, same command
 ```
 
 Changed your mind? `vela destroy` and `vela disable` take it back out.

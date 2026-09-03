@@ -1,52 +1,39 @@
 import { Command } from 'commander';
-import { exec, NonZeroExitError } from 'tinyexec';
-import { detect, resolveCommand } from 'package-manager-detector';
+import * as p from '@clack/prompts';
+import { installComponents, type InstallComponentsResult } from '@velastack/patterns';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
 import { reportResult } from '../../lib/result-report.ts';
+import { uiAddReport } from '../../lib/ui-add.ts';
 
 export const add = new Command('add')
-	.description('add ui components')
+	.description('add ui components (shadcn-svelte items and vela components such as data-table)')
 	.argument('<components...>', 'the components to add')
+	.option('--overwrite', 'replace components that already exist', false)
 	.configureHelp(helpConfig)
-	.action((components: string[]) =>
+	.action((components: string[], options: { overwrite: boolean }) =>
 		runCommand(async () => {
 			const { workspaceRootDir } = await getWorkspace();
-			const packageManager = (await detect({ cwd: workspaceRootDir }))?.name ?? 'npm';
-			const resolved = resolveCommand(packageManager, 'execute', [
-				'shadcn-svelte',
-				'add',
-				...components
-			]);
-			if (!resolved) {
-				throw new Error(`Unable to resolve execute command for ${packageManager}`);
-			}
 
-			const args = [...resolved.args];
-			if (packageManager === 'npm') args.unshift('--yes');
-
+			// One installer for patterns and this command: vela's own components
+			// (data-table, multiselect, ...) are copied in, everything else goes to
+			// `shadcn-svelte add`, and the dependencies of both are resolved.
+			const log = p.taskLog({ title: 'Adding UI components...' });
+			let outcome: InstallComponentsResult;
 			try {
-				await exec(resolved.command, args, {
-					nodeOptions: { cwd: workspaceRootDir, stdio: 'inherit' },
-					throwOnError: true
+				outcome = await installComponents({
+					root: workspaceRootDir,
+					components,
+					overwrite: options.overwrite,
+					logger: { info: (message: string) => log.message(message) }
 				});
-			} catch (error) {
-				const typed = error as NonZeroExitError;
-				throw new Error(
-					`Failed to execute '${resolved.command} ${args.join(' ')}': ${typed.message}`,
-					{ cause: typed.output }
-				);
+				log.success('UI components ready');
+			} catch (e) {
+				log.error('Could not add UI components');
+				throw e;
 			}
 
-			reportResult({
-				summary: `Added ${components.length} UI component(s).`,
-				componentsAdded: components,
-				nextSteps: [
-					`Import a component with: import { Button } from '$lib/components/ui/button';`,
-					'Tweak styling in src/lib/components/ui/<component>/*.svelte.',
-					'Run `vela ui base <color>` to change the palette (slate, gray, zinc, stone, neutral).'
-				]
-			});
+			reportResult(uiAddReport(components, outcome));
 		}, 'Failed to add UI components.')
 	);

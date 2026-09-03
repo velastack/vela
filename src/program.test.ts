@@ -62,6 +62,8 @@ const EXPECTED_BACKUP_SUBCOMMANDS = ['create', 'list', 'download', 'delete', 'sc
 
 const EXPECTED_CMS_EDITOR_SUBCOMMANDS = ['add', 'password', 'list'];
 
+const EXPECTED_UI_SUBCOMMANDS = ['add', 'base'];
+
 describe('program registration', () => {
 	test('every top-level command is registered', () => {
 		const names = program.commands.map((c) => c.name());
@@ -117,6 +119,16 @@ describe('program registration', () => {
 		for (const expected of EXPECTED_CMS_EDITOR_SUBCOMMANDS) {
 			expect(names).toContain(expected);
 		}
+	});
+
+	test('ui registers its subcommands and `add` can replace components', () => {
+		const ui = program.commands.find((c) => c.name() === 'ui')!;
+		const names = ui.commands.map((c) => c.name());
+		for (const expected of EXPECTED_UI_SUBCOMMANDS) {
+			expect(names).toContain(expected);
+		}
+		const add = ui.commands.find((c) => c.name() === 'add')!;
+		expect(add.options.map((o) => o.long)).toContain('--overwrite');
 	});
 
 	test('migrate registers all subcommands', () => {

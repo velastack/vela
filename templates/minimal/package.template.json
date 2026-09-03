@@ -15,7 +15,7 @@
 		"test:server": "vela test:server"
 	},
 	"devDependencies": {
-		"@lucide/svelte": "^1.8.0",
+		"@lucide/svelte": "^1.40.0",
 		"@sveltejs/adapter-auto": "^7.0.1",
 		"@sveltejs/kit": "^2.70.3",
 		"@sveltejs/vite-plugin-svelte": "^7.3.0",
@@ -31,7 +31,7 @@
 		"pocketbase-sveltekit": "^0.28.0",
 		"prettier": "^3.9.6",
 		"prettier-plugin-svelte": "^4.1.1",
-		"shadcn-svelte": "^1.2.7",
+		"shadcn-svelte": "^1.6.0",
 		"supertest": "^7.2.2",
 		"svelte": "^5.56.10",
 		"svelte-check": "^4.6.0",
@@ -40,7 +40,7 @@
 		"sveltekit-flash-message": "^2.4.6",
 		"sveltekit-superforms": "^2.30.2",
 		"tailwind-merge": "^3.5.0",
-		"tailwind-variants": "^3.2.2",
+		"tailwind-variants": "^3.3.0",
 		"tailwindcss": "^4.3.3",
 		"tw-animate-css": "^1.3.5",
 		"typescript": "^6.0.3",
