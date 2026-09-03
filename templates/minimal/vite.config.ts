@@ -12,9 +12,7 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 			adapter: adapter(),
-			...(process.env.VELA_ORIGIN
-				? { prerender: { origin: process.env.VELA_ORIGIN } }
-				: {})
+			...(process.env.VELA_ORIGIN ? { prerender: { origin: process.env.VELA_ORIGIN } } : {})
 		})
 	]
 });

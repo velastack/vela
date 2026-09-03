@@ -22,8 +22,9 @@
 			<p class="text-muted-foreground mt-4 text-lg">
 				A SvelteKit app with a PocketBase backend already migrated behind it, and types synced from
 				your schema as it changes. This page is
-				<code class="bg-muted rounded px-1.5 py-0.5 font-mono text-base">src/routes/(public)/+page.svelte</code>,
-				and it is yours to delete.
+				<code class="bg-muted rounded px-1.5 py-0.5 font-mono text-base"
+					>src/routes/(public)/+page.svelte</code
+				>, and it is yours to delete.
 			</p>
 
 			<div class="mt-8 flex items-center justify-center gap-3">
@@ -68,8 +69,8 @@
 			<div class="bg-card text-card-foreground rounded-lg border p-6">
 				<h3 class="font-medium">Your interface</h3>
 				<p class="text-muted-foreground mt-2">
-					shadcn components, copied into your project. Yours to restyle, with no dependency
-					to fight.
+					shadcn components, copied into your project. Yours to restyle, with no dependency to
+					fight.
 				</p>
 				<code
 					class="bg-muted text-muted-foreground mt-4 block overflow-x-auto rounded-md px-3 py-2 font-mono text-xs"
