@@ -81,3 +81,39 @@ describe('findProjectTemplate', () => {
 		expect(() => findProjectTemplate('vue')).toThrow('Template not found: vue');
 	});
 });
+
+describe('package.template.json overrides', () => {
+	// vite lists @vitejs/devtools as an optional peer, and devtools-vitest peers on
+	// vitest@*. npm 10 still walks that peer set and, now that vitest@* resolves to
+	// 5.x, crashes against the template's vitest 4. Pinning every vitest edge to the
+	// root spec keeps npm 10 installs working (npm 11 resolves it on its own).
+	test('minimal pins vitest so npm 10 does not pull vitest 5 via @vitejs/devtools', () => {
+		const pkg = readTemplatePackage('minimal');
+		expect(pkg.overrides?.vitest).toBe(pkg.devDependencies?.vitest);
+	});
+
+	// npm refuses to install when an override for a direct dependency differs from
+	// its declared spec (EOVERRIDE), so bumping one without the other breaks every
+	// `vela create`. A `$vitest` reference would track the spec automatically, but
+	// npm 10 only resolves `$` references against `dependencies`, not
+	// `devDependencies`, so the literal has to be kept in sync by hand.
+	test('every override for a direct dependency matches its declared spec', () => {
+		for (const template of listProjectTemplates()) {
+			const pkg = readTemplatePackage(template.name);
+			for (const [name, spec] of Object.entries(pkg.overrides ?? {})) {
+				const declared = pkg.dependencies?.[name] ?? pkg.devDependencies?.[name];
+				if (declared === undefined) continue;
+				expect(spec, `${template.name}: override for ${name}`).toBe(declared);
+			}
+		}
+	});
+});
+
+function readTemplatePackage(name: string): {
+	dependencies?: Record<string, string>;
+	devDependencies?: Record<string, string>;
+	overrides?: Record<string, string>;
+} {
+	const file = path.join(findProjectTemplate(name).dir, 'package.template.json');
+	return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
