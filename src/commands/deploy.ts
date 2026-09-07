@@ -11,11 +11,13 @@ import { getWorkspace, hasBackend } from '../lib/workspace.ts';
 import { withSsh, type SshSession } from '../lib/ssh.ts';
 import { addSshOptions, SSH_OPTION_SCHEMA, sshOptionsFrom } from '../lib/ssh-options.ts';
 import { writeBinding } from '../lib/deploy-config.ts';
+import { bindingKey } from '../lib/target.ts';
 import { addTargetOptions, withTarget } from '../lib/server-command.ts';
 import { instanceId, normalizeEnvTag, releaseId } from '../lib/instance.ts';
 import { ensureSuperuser, findFreePort, pocketbaseVersion } from '../lib/pocketbase.ts';
 import { readLocalMeta, readRemoteAppURL, seedRemoteMeta } from '../lib/pocketbase-settings.ts';
-import { normalizeOrigin } from '../lib/origin.ts';
+import { normalizeOrigin, splitHosts } from '../lib/origin.ts';
+import { createDeployReporter } from '../lib/deploy-report.ts';
 import { restartInstance } from '../lib/remote-env.ts';
 import {
 	readInstanceStates,
@@ -82,13 +84,16 @@ export const deploy = addTargetOptions(
 						);
 
 						const [existing] = await readInstanceStates(session, instance);
+						const isPreview = ctx.target.kind === 'preview';
 						// The binding outranks the config file: one `deploy.domain` cannot
-						// serve production and staging at once.
-						const domain =
+						// serve production and staging at once. A preview inherits neither —
+						// the binding is shared by every branch and `deploy.domain` is the
+						// live site — only what its own instance already had.
+						const configured =
 							options.domain ??
-							ctx.binding.domain ??
-							config.deploy?.domain ??
-							existing?.domain ??
+							(isPreview
+								? existing?.domain
+								: (ctx.binding.domain ?? config.deploy?.domain ?? existing?.domain)) ??
 							'';
 						// Rendering against the database being deployed to is the default
 						// once there is one to render against. Left off, a build quietly
@@ -97,100 +102,179 @@ export const deploy = addTargetOptions(
 						const askedForRemoteDb = options.remoteDb ?? config.deploy?.buildAgainstRemote;
 						const remoteDb = askedForRemoteDb ?? Boolean(existing?.pbPort);
 
-						if (options.build !== false) {
-							// Prerendering has no request to take an origin from, and the
-							// binding is not written until further down, so a first deploy
-							// learns its domain from here or not at all.
-							const origin = normalizeOrigin(process.env.VELA_ORIGIN ?? domain);
-							let buildEnv: Record<string, string | undefined> = origin
-								? { VELA_ORIGIN: origin }
-								: {};
-							let tunnel: Tunnel | null = null;
+						// Announce the deploy before building. The answer carries the
+						// hostnames velastack.dev has for this environment — including a
+						// managed velastack.app one once the server is registered — and the
+						// build renders its absolute URLs against the primary one.
+						const sha = await gitSha(workspaceRootDir);
+						const reporter = createDeployReporter(workspaceRootDir);
+						const server = await reporter.identifyServer(session);
+						const started = await reporter.start({
+							target: ctx.target.kind === 'preview' ? 'preview' : ctx.targetName,
+							env_tag: ctx.envTag,
+							branch: ctx.target.kind === 'preview' ? ctx.target.branch : undefined,
+							git_sha: sha || undefined,
+							hostnames: splitHosts(configured),
+							server: server ? { id: server.serverId, token: server.token } : undefined
+						});
+						// Hosts Caddy serves directly: what is configured here plus any
+						// velastack.dev has recorded for the environment. Managed
+						// `<sub>.velastack.app` names arrive through the Worker at the
+						// server's origin site instead, and are routed by header.
+						const directHosts = [
+							...new Set([...splitHosts(configured), ...(started?.environment.direct ?? [])])
+						];
+						const managedHosts = started?.environment.managed ?? [];
+						const domain = directHosts.join(',');
+						const managed = managedHosts.join(',');
+						const primaryHost = directHosts[0] ?? managedHosts[0] ?? '';
+						const primaryUrl =
+							started?.environment.primaryUrl || normalizeOrigin(primaryHost) || '';
 
-							if (backend && remoteDb) {
-								try {
-									tunnel = await openDatabaseTunnel(session, instance, existing);
-								} catch (err) {
-									// Asked for explicitly, the failure is the answer. Merely
-									// defaulted on, it is only a reason to build the older way.
-									if (askedForRemoteDb) throw err;
-									p.log.warn(
-										`Could not build against the ${pc.cyan(ctx.targetName)} database, ` +
-											`using a local one instead.\n${pc.dim(String(err))}`
-									);
-								}
-							}
-
-							if (tunnel) {
-								buildEnv = { ...buildEnv, ...tunnel.env };
-								p.log.info(
-									`Building against the ${pc.cyan(ctx.targetName)} database on ${ctx.server} ${pc.dim(`(port ${tunnel.pbPort})`)}`
-								);
-							} else if (backend) {
-								// The build renders pages against a local database, and on a fresh
-								// checkout that database has no superuser yet. Done here as well as
-								// in `vela build` so a project pinning an older CLI builds in CI.
-								await ensureSuperuser(workspaceRootDir);
-							}
-
-							p.log.step('Building');
-							try {
-								await runBuild(workspaceRootDir, config.deploy?.buildCommand, buildEnv);
-							} finally {
-								if (tunnel) await tunnel.close();
-							}
+						// Production without a domain is a warning at the end; a preview
+						// nobody can reach is not worth building.
+						if (isPreview && !primaryHost) {
+							throw new Error(
+								`Nothing routes to this preview.\n\n` +
+									`Previews get a free velastack.app hostname from velastack.dev: ${pc.cyan('vela link')} the\n` +
+									`project and ${pc.cyan('vela login')} (or set ${pc.cyan('VELA_API_KEY')}). Or pass ${pc.cyan('--domain <host>')}\n` +
+									`with DNS of your own pointing at ${ctx.server}.`
+							);
 						}
 
-						const entries = collectArtifact(workspaceRootDir, config.deploy ?? {});
-						const sha = await gitSha(workspaceRootDir);
-
-						p.log.step(`Uploading release ${pc.dim(release)}`);
-						await uploadRelease(session, instance, release, entries);
-
-						p.log.step('Activating');
-						const result = await runServerScript<{
+						let result: {
 							url: string;
 							webPort: number;
 							pbPort: number;
 							superuserCreated: boolean;
-						}>(session, 'apply.sh', {
-							args: [
-								instance,
-								release,
-								'--name',
-								ctx.appName,
-								'--app-id',
-								ctx.appId,
-								'--env',
-								ctx.envTag,
-								'--domain',
-								domain,
-								'--health-path',
-								options.healthPath ?? config.deploy?.healthCheckPath ?? '/',
-								'--keep',
-								options.keep ?? String(config.deploy?.keepReleases ?? 5),
-								'--backend',
-								backend ? '1' : '0',
-								'--pb-version',
-								options.pbVersion ?? config.deploy?.pocketbaseVersion ?? pocketbaseVersion(),
-								'--git-sha',
-								sha
-							],
-							stream: true
-						});
+						} | null = null;
 
-						writeBinding(workspaceRootDir, ctx.envTag, {
-							server: ctx.server,
-							domain: domain || undefined
-						});
+						try {
+							if (options.build !== false) {
+								// Prerendering has no request to take an origin from, and the
+								// binding is not written until further down, so a first deploy
+								// learns its domain from here or not at all.
+								const origin = normalizeOrigin(process.env.VELA_ORIGIN ?? primaryUrl);
+								let buildEnv: Record<string, string | undefined> = origin
+									? { VELA_ORIGIN: origin }
+									: {};
+								let tunnel: Tunnel | null = null;
+
+								if (backend && remoteDb) {
+									try {
+										tunnel = await openDatabaseTunnel(session, instance, existing);
+									} catch (err) {
+										// Asked for explicitly, the failure is the answer. Merely
+										// defaulted on, it is only a reason to build the older way.
+										if (askedForRemoteDb) throw err;
+										p.log.warn(
+											`Could not build against the ${pc.cyan(ctx.targetName)} database, ` +
+												`using a local one instead.\n${pc.dim(String(err))}`
+										);
+									}
+								}
+
+								if (tunnel) {
+									buildEnv = { ...buildEnv, ...tunnel.env };
+									p.log.info(
+										`Building against the ${pc.cyan(ctx.targetName)} database on ${ctx.server} ${pc.dim(`(port ${tunnel.pbPort})`)}`
+									);
+								} else if (backend) {
+									// The build renders pages against a local database, and on a fresh
+									// checkout that database has no superuser yet. Done here as well as
+									// in `vela build` so a project pinning an older CLI builds in CI.
+									await ensureSuperuser(workspaceRootDir);
+								}
+
+								p.log.step('Building');
+								try {
+									await runBuild(workspaceRootDir, config.deploy?.buildCommand, buildEnv);
+								} finally {
+									if (tunnel) await tunnel.close();
+								}
+							}
+
+							const entries = collectArtifact(workspaceRootDir, config.deploy ?? {});
+
+							p.log.step(`Uploading release ${pc.dim(release)}`);
+							await uploadRelease(session, instance, release, entries);
+
+							p.log.step('Activating');
+							result = await runServerScript<{
+								url: string;
+								webPort: number;
+								pbPort: number;
+								superuserCreated: boolean;
+							}>(session, 'apply.sh', {
+								args: [
+									instance,
+									release,
+									'--name',
+									ctx.appName,
+									'--app-id',
+									ctx.appId,
+									'--env',
+									ctx.envTag,
+									'--domain',
+									domain,
+									'--managed',
+									managed,
+									'--health-path',
+									options.healthPath ?? config.deploy?.healthCheckPath ?? '/',
+									'--keep',
+									options.keep ?? String(config.deploy?.keepReleases ?? 5),
+									'--backend',
+									backend ? '1' : '0',
+									'--pb-version',
+									options.pbVersion ?? config.deploy?.pocketbaseVersion ?? pocketbaseVersion(),
+									'--git-sha',
+									sha
+								],
+								stream: true
+							});
+						} catch (err) {
+							// The server has rolled back (or never activated); say so before
+							// the error reaches the user.
+							await reporter.finish({
+								status: 'failed',
+								error: err instanceof Error ? err.message : String(err)
+							});
+							throw err;
+						}
+
+						writeBinding(
+							workspaceRootDir,
+							bindingKey(ctx.target),
+							isPreview
+								? { server: ctx.server }
+								: { server: ctx.server, domain: domain || undefined }
+						);
 						if (!existing) await reportEmptyEnvironment(session, instance, workspaceRootDir);
 
 						const url = result?.url ?? '';
+						await reporter.finish({
+							status: 'deployed',
+							release,
+							// Without a host the server answers with a loopback URL, which
+							// is nothing to link to from a dashboard.
+							url: primaryHost ? url : undefined
+						});
+
+						const redirects = started?.environment.redirects ?? [];
 						p.log.success(
 							`Deployed ${pc.cyan(ctx.appName)} ${pc.dim(release)}\n\n` +
 								`  URL   ${url}\n` +
+								(redirects.length
+									? `  Also  ${redirects.map((h) => `https://${h}`).join(', ')} ${pc.dim('(redirects here)')}\n`
+									: '') +
 								`  Port  ${result?.webPort ?? '?'}${backend ? ` (PocketBase ${result?.pbPort ?? '?'})` : ''}`
 						);
+
+						// A managed hostname is one KV write away from live, but the edge
+						// takes up to a minute to see a new key.
+						if (managed && managed !== existing?.managed) {
+							p.log.info(`${pc.cyan(managed)} goes live within a minute.`);
+						}
 
 						// Created by the server on the first deploy of a backend instance, and
 						// never printed: the app reads it from the environment, and a human who
@@ -200,7 +284,7 @@ export const deploy = addTargetOptions(
 								session,
 								instance,
 								workspaceRootDir,
-								domain ? (result?.url ?? '') : ''
+								primaryHost ? (result?.url ?? '') : ''
 							);
 							p.log.info(
 								`Created the PocketBase superuser this app authenticates as.\n\n` +
@@ -208,14 +292,18 @@ export const deploy = addTargetOptions(
 									`your own instead, ${pc.cyan('vela env set POCKETBASE_SUPERUSER_PASSWORD')}\n` +
 									`and deploy again.`
 							);
-						} else if (backend && domain) {
-							await reportAppURLDrift(session, instance, domain);
+						} else if (backend && primaryHost) {
+							await reportAppURLDrift(session, instance, primaryHost);
 						}
 
-						if (!domain) {
+						if (!primaryHost) {
 							p.log.warn(
 								`No domain configured, so nothing is proxied to this app yet.\n` +
-									`Redeploy with ${pc.cyan('--domain example.com')} once DNS points at ${ctx.server}.`
+									`Redeploy with ${pc.cyan('--domain example.com')} once DNS points at ${ctx.server}` +
+									(reporter.enabled
+										? ''
+										: `,\nor ${pc.cyan('vela link')} it to get a free velastack.app hostname.`) +
+									`.`
 							);
 						}
 					}

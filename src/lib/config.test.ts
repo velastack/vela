@@ -89,3 +89,29 @@ describe('requireApiKey', () => {
 		expect(config.requireApiKey()).toBe('key.secret');
 	});
 });
+
+describe('readApiKey', () => {
+	const original = process.env.VELA_API_KEY;
+
+	afterEach(() => {
+		if (original === undefined) delete process.env.VELA_API_KEY;
+		else process.env.VELA_API_KEY = original;
+	});
+
+	test('prefers VELA_API_KEY over the config file', () => {
+		config.writeConfig({ apiKey: 'file.key' });
+		process.env.VELA_API_KEY = ' env.key ';
+		expect(config.readApiKey()).toBe('env.key');
+	});
+
+	test('falls back to the config file when the variable is blank', () => {
+		config.writeConfig({ apiKey: 'file.key' });
+		process.env.VELA_API_KEY = '   ';
+		expect(config.readApiKey()).toBe('file.key');
+	});
+
+	test('is null with neither', () => {
+		delete process.env.VELA_API_KEY;
+		expect(config.readApiKey()).toBeNull();
+	});
+});

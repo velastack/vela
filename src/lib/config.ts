@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import process from 'node:process';
 
 export interface VelaConfig {
 	apiKey?: string;
@@ -27,10 +28,22 @@ export function clearConfig(): void {
 	if (fs.existsSync(CONFIG_PATH)) fs.unlinkSync(CONFIG_PATH);
 }
 
+/**
+ * The velastack.dev API key, if there is one.
+ *
+ * `VELA_API_KEY` wins over `~/.vela/config.json`: a CI runner has no home
+ * directory worth logging into, and the GitHub action passes the key this way.
+ */
+export function readApiKey(): string | null {
+	const fromEnv = process.env.VELA_API_KEY?.trim();
+	if (fromEnv) return fromEnv;
+	return readConfig()?.apiKey ?? null;
+}
+
 export function requireApiKey(): string {
-	const config = readConfig();
-	if (!config?.apiKey) {
-		throw new Error('Not logged in. Run `vela login` to login.');
+	const apiKey = readApiKey();
+	if (!apiKey) {
+		throw new Error('Not logged in. Run `vela login` to login, or set VELA_API_KEY.');
 	}
-	return config.apiKey;
+	return apiKey;
 }

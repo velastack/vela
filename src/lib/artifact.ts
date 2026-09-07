@@ -103,3 +103,16 @@ export async function gitSha(cwd: string): Promise<string> {
 	const result = await spawnCapture('git', ['rev-parse', 'HEAD'], { cwd });
 	return result.exitCode === 0 ? result.stdout.trim() : '';
 }
+
+/** The branch checked out here — what a bare `-t preview` is a preview of. */
+export async function currentBranch(cwd: string): Promise<string> {
+	const result = await spawnCapture('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd });
+	const branch = result.exitCode === 0 ? result.stdout.trim() : '';
+	if (!branch || branch === 'HEAD') {
+		throw new Error(
+			`No branch is checked out here${branch === 'HEAD' ? ' (detached HEAD)' : ''}, so ` +
+				'`-t preview` has nothing to name.\n\nName it: `-t preview:<branch>`.'
+		);
+	}
+	return branch;
+}

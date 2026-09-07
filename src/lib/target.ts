@@ -20,7 +20,10 @@ export interface RemoteTarget {
 	envTag: string;
 }
 
-/** Parsed so the grammar is settled, refused until previews are built. */
+/**
+ * A preview of one branch. `branch` is unset for a bare `preview`, which the
+ * command resolves to the branch checked out here before anything runs.
+ */
 export interface PreviewTarget {
 	kind: 'preview';
 	branch?: string;
@@ -68,6 +71,19 @@ export function parseTarget(raw: string | undefined, fallback: TargetFallback): 
 		return fallback === 'local' ? { kind: 'local' } : production();
 	}
 
+	const lower = value.toLowerCase();
+
+	// A branch can look like anything — `fix/foo.bar`, `nathan@feature` — so
+	// the preview form is split off before the server-shape check gets a say.
+	if (lower === PREVIEW || lower.startsWith(`${PREVIEW}:`)) {
+		const branch = value.slice(PREVIEW.length + 1) || undefined;
+		return {
+			kind: 'preview',
+			branch,
+			envTag: branch ? branchToEnvTag(branch) : PREVIEW
+		};
+	}
+
 	if (SERVER_SHAPED.test(value)) {
 		throw new TargetError(
 			`${value} looks like a server, and ${bold('-t')} now selects a target rather than a machine.\n\n` +
@@ -76,19 +92,7 @@ export function parseTarget(raw: string | undefined, fallback: TargetFallback): 
 		);
 	}
 
-	const lower = value.toLowerCase();
 	if (lower === LOCAL_TARGET) return { kind: 'local' };
-
-	if (lower === PREVIEW || lower.startsWith(`${PREVIEW}:`)) {
-		const branch = lower.slice(PREVIEW.length + 1) || undefined;
-		return {
-			kind: 'preview',
-			branch,
-			// Held for when previews are built, so the grammar and the instance
-			// naming cannot drift apart in the meantime.
-			envTag: branch ? branchToEnvTag(branch) : PREVIEW
-		};
-	}
 
 	if (value.includes(':')) {
 		throw new TargetError(
@@ -107,6 +111,17 @@ export function parseTarget(raw: string | undefined, fallback: TargetFallback): 
 	}
 
 	return { kind: 'remote', name: lower, envTag: normalizeEnvTag(lower) };
+}
+
+/**
+ * Where a target's server binding is recorded in `.vela/project.json`.
+ *
+ * Every preview branch shares one binding: previews live on one machine per
+ * project, and asking for a server once per branch would be a question with
+ * only one answer.
+ */
+export function bindingKey(target: RemoteTarget | PreviewTarget): string {
+	return target.kind === 'preview' ? PREVIEW : target.envTag;
 }
 
 function production(): Target {

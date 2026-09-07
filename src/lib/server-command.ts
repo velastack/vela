@@ -12,15 +12,18 @@ import {
 	type TargetBinding,
 	type VelaAppConfig
 } from './deploy-config.ts';
-import { instanceId } from './instance.ts';
+import { branchToEnvTag, instanceId } from './instance.ts';
+import { currentBranch } from './artifact.ts';
 import { addSshOptions, SSH_OPTION_SCHEMA, sshOptionsFrom } from './ssh-options.ts';
 import { parseOptions } from './options.ts';
 import { withSsh, type SshSession } from './ssh.ts';
 import { requireProvisioned, syncServerScripts } from './remote.ts';
 import { restartInstance, touchesSuperuser } from './remote-env.ts';
 import {
+	bindingKey,
 	describeTarget,
 	parseTarget,
+	type PreviewTarget,
 	type RemoteTarget,
 	type Target,
 	type TargetFallback
@@ -66,6 +69,8 @@ export interface ServerContext extends BaseContext {
 	envTag: string;
 	/** The target as the user named it, for output. */
 	targetName: string;
+	/** The parsed target, for commands that care whether this is a preview and of what. */
+	target: RemoteTarget | PreviewTarget;
 	/** SSH destination behind that target. */
 	server: string;
 	binding: TargetBinding;
@@ -101,18 +106,16 @@ export async function withTarget(
 	run: TargetRunOptions = {}
 ): Promise<void> {
 	const options = parseOptions(OptionsSchema, raw);
-	const target = parseTarget(options.target, 'production');
+	let target = parseTarget(options.target, 'production');
 	const label = run.label ? `vela ${run.label}` : 'this command';
 
-	if (target.kind === 'preview') {
-		throw new Error(
-			`Preview targets are not supported yet.\n\n` +
-				`\`${describeTarget(target)}\` parses, but nothing deploys it: previews need wildcard\n` +
-				`DNS and certificates that \`vela provision\` does not set up yet.`
-		);
-	}
-
 	const { workspaceRootDir } = await getWorkspace();
+	// A bare `preview` is a preview of the branch checked out here. Resolved
+	// before the instance is named, so the env tag and the branch agree.
+	if (target.kind === 'preview' && !target.branch) {
+		const branch = await currentBranch(workspaceRootDir);
+		target = { kind: 'preview', branch, envTag: branchToEnvTag(branch) };
+	}
 	const config = await loadDeployConfig(workspaceRootDir);
 	// Minting the app id here rather than demanding a prior deploy is what lets
 	// `vela env import` run before the first `vela deploy`, which is the order
@@ -163,7 +166,8 @@ export async function withTarget(
 			session,
 			instance: instanceId(app.appId, target.envTag),
 			envTag: target.envTag,
-			targetName: target.name,
+			targetName: describeTarget(target),
+			target: target as RemoteTarget | PreviewTarget,
 			server: binding.server,
 			binding
 		});
@@ -186,10 +190,11 @@ export interface BindingRequest {
  */
 export async function ensureBinding(
 	workspaceRootDir: string,
-	target: RemoteTarget,
+	target: RemoteTarget | PreviewTarget,
 	request: BindingRequest = {}
 ): Promise<TargetBinding> {
-	const existing = readBinding(workspaceRootDir, target.envTag);
+	const key = bindingKey(target);
+	const existing = readBinding(workspaceRootDir, key);
 	const moving = Boolean(request.server && existing && existing.server !== request.server);
 
 	let server = request.server ?? existing?.server;
@@ -197,19 +202,21 @@ export async function ensureBinding(
 		server = await promptServer(target);
 	}
 
-	let domain = request.domain ?? existing?.domain;
-	if (!domain && request.askDomain && !request.server) {
+	// The preview binding is shared by every branch, so it never carries a
+	// domain: one branch's hostname is not another's.
+	let domain = target.kind === 'preview' ? undefined : (request.domain ?? existing?.domain);
+	if (!domain && request.askDomain && !request.server && target.kind !== 'preview') {
 		domain = await promptDomain(target);
 	}
 
 	const binding: TargetBinding = domain ? { server, domain } : { server };
 	if (!existing || existing.server !== server || existing.domain !== domain) {
-		writeBinding(workspaceRootDir, target.envTag, binding);
+		writeBinding(workspaceRootDir, key, binding);
 	}
 
 	if (moving) {
 		p.log.warn(
-			`${pc.cyan(target.name)} now points at ${pc.cyan(server)}.\n\n` +
+			`${pc.cyan(bindingName(target))} now points at ${pc.cyan(server)}.\n\n` +
 				`Whatever is running on ${existing!.server} is left there, and this project can no\n` +
 				`longer reach it. Remove it there first if that was not intended.`
 		);
@@ -218,18 +225,26 @@ export async function ensureBinding(
 	return binding;
 }
 
-async function promptServer(target: RemoteTarget): Promise<string> {
+/** How a binding reads in prompts: previews share one, so it is "previews", not a branch. */
+function bindingName(target: RemoteTarget | PreviewTarget): string {
+	return target.kind === 'preview' ? 'previews' : target.name;
+}
+
+async function promptServer(target: RemoteTarget | PreviewTarget): Promise<string> {
+	const name = bindingName(target);
 	if (!process.stdout.isTTY || process.env.CI) {
 		throw new Error(
-			`${target.name} is not bound to a server yet, and there is no terminal to ask on.\n\n` +
+			`${name} ${target.kind === 'preview' ? 'are' : 'is'} not bound to a server yet, and there is no terminal to ask on.\n\n` +
 				`Pass ${pc.cyan('--server user@host')}, or run the command once from your own machine\n` +
 				`and commit ${pc.cyan('.vela/project.json')}.`
 		);
 	}
 
-	p.log.info(`${pc.cyan(target.name)} is not bound to a server yet.`);
+	p.log.info(
+		`${pc.cyan(name)} ${target.kind === 'preview' ? 'are' : 'is'} not bound to a server yet.`
+	);
 	const value = await p.text({
-		message: `Which server should ${target.name} run on?`,
+		message: `Which server should ${name} run on?`,
 		placeholder: 'root@203.0.113.10',
 		validate: (input) => (input?.trim() ? undefined : 'An ssh_config alias, or user@host')
 	});
@@ -303,7 +318,7 @@ export async function withServerSession(
 	if (!server) {
 		const { workspaceRootDir } = await getWorkspace();
 		const target = parseTarget(options.target, 'production');
-		if (target.kind !== 'remote') {
+		if (target.kind === 'local') {
 			throw new Error(`${describeTarget(target)} does not run on a server.`);
 		}
 		server = (await ensureBinding(workspaceRootDir, target, { server: options.server })).server;

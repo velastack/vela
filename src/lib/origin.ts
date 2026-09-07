@@ -51,3 +51,11 @@ export function normalizeOrigin(value: string | null | undefined): string | null
 		return null;
 	}
 }
+
+/** The hosts in a `--domain` value, in the order given, trimmed and without blanks. */
+export function splitHosts(value: string | null | undefined): string[] {
+	return (value ?? '')
+		.split(',')
+		.map((host) => host.trim())
+		.filter(Boolean);
+}

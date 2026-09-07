@@ -8,6 +8,8 @@ export const VELA_ETC = '/etc/vela';
 export const VELA_USER = 'vela';
 export const SCRIPTS_DIR = `${VELA_ROOT}/scripts`;
 export const PROVISIONED_MARKER = `${VELA_ETC}/provisioned`;
+/** The server's registration with velastack.dev: origin name and Worker token. */
+export const ORIGIN_FILE = `${VELA_ETC}/origin.json`;
 
 export interface ServerInfo {
 	cliVersion: string;
@@ -24,6 +26,10 @@ export interface InstanceState {
 	activeRelease?: string;
 	previousRelease?: string;
 	domain?: string;
+	/** Managed velastack.app hostname(s), reached through the Worker. */
+	managed?: string;
+	/** The origin the app is served as. */
+	url?: string;
 	healthCheckPath?: string;
 	pocketbaseVersion?: string;
 	gitSha?: string;
@@ -109,6 +115,32 @@ export async function readServerInfo(session: SshSession): Promise<ServerInfo | 
 	}
 }
 
+export interface ServerIdentity {
+	serverId: string;
+	originHost: string;
+	token: string;
+}
+
+export async function readServerIdentity(session: SshSession): Promise<ServerIdentity | null> {
+	const raw = await session.readFile(ORIGIN_FILE);
+	if (!raw) return null;
+	try {
+		const parsed = JSON.parse(raw) as Partial<ServerIdentity>;
+		if (!parsed.serverId || !parsed.originHost || !parsed.token) return null;
+		return { serverId: parsed.serverId, originHost: parsed.originHost, token: parsed.token };
+	} catch {
+		return null;
+	}
+}
+
+/** Root-only: the token is what lets the origin site trust a request. */
+export async function writeServerIdentity(
+	session: SshSession,
+	identity: ServerIdentity
+): Promise<void> {
+	await session.writeFile(ORIGIN_FILE, JSON.stringify(identity, null, 2) + '\n', '0600');
+}
+
 export async function requireProvisioned(session: SshSession): Promise<ServerInfo> {
 	const info = await readServerInfo(session);
 	if (!info) {
@@ -147,6 +179,7 @@ export const remotePaths = {
 	env: (instance: string) => `${VELA_ETC}/apps/${instance}/env`,
 	runtimeEnv: (instance: string) => `${VELA_ETC}/apps/${instance}/runtime.env`,
 	caddy: (instance: string) => `${VELA_ETC}/caddy/${instance}.caddy`,
+	route: (instance: string) => `${VELA_ETC}/caddy/routes/${instance}.route`,
 	webUnit: (instance: string) => `vela-web@${instance}.service`,
 	pbUnit: (instance: string) => `vela-pb@${instance}.service`
 };

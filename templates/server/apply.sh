@@ -24,6 +24,7 @@ APP_NAME=$INSTANCE
 APP_ID=$INSTANCE
 ENV_TAG=prod
 DOMAIN=""
+MANAGED=""
 HEALTH_PATH=/
 KEEP=5
 PB_VERSION=""
@@ -37,6 +38,7 @@ while [ $# -gt 0 ]; do
 		--app-id) APP_ID=$2; shift 2 ;;
 		--env) ENV_TAG=$2; shift 2 ;;
 		--domain) DOMAIN=$2; shift 2 ;;
+		--managed) MANAGED=$2; shift 2 ;;
 		--health-path) HEALTH_PATH=$2; shift 2 ;;
 		--keep) KEEP=$2; shift 2 ;;
 		--pb-version) PB_VERSION=$2; shift 2 ;;
@@ -88,7 +90,10 @@ PORTS=$(allocate_ports "$INSTANCE")
 WEB_PORT=$(printf '%s' "$PORTS" | jq -r .web)
 PB_PORT=$(printf '%s' "$PORTS" | jq -r .pb)
 
+# The canonical host: a domain the user's own DNS points here outranks a
+# managed velastack.app name, which then redirects to it at the edge.
 PRIMARY_DOMAIN=$(printf '%s' "$DOMAIN" | cut -d, -f1 | tr -d ' ')
+[ -n "$PRIMARY_DOMAIN" ] || PRIMARY_DOMAIN=$(printf '%s' "$MANAGED" | cut -d, -f1 | tr -d ' ')
 if [ -n "$PRIMARY_DOMAIN" ]; then
 	ORIGIN="https://$PRIMARY_DOMAIN"
 else
@@ -325,17 +330,28 @@ ACTIVATED=1
 state_merge "$INSTANCE" "$(jq -c -n \
 	--arg app "$APP_ID" --arg name "$APP_NAME" --arg env "$ENV_TAG" \
 	--arg instance "$INSTANCE" --arg release "$RELEASE" --arg previous "$PREVIOUS" \
-	--arg domain "$DOMAIN" --arg health "$HEALTH_PATH" --arg pb "$PB_VERSION" \
+	--arg domain "$DOMAIN" --arg managed "$MANAGED" --arg url "$ORIGIN" \
+	--arg health "$HEALTH_PATH" --arg pb "$PB_VERSION" \
 	--arg sha "$GIT_SHA" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 	--argjson web "$WEB_PORT" --argjson pbport "$PB_PORT" --argjson backend "$BACKEND" \
 	'{appId: $app, name: $name, env: $env, instance: $instance,
 	  activeRelease: $release, previousRelease: $previous, domain: $domain,
+	  managed: $managed, url: $url,
 	  healthCheckPath: $health, pocketbaseVersion: $pb, gitSha: $sha,
 	  webPort: $web, pbPort: $pbport, backend: ($backend == 1), deployedAt: $at}')"
 
 # ------------------------------------------------------------------ routing
+#
+# Two files, written independently and each only if the whole Caddy config
+# still validates with it in place (`caddy_install` keeps the previous one
+# otherwise). Hosts the user's DNS points here get a site block of their own
+# and a certificate each; managed velastack.app hosts arrive through the
+# Worker at this server's origin site and are picked out by header.
 
 CADDY_SNIPPET="$VELA_ETC/caddy/$INSTANCE.caddy"
+ROUTE_SNIPPET="$VELA_ETC/caddy/routes/$INSTANCE.route"
+ROUTING_CHANGED=0
+
 if [ -n "$DOMAIN" ]; then
 	hosts=$(printf '%s' "$DOMAIN" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | paste -sd, - | sed 's/,/, /g')
 	tmp=$(mktemp "$VELA_ETC/caddy/.snippet.XXXXXX")
@@ -343,17 +359,41 @@ if [ -n "$DOMAIN" ]; then
 		printf '# Managed by vela - app %s (%s)\n' "$APP_NAME" "$INSTANCE"
 		printf '%s {\n\treverse_proxy 127.0.0.1:%s\n}\n' "$hosts" "$WEB_PORT"
 	} > "$tmp"
-	chmod 0644 "$tmp"
-	mv -f "$tmp" "$CADDY_SNIPPET"
-	if ! caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
-		rm -f "$CADDY_SNIPPET"
-		die "generated Caddy config for $DOMAIN is invalid"
-	fi
-	systemctl reload caddy
+	caddy_install "$tmp" "$CADDY_SNIPPET" || die "generated Caddy config for $DOMAIN is invalid"
+	ROUTING_CHANGED=1
 elif [ -f "$CADDY_SNIPPET" ]; then
 	rm -f "$CADDY_SNIPPET"
-	systemctl reload caddy || true
+	ROUTING_CHANGED=1
 fi
+
+if [ -n "$MANAGED" ]; then
+	[ -f "$VELA_ETC/caddy/00-origin.caddy" ] \
+		|| die "managed hostnames need this server's origin site - the CLI runs origin.sh first"
+	# A matcher name is an identifier; instance ids carry dashes.
+	matcher=vela_$(printf '%s' "$INSTANCE" | tr -c 'a-zA-Z0-9_' '_')
+	tmp=$(mktemp "$VELA_ETC/caddy/routes/.route.XXXXXX")
+	{
+		printf '# Managed by vela - app %s (%s)\n' "$APP_NAME" "$INSTANCE"
+		printf '@%s {\n' "$matcher"
+		printf '%s' "$MANAGED" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' \
+			| while IFS= read -r host; do printf '\theader X-Velastack-Host %s\n' "$host"; done
+		printf '}\n'
+		# The app should see the public host and the visitor, not the origin
+		# name and the Cloudflare edge that carried the request here.
+		printf 'handle @%s {\n' "$matcher"
+		printf '\treverse_proxy 127.0.0.1:%s {\n' "$WEB_PORT"
+		printf '\t\theader_up Host {http.request.header.X-Velastack-Host}\n'
+		printf '\t\theader_up X-Forwarded-For {http.request.header.X-Velastack-Client-IP}\n'
+		printf '\t}\n}\n'
+	} > "$tmp"
+	caddy_install "$tmp" "$ROUTE_SNIPPET" || die "generated Caddy route for $MANAGED is invalid"
+	ROUTING_CHANGED=1
+elif [ -f "$ROUTE_SNIPPET" ]; then
+	rm -f "$ROUTE_SNIPPET"
+	ROUTING_CHANGED=1
+fi
+
+[ "$ROUTING_CHANGED" = 0 ] || caddy_reload
 
 
 # ------------------------------------------------------------------- pruning
@@ -379,7 +419,7 @@ if [ "$KEEP" -gt 0 ] 2>/dev/null; then
 fi
 
 emit_result \
-	--arg instance "$INSTANCE" --arg release "$RELEASE" --arg domain "$DOMAIN" \
+	--arg instance "$INSTANCE" --arg release "$RELEASE" --arg domain "$DOMAIN" --arg managed "$MANAGED" \
 	--arg url "$ORIGIN" --argjson web "$WEB_PORT" --argjson pb "$PB_PORT" --argjson su "$SU_CREATED" \
-	'{instance: $instance, release: $release, domain: $domain, url: $url,
+	'{instance: $instance, release: $release, domain: $domain, managed: $managed, url: $url,
 	  webPort: $web, pbPort: $pb, superuserCreated: ($su == 1)}'

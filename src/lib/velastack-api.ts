@@ -36,8 +36,12 @@ async function apiFetch<T>(apiKey: string, pathAndQuery: string, init?: RequestI
 	}
 
 	const res = await fetch(`${API_URL}${pathAndQuery}`, { ...init, headers });
-	if (res.status === 401 || res.status === 403) {
+	if (res.status === 401) {
 		throw new Error('API key invalid — run `vela login`');
+	}
+	if (res.status === 403) {
+		const body = await res.text().catch(() => '');
+		throw new Error(`velastack.dev refused this key (${body || 'forbidden'}) — run \`vela login\``);
 	}
 	if (!res.ok) {
 		const body = await res.text().catch(() => '');
@@ -79,5 +83,101 @@ export async function createProject(
 	return apiFetch<ProjectRecord>(apiKey, '/api/collections/projects/records', {
 		method: 'POST',
 		body: JSON.stringify({ name: args.name, team: args.teamId, user: args.userId })
+	});
+}
+
+// ------------------------------------------------------------ control plane
+//
+// `vela deploy` announces itself before building, learns the hostnames the
+// environment is served on, and reports how it ended. The env tag is the CLI's
+// own instance suffix, so velastack.dev records exactly what the server calls
+// the environment.
+
+export interface StartDeploymentInput {
+	/** The target as typed: `production`, `staging`, `preview`. */
+	target: string;
+	env_tag: string;
+	branch?: string;
+	git_sha?: string;
+	kind?: 'app' | 'cms';
+	/** Hostnames the CLI already routes on its own: `--domain`, the binding, the config. */
+	hostnames?: string[];
+	/** The registered server this lands on; without it no managed hostname is claimed. */
+	server?: { id: string; token: string };
+}
+
+export interface EnvironmentHostnames {
+	envTag: string;
+	/** `<sub>.velastack.app` names the Worker proxies to this server; Caddy routes them by header. */
+	managed: string[];
+	/** Managed names that stand aside for a direct one and redirect to it at the edge. */
+	redirects: string[];
+	/** Names the user's own DNS points at the server, served by Caddy directly. */
+	direct: string[];
+	/** The origin the app is built and served as; empty when nothing routes to it yet. */
+	primaryUrl: string;
+}
+
+export interface StartDeploymentResult {
+	deploymentId: string;
+	environment: EnvironmentHostnames;
+}
+
+export interface RegisterServerInput {
+	ip: string;
+	serverId?: string;
+	token?: string;
+}
+
+export interface RegisteredServer {
+	serverId: string;
+	originHost: string;
+	token: string;
+}
+
+/** Introduce a server, or confirm a known one and refresh its IP. */
+export async function registerServer(
+	apiKey: string,
+	input: RegisterServerInput
+): Promise<RegisteredServer> {
+	return apiFetch<RegisteredServer>(apiKey, '/v1/servers', {
+		method: 'POST',
+		body: JSON.stringify(input)
+	});
+}
+
+export type FinishDeploymentInput =
+	{ status: 'deployed'; release?: string; url?: string } | { status: 'failed'; error?: string };
+
+export async function startDeployment(
+	apiKey: string,
+	projectId: string,
+	input: StartDeploymentInput
+): Promise<StartDeploymentResult> {
+	return apiFetch<StartDeploymentResult>(apiKey, `/v1/projects/${projectId}/deployments`, {
+		method: 'POST',
+		body: JSON.stringify(input)
+	});
+}
+
+export async function finishDeployment(
+	apiKey: string,
+	projectId: string,
+	deploymentId: string,
+	input: FinishDeploymentInput
+): Promise<{ deploymentId: string; status: string }> {
+	return apiFetch(apiKey, `/v1/projects/${projectId}/deployments/${deploymentId}`, {
+		method: 'PATCH',
+		body: JSON.stringify(input)
+	});
+}
+
+export async function destroyEnvironment(
+	apiKey: string,
+	projectId: string,
+	envTag: string
+): Promise<{ envTag: string; status: string }> {
+	return apiFetch(apiKey, `/v1/projects/${projectId}/environments/${encodeURIComponent(envTag)}`, {
+		method: 'DELETE'
 	});
 }

@@ -228,3 +228,41 @@ assert_superuser_auth() {
 			-X POST -H 'content-type: application/json' --data-binary @- \
 			"http://127.0.0.1:$port/api/collections/_superusers/auth-with-password"
 }
+
+# ------------------------------------------------------------------- caddy
+
+CADDYFILE=${CADDYFILE:-/etc/caddy/Caddyfile}
+
+caddy_valid() {
+	caddy validate --config "$CADDYFILE" --adapter caddyfile >/dev/null 2>&1
+}
+
+# Put a generated snippet in place only if the whole Caddy config still
+# validates with it there. The file it replaces is kept and restored on
+# failure, so a bad generation cannot take a working route down.
+#
+# usage: caddy_install <tmp> <dest> [mode] [owner]
+caddy_install() {
+	local tmp=$1 dest=$2 mode=${3:-0644} owner=${4:-root:root} backup=""
+	chmod "$mode" "$tmp"
+	chown "$owner" "$tmp"
+	if [ -f "$dest" ]; then
+		backup=$(mktemp "$(dirname "$dest")/.previous.XXXXXX")
+		cp -p "$dest" "$backup"
+	fi
+	mv -f "$tmp" "$dest"
+	if caddy_valid; then
+		[ -z "$backup" ] || rm -f "$backup"
+		return 0
+	fi
+	if [ -n "$backup" ]; then
+		mv -f "$backup" "$dest"
+	else
+		rm -f "$dest"
+	fi
+	return 1
+}
+
+caddy_reload() {
+	systemctl reload caddy >/dev/null 2>&1 || systemctl restart caddy
+}

@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import { branchToEnvTag, instanceId } from './instance.ts';
-import { describeTarget, parseTarget, TargetError } from './target.ts';
+import {
+	bindingKey,
+	describeTarget,
+	parseTarget,
+	TargetError,
+	type PreviewTarget,
+	type RemoteTarget
+} from './target.ts';
 
 describe('parseTarget', () => {
 	test('falls back to what the command means without -t', () => {
@@ -35,6 +42,31 @@ describe('parseTarget', () => {
 });
 
 describe('parseTarget, preview', () => {
+	test('a branch may look like a server', () => {
+		expect(parseTarget('preview:fix/foo.bar', 'local')).toMatchObject({
+			kind: 'preview',
+			branch: 'fix/foo.bar',
+			envTag: 'preview--fix-foo-bar'
+		});
+		expect(parseTarget('preview:nathan@laptop', 'local')).toMatchObject({
+			branch: 'nathan@laptop'
+		});
+	});
+
+	test('keeps the branch as typed', () => {
+		expect(parseTarget('preview:Feature/Auth', 'local')).toMatchObject({
+			branch: 'Feature/Auth',
+			envTag: 'preview--feature-auth'
+		});
+	});
+
+	test('every preview shares one binding', () => {
+		expect(bindingKey(parseTarget('preview:a', 'local') as PreviewTarget)).toBe('preview');
+		expect(bindingKey(parseTarget('preview', 'local') as PreviewTarget)).toBe('preview');
+		expect(bindingKey(parseTarget('staging', 'local') as RemoteTarget)).toBe('staging');
+		expect(bindingKey(parseTarget(undefined, 'production') as RemoteTarget)).toBe('prod');
+	});
+
 	test('carries the branch', () => {
 		expect(parseTarget('preview:feature/maps', 'local')).toMatchObject({
 			kind: 'preview',

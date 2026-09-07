@@ -63,6 +63,7 @@ function describe(state: InstanceState): string {
 		['Release', state.activeRelease ?? '—'],
 		['Previous', state.previousRelease || '—'],
 		['Domain', state.domain || '—'],
+		...(state.managed ? ([['Managed', state.managed]] as [string, string][]) : []),
 		['Ports', `web ${state.webPort ?? '?'}${state.backend ? `, pb ${state.pbPort ?? '?'}` : ''}`],
 		['App', health(state.services?.web)],
 		...(state.backend

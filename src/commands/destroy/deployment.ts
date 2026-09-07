@@ -7,6 +7,7 @@ import { runCommand } from '../../lib/run.ts';
 import { addTargetOptions, withTarget } from '../../lib/server-command.ts';
 import { runServerScript } from '../../lib/remote.ts';
 import { isProd } from '../../lib/instance.ts';
+import { reportEnvironmentDestroyed } from '../../lib/deploy-report.ts';
 
 export const deployment = addTargetOptions(
 	new Command('deployment')
@@ -33,6 +34,8 @@ export const deployment = addTargetOptions(
 							args: [ctx.instance, ...(options.purge ? ['--purge'] : [])],
 							stream: true
 						});
+
+						await reportEnvironmentDestroyed(ctx.workspaceRootDir, ctx.envTag);
 
 						p.log.success(
 							`Removed ${pc.cyan(`${ctx.appName} (${ctx.targetName})`)} from ${ctx.server}.` +
