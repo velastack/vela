@@ -34,10 +34,47 @@ case "${ID:-}" in
 esac
 
 export DEBIAN_FRONTEND=noninteractive
+# Ubuntu's needrestart hook prints several paragraphs of "Restarting services"
+# chatter to stderr after every install. Nothing vela installs needs a service
+# restart mid-provision, so skip it.
+export NEEDRESTART_SUSPEND=1
+
+# A freshly created cloud box is usually still busy on first boot: cloud-init
+# runs its package step and unattended-upgrades kicks off, both holding the
+# dpkg lock. Provisioning that races them fails with "Could not get lock", so
+# wait for first boot to settle before touching apt.
+if command -v cloud-init >/dev/null 2>&1; then
+	log "waiting for cloud-init to finish"
+	cloud-init status --wait >/dev/null 2>&1 || true
+fi
+
+APT_LOCK_TIMEOUT=${APT_LOCK_TIMEOUT:-600}
+# Block until no other process holds an apt/dpkg lock, up to APT_LOCK_TIMEOUT
+# seconds. Covers callers that invoke apt-get themselves (the nodesource setup
+# script) and older apt without DPkg::Lock::Timeout support.
+wait_for_apt() {
+	local waited=0 announced=0
+	command -v fuser >/dev/null 2>&1 || return 0
+	while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; do
+		[ "$announced" -eq 1 ] || { log "waiting for another apt process to finish"; announced=1; }
+		[ "$waited" -lt "$APT_LOCK_TIMEOUT" ] \
+			|| die "gave up waiting for the apt lock after ${APT_LOCK_TIMEOUT}s - is unattended-upgrades still running?"
+		sleep 2
+		waited=$((waited + 2))
+	done
+}
+
+# Every apt-get call goes through here so a lock held by unattended-upgrades
+# waits instead of failing the whole provision.
+apt_get() {
+	wait_for_apt
+	apt-get -o DPkg::Lock::Timeout="$APT_LOCK_TIMEOUT" "$@"
+}
+
 APT_UPDATED=0
 apt_update_once() {
 	[ "$APT_UPDATED" -eq 1 ] && return 0
-	apt-get update -qq
+	apt_get update -qq
 	APT_UPDATED=1
 }
 
@@ -49,7 +86,7 @@ ensure_packages() {
 	[ ${#missing[@]} -eq 0 ] && return 0
 	log "installing ${missing[*]}"
 	apt_update_once
-	apt-get install -y -qq --no-install-recommends "${missing[@]}" >/dev/null
+	apt_get install -y -qq --no-install-recommends "${missing[@]}" >/dev/null
 }
 
 log "checking base packages"
@@ -70,9 +107,10 @@ install_node() {
 	fi
 	log "installing Node.js $NODE_MAJOR"
 	curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o /tmp/nodesource_setup.sh
+	wait_for_apt
 	bash /tmp/nodesource_setup.sh >/dev/null
 	rm -f /tmp/nodesource_setup.sh
-	apt-get install -y -qq nodejs >/dev/null
+	apt_get install -y -qq nodejs >/dev/null
 }
 install_node
 
@@ -86,8 +124,8 @@ install_caddy() {
 		| gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 	curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
 		> /etc/apt/sources.list.d/caddy-stable.list
-	apt-get update -qq
-	apt-get install -y -qq caddy >/dev/null
+	apt_get update -qq
+	apt_get install -y -qq caddy >/dev/null
 	APT_UPDATED=1
 }
 install_caddy
