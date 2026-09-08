@@ -9,6 +9,7 @@ export const migration = new Command('migration')
 	.argument('<op>', 'operation (add, remove, rename, references)')
 	.argument('[args...]', 'operation arguments (e.g. "birthday:date")')
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((collection: string, op: string, args: string[]) =>
 		runCommand(

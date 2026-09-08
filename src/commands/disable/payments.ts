@@ -6,6 +6,7 @@ export const payments = new Command('payments')
 	.description('disable payments')
 	.option('-y, --yes', 'skip confirmation prompt')
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts, cmd) =>
 		runCommand(

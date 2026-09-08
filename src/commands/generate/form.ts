@@ -24,6 +24,7 @@ export const form = new Command('form')
 		'design the form with AI from a natural-language description (two stages: schema → layout)'
 	)
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action(
 		(

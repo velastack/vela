@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { Command } from 'commander';
 import { program } from './program.ts';
 
 const EXPECTED_COMMANDS = [
@@ -224,5 +225,49 @@ describe('target selection', () => {
 		const provision = program.commands.find((c) => c.name() === 'provision')!;
 		expect(provision.options.map((o) => o.long)).not.toContain('--target');
 		expect(provision.registeredArguments.map((a) => a.name())).toEqual(['target']);
+	});
+});
+
+describe('pattern argv forwarding', () => {
+	function walk(cmd: Command): Command[] {
+		return [cmd, ...cmd.commands.flatMap(walk)];
+	}
+
+	// Private commander state, read the same way `registeredArguments` is above.
+	const forwarding = walk(program).filter(
+		(c) => (c as unknown as { _allowUnknownOption: boolean })._allowUnknownOption
+	);
+
+	test('at least the enable/disable/generate/destroy families forward argv', () => {
+		expect(forwarding.map((c) => c.name())).toContain('cms');
+	});
+
+	test.each(forwarding.map((c) => [`${c.parent?.name() ?? ''} ${c.name()}`.trim(), c] as const))(
+		'%s accepts an unknown option and its value',
+		(_path, cmd) => {
+			// Commander appends unknown options to `args` and then counts them as
+			// excess positionals, so `enable cms --endpoint <url>` failed with "too
+			// many arguments" until the command also allowed excess arguments.
+			expect((cmd as unknown as { _allowExcessArguments: boolean })._allowExcessArguments).toBe(
+				true
+			);
+		}
+	);
+
+	test('enable cms parses --endpoint <url> into forwarded args', async () => {
+		const enable = program.commands.find((c) => c.name() === 'enable')!;
+		const cms = enable.commands.find((c) => c.name() === 'cms')!;
+		const url = 'https://velastack.dev/v1/projects/2tj321uzke7k7fn/cms';
+		const original = (cms as unknown as { _actionHandler: unknown })._actionHandler;
+		let seen: string[] | undefined;
+		cms.exitOverride().action((_opts, c: Command) => {
+			seen = c.args;
+		});
+		try {
+			await program.parseAsync(['enable', 'cms', '--endpoint', url], { from: 'user' });
+		} finally {
+			(cms as unknown as { _actionHandler: unknown })._actionHandler = original;
+		}
+		expect(seen).toEqual(['--endpoint', url]);
 	});
 });

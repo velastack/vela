@@ -13,6 +13,7 @@ export const payments = new Command('payments')
 	.description('enable payments')
 	.option('--provider <provider>', 'payment provider', 'stripe')
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts, cmd) =>
 		runCommand(async () => {

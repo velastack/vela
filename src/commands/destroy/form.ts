@@ -11,6 +11,7 @@ export const form = new Command('form')
 		'custom route the form was generated at (must match the --route used at generation)'
 	)
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((model: string, opts: { yes?: boolean; route?: string }) =>
 		runCommand(

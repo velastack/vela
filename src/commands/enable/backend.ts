@@ -6,6 +6,7 @@ import { runPattern } from '../../lib/pattern-runner.ts';
 export const backend = new Command('backend')
 	.description('enable the PocketBase backend')
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((_opts, cmd) =>
 		runCommand(

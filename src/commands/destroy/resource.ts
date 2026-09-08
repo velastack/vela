@@ -7,6 +7,7 @@ export const resource = new Command('resource')
 	.argument('<model>', 'model path used when the resource was generated (e.g., contacts, articles)')
 	.option('-y, --yes', 'skip confirmation prompt')
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((model: string, opts) =>
 		runCommand(

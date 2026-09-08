@@ -11,6 +11,7 @@ export const schema = new Command('schema')
 	.argument('[fields...]', 'field definitions')
 	.option('--ai <description>', 'design the schema with AI from a natural-language description')
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((model: string | undefined, fields: string[], options: { ai?: string }) =>
 		runCommand(async () => {

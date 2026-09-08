@@ -24,6 +24,7 @@ export const scaffold = new Command('scaffold')
 		'design the scaffold with AI from a natural-language description (two stages: schema → layout)'
 	)
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action(
 		(

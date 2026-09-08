@@ -6,6 +6,7 @@ import { runPattern } from '../../lib/pattern-runner.ts';
 export const i18n = new Command('i18n')
 	.description('enable internationalization')
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((_opts, cmd) =>
 		runCommand(

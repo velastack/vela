@@ -10,6 +10,7 @@ import { hasBackend } from '../../lib/workspace.ts';
 export const cms = new Command('cms')
 	.description('enable an inline-editing CMS with an admin bar')
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((_opts, cmd) =>
 		runCommand(async () => {

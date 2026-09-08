@@ -6,6 +6,7 @@ export const i18n = new Command('i18n')
 	.description('disable internationalization')
 	.option('-y, --yes', 'skip confirmation prompt')
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts, cmd) =>
 		runCommand(

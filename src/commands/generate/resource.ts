@@ -8,6 +8,7 @@ export const resource = new Command('resource')
 	.argument('<model>', 'model name')
 	.argument('[fields...]', 'field definitions')
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((model: string, fields: string[]) =>
 		runCommand(

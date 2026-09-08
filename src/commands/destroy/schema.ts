@@ -7,6 +7,7 @@ export const schema = new Command('schema')
 	.argument('<model>', 'schema model name (e.g., contact, login)')
 	.option('-y, --yes', 'skip confirmation prompt')
 	.allowUnknownOption(true)
+	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((model: string, opts) =>
 		runCommand(
