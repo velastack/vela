@@ -19,6 +19,7 @@ That's a running app with a database behind it. No separate PocketBase install, 
 - **CRUD you didn't write.** `vela generate scaffold post title:text body:editor` gives you the model, schema, forms, and pages.
 - **Describe it instead.** Pass `--ai "a blog post with tags and a cover image"` and review the collection it designs before anything is written.
 - **shadcn-svelte components** on tap, and fixtures and seeds for realistic data while you work.
+- **Themed templates.** `vela create --template broadsheet` pulls a finished blog design from the template registry; `--template` lists what is available, grouped by category.
 
 ## The shape of a day
 

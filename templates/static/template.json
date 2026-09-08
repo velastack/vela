@@ -1,4 +1,5 @@
 {
 	"description": "SvelteKit frontend only, prerendered with adapter-static",
-	"backend": false
+	"backend": false,
+	"category": "starter"
 }

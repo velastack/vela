@@ -12,3 +12,7 @@ export const API_URL = (process.env.VELA_API_URL?.trim() || 'https://velastack.d
 	''
 );
 export const FIXTURE_PREFIX = 'vela';
+// The registry `vela create` reads themed templates from. Overridable so a
+// templates checkout can be exercised from `file://` or a local server.
+export const TEMPLATE_INDEX_URL =
+	process.env.VELA_TEMPLATE_INDEX_URL?.trim() || 'https://templates.velastack.app/index.json';

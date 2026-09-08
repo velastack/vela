@@ -10,10 +10,12 @@ import { runCommand } from '../lib/run.ts';
 import { parseOptions } from '../lib/options.ts';
 import {
 	DEFAULT_TEMPLATE,
-	TEMPLATE_MANIFEST,
-	findProjectTemplate,
-	projectTemplateNames,
-	type ProjectTemplate
+	copyTemplate,
+	findTemplate,
+	listAllTemplates,
+	resolveTemplate,
+	templateChoicesMessage,
+	type TemplateListing
 } from '../lib/templates.ts';
 import {
 	AGENT_NAMES,
@@ -26,19 +28,23 @@ import {
 import { createSuperuser, withPocketbase } from '../lib/pocketbase.ts';
 import { writeEnvFile } from '../lib/env.ts';
 import pkg from '../../package.json' with { type: 'json' };
-import { applyTemplateFiles, restoreTemplateNames } from '../lib/template-files.ts';
+import { applyTemplateFiles } from '../lib/template-files.ts';
 import { reportResult } from '../lib/result-report.ts';
 
 /**
  * Built per run rather than at module load: the accepted templates come from the
- * templates directory, so adding one can't leave `--template` behind, and the
- * directory is only read once a command that needs it actually runs.
+ * templates directory and the registry, so adding one can't leave `--template`
+ * behind, and neither is read until a command that needs them actually runs.
  */
-function optionsSchema() {
-	const templates = projectTemplateNames();
+export function optionsSchema(listing: TemplateListing) {
+	const names = listing.templates.map((template) => template.name);
+	let choices = `must be one of: ${templateChoicesMessage(listing.templates)}`;
+	if (listing.registryError) {
+		choices += ` (could not reach the template registry: ${listing.registryError})`;
+	}
 	return v.strictObject({
 		install: v.union([v.boolean(), v.picklist(AGENT_NAMES)], 'must be a package manager'),
-		template: v.optional(v.picklist(templates, `must be one of: ${templates.join(', ')}`)),
+		template: v.optional(v.picklist(names, choices)),
 		name: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1, 'must not be empty'))),
 		email: v.optional(v.pipe(v.string(), v.email('must be a valid email address'))),
 		password: v.optional(v.pipe(v.string(), v.minLength(8, 'must be at least 8 characters long')))
@@ -49,7 +55,7 @@ type Options = v.InferOutput<ReturnType<typeof optionsSchema>>;
 export const create = new Command('create')
 	.description('scaffold a new velastack project')
 	.argument('[path]', 'where the project will be created')
-	.option('--template <type>', 'template to scaffold', 'minimal')
+	.option('--template <type>', 'template to scaffold (built-in or from the registry)', 'minimal')
 	.option('--no-install', 'skip installing dependencies')
 	.option('--name <name>', 'app name (used for emails, etc)')
 	.option('--email <email>', 'email of the admin user')
@@ -58,10 +64,12 @@ export const create = new Command('create')
 	.configureHelp(helpConfig)
 	.action((projectPath: string | undefined, rawOpts) => {
 		return runCommand(async () => {
-			const options = parseOptions(optionsSchema(), rawOpts);
+			const listing = await listAllTemplates();
+			const options = parseOptions(optionsSchema(listing), rawOpts);
 			const { directory, packageManager, name, template } = await createProject(
 				projectPath,
-				options
+				options,
+				listing
 			);
 
 			const relative = path.relative(process.cwd(), directory);
@@ -87,7 +95,9 @@ export const create = new Command('create')
 					`\`${runDev.command} ${runDev.args.join(' ')}\` to start the dev server (Ctrl-C to stop)`
 				);
 			}
-			if (template.backend) {
+			if (template.nextSteps) {
+				nextSteps.push(...template.nextSteps);
+			} else if (template.backend) {
 				nextSteps.push('Run `vela generate scaffold <model>` to generate your first CRUD pages.');
 			} else {
 				nextSteps.push(
@@ -104,13 +114,17 @@ export const create = new Command('create')
 		}, 'Failed to create project.');
 	});
 
-async function createProject(cwdArg: string | undefined, options: Options) {
+async function createProject(
+	cwdArg: string | undefined,
+	options: Options,
+	listing: TemplateListing
+) {
 	const onCancel = () => {
 		p.cancel('Operation cancelled.');
 		process.exit(0);
 	};
 
-	const template = findProjectTemplate(options.template ?? DEFAULT_TEMPLATE);
+	const template = findTemplate(listing, options.template ?? DEFAULT_TEMPLATE);
 	if (!template.backend && (options.email || options.password)) {
 		throw new Error(
 			`--email and --password don't apply to the ${template.name} template — it has no backend.`
@@ -161,8 +175,14 @@ async function createProject(cwdArg: string | undefined, options: Options) {
 
 	const projectPath = directory;
 
-	copyTemplate(template, projectPath);
-	applyTemplateFiles(projectPath, { appName: name, cliVersion: pkg.version });
+	if (template.source === 'remote') p.log.step(`Downloading template ${template.name}...`);
+	const resolved = await resolveTemplate(template);
+	try {
+		copyTemplate(resolved, projectPath);
+		applyTemplateFiles(projectPath, { appName: name, cliVersion: pkg.version });
+	} finally {
+		resolved.cleanup();
+	}
 	if (!fs.existsSync(path.join(projectPath, 'package.json'))) {
 		throw new Error(`Template ${template.name} is missing package.template.json`);
 	}
@@ -242,15 +262,4 @@ function promptCredentials(options: Options, onCancel: () => void) {
 		},
 		{ onCancel }
 	);
-}
-
-function copyTemplate(template: ProjectTemplate, target: string): void {
-	fs.mkdirSync(target, { recursive: true });
-	fs.cpSync(template.dir, target, {
-		recursive: true,
-		// The manifest describes the template to the CLI; it isn't part of the project.
-		filter: (src) =>
-			path.basename(src) !== '.DS_Store' && path.relative(template.dir, src) !== TEMPLATE_MANIFEST
-	});
-	restoreTemplateNames(target);
 }

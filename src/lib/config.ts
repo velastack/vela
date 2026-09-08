@@ -7,7 +7,15 @@ export interface VelaConfig {
 	apiKey?: string;
 }
 
-const CONFIG_DIR = path.join(os.homedir(), '.vela');
+/**
+ * `~/.vela`, home to the API key and the template registry cache. Resolved per
+ * call so a test can point HOME somewhere disposable.
+ */
+export function configDir(): string {
+	return path.join(os.homedir(), '.vela');
+}
+
+const CONFIG_DIR = configDir();
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 
 export function readConfig(): VelaConfig | null {

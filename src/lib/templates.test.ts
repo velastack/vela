@@ -7,6 +7,7 @@ import {
 	findProjectTemplate,
 	listProjectTemplates,
 	projectTemplateNames,
+	templateChoicesMessage,
 	templatesDir
 } from './templates.ts';
 
@@ -117,3 +118,22 @@ function readTemplatePackage(name: string): {
 	const file = path.join(findProjectTemplate(name).dir, 'package.template.json');
 	return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
+
+describe('categories', () => {
+	test('built-ins are starters', () => {
+		for (const template of listProjectTemplates()) {
+			expect(template.category).toBe('starter');
+			expect(template.source).toBe('builtin');
+		}
+	});
+
+	test('choices are grouped by category with starters first', () => {
+		const message = templateChoicesMessage([
+			{ name: 'confetti', description: '', backend: true, source: 'remote', category: 'blog' },
+			{ name: 'static', description: '', backend: false, source: 'builtin', category: 'starter' },
+			{ name: 'broadsheet', description: '', backend: true, source: 'remote', category: 'blog' },
+			{ name: 'minimal', description: '', backend: true, source: 'builtin', category: 'starter' }
+		]);
+		expect(message).toBe('starter: minimal, static; blog: broadsheet, confetti');
+	});
+});
