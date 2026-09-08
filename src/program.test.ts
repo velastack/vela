@@ -254,20 +254,22 @@ describe('pattern argv forwarding', () => {
 		}
 	);
 
-	test('enable cms parses --endpoint <url> into forwarded args', async () => {
+	test('enable cms parses --endpoint <url> as its own option', async () => {
 		const enable = program.commands.find((c) => c.name() === 'enable')!;
 		const cms = enable.commands.find((c) => c.name() === 'cms')!;
 		const url = 'https://velastack.dev/v1/projects/2tj321uzke7k7fn/cms';
 		const original = (cms as unknown as { _actionHandler: unknown })._actionHandler;
-		let seen: string[] | undefined;
-		cms.exitOverride().action((_opts, c: Command) => {
-			seen = c.args;
+		let seen: { endpoint?: string; args: string[] } | undefined;
+		cms.exitOverride().action((opts: { endpoint?: string }, c: Command) => {
+			seen = { endpoint: opts.endpoint, args: c.args };
 		});
 		try {
-			await program.parseAsync(['enable', 'cms', '--endpoint', url], { from: 'user' });
+			await program.parseAsync(['enable', 'cms', '--endpoint', url, '--other'], { from: 'user' });
 		} finally {
 			(cms as unknown as { _actionHandler: unknown })._actionHandler = original;
 		}
-		expect(seen).toEqual(['--endpoint', url]);
+		// The endpoint is a declared option so it can lift the static-site guard;
+		// anything else still passes through to the pattern.
+		expect(seen).toEqual({ endpoint: url, args: ['--other'] });
 	});
 });
