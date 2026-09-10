@@ -5,6 +5,9 @@ export default mergeConfig(
 	viteConfig,
 	defineConfig({
 		test: {
+			expect: {
+				requireAssertions: true
+			},
 			name: 'server',
 			environment: 'node',
 			include: ['src/**/*.{test,spec}.{js,ts}'],
