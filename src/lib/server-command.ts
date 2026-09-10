@@ -221,6 +221,13 @@ export async function ensureBinding(
 	const existing = readBinding(workspaceRootDir, key);
 	const moving = Boolean(request.server && existing && existing.server !== request.server);
 
+	// A `--server` that disagrees with the recorded binding is either a move or
+	// a mistake, and the two look the same. A terminal is asked; CI, which
+	// always passes `--server`, is refused: a workflow pointing at the wrong box
+	// would otherwise stand up a second copy of the app there and repoint every
+	// later command at it.
+	if (moving) await confirmMove(target, existing!.server, request.server!);
+
 	let server = request.server ?? existing?.server;
 	if (!server) {
 		server = await promptServer(target);
@@ -247,6 +254,29 @@ export async function ensureBinding(
 	}
 
 	return binding;
+}
+
+async function confirmMove(
+	target: RemoteTarget | PreviewTarget,
+	from: string,
+	to: string
+): Promise<void> {
+	const name = bindingName(target);
+	if (!process.stdout.isTTY || process.env.CI) {
+		throw new Error(
+			`${pc.cyan(`--server ${to}`)} does not match the server recorded for ${pc.cyan(name)}, ${pc.cyan(from)}.\n\n` +
+				`Drop ${pc.cyan('--server')} to use the recorded one, or move the binding on purpose by running\n` +
+				`this command once from a terminal (or editing .vela/project.json).`
+		);
+	}
+	const ok = await p.confirm({
+		message: `${name} ${target.kind === 'preview' ? 'run' : 'runs'} on ${from}. Point ${name} at ${to} instead?`,
+		initialValue: false
+	});
+	if (p.isCancel(ok) || !ok) {
+		p.cancel('Operation cancelled.');
+		process.exit(0);
+	}
 }
 
 /** How a binding reads in prompts: previews share one, so it is "previews", not a branch. */
