@@ -64,6 +64,19 @@ expect_ok "bare id sorts before suffixed id of the same second" order_ok 2026091
 expect_die "same id is not later" order_ok 20260910T120000Z-aaaa 20260910T120000Z-aaaa
 expect_die "earlier second is not later" order_ok 20260910T120001Z-0000 20260910T120000Z-ffff
 
+# ---------------------------------------------------------- runtime.env
+
+etc="$SCRATCH/etc/apps/x"; mkdir -p "$etc"
+printf 'PORT=4101\nVELA_RELEASE=20260910T000000Z\nVELA_ENV=prod\n' > "$etc/runtime.env"
+if (set_runtime_release "$etc" 20260910T120000Z-abcd >/dev/null 2>&1) \
+	&& [ "$(cat "$etc/runtime.env")" = "$(printf 'PORT=4101\nVELA_RELEASE=20260910T120000Z-abcd\nVELA_ENV=prod')" ] \
+	&& [ -z "$(ls -A "$etc" | grep -v '^runtime.env$')" ]; then
+	ok "runtime.env: release rewritten, nothing else touched, no temp file left"
+else
+	bad "runtime.env: release rewritten, nothing else touched, no temp file left" "$(cat "$etc/runtime.env"; ls -A "$etc")"
+fi
+expect_ok "runtime.env: missing file is not an error" set_runtime_release "$SCRATCH/etc/apps/none" 20260910T120000Z
+
 # ------------------------------------------------------------- health gate
 #
 # A one-shot HTTP server that answers every request with one status code.

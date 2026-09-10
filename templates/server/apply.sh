@@ -250,6 +250,9 @@ restore() {
 	if [ -n "$PREVIOUS" ] && [ -d "$APP/releases/$PREVIOUS" ]; then
 		ln -sfn "$APP/releases/$PREVIOUS" "$APP/.current.tmp"
 		mv -Tf "$APP/.current.tmp" "$APP/current"
+		# runtime.env was already written for the release that failed; the
+		# services about to restart must read the one they will actually run.
+		set_runtime_release "$ETC" "$PREVIOUS"
 		if [ "$BACKEND" = "1" ]; then systemctl restart "$PB_UNIT" >/dev/null 2>&1 || true; fi
 		systemctl restart "$WEB_UNIT" >/dev/null 2>&1 || true
 	else

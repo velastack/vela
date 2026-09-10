@@ -66,15 +66,7 @@ mv -Tf "$APP/.current.tmp" "$APP/current"
 # The running release is part of the instance's environment, so it has to move
 # with the symlink.
 ETC=$(etc_dir "$INSTANCE")
-if [ -f "$ETC/runtime.env" ]; then
-	# Rewritten whole and renamed into place, the way apply.sh writes it, so
-	# systemd never reads a file with half a line in it.
-	runtime_tmp=$(mktemp "$ETC/.runtime.XXXXXX")
-	sed "s|^VELA_RELEASE=.*|VELA_RELEASE=$TARGET|" "$ETC/runtime.env" > "$runtime_tmp"
-	chmod 0600 "$runtime_tmp"
-	chown root:root "$runtime_tmp"
-	mv -f "$runtime_tmp" "$ETC/runtime.env"
-fi
+set_runtime_release "$ETC" "$TARGET"
 
 if [ "$BACKEND" = "true" ]; then
 	systemctl restart "$PB_UNIT"

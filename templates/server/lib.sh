@@ -205,6 +205,20 @@ revert_migrations() {
 		migrate down "$ahead" >&2
 }
 
+# Point an instance's runtime.env at a release. Rewritten whole and renamed
+# into place, the way apply.sh writes it, so systemd never reads half a line.
+#
+# usage: set_runtime_release <etc_dir> <release>
+set_runtime_release() {
+	local etc=$1 release=$2 tmp
+	[ -f "$etc/runtime.env" ] || return 0
+	tmp=$(mktemp "$etc/.runtime.XXXXXX")
+	sed "s|^VELA_RELEASE=.*|VELA_RELEASE=$release|" "$etc/runtime.env" > "$tmp"
+	chmod 0600 "$tmp"
+	chown root:root "$tmp" 2>/dev/null || true
+	mv -f "$tmp" "$etc/runtime.env"
+}
+
 emit_result() { printf 'VELA_RESULT %s\n' "$(jq -c -n "$@")"; }
 
 # Read one value out of a vela-managed env file. `vela env` writes values with
