@@ -12,7 +12,13 @@ import { withSsh, type SshSession } from '../lib/ssh.ts';
 import { addSshOptions, SSH_OPTION_SCHEMA, sshOptionsFrom } from '../lib/ssh-options.ts';
 import { writeBinding } from '../lib/deploy-config.ts';
 import { bindingKey } from '../lib/target.ts';
-import { addTargetOptions, withTarget } from '../lib/server-command.ts';
+import {
+	addLockWaitOption,
+	addTargetOptions,
+	LOCK_WAIT_SCHEMA,
+	lockWaitArgs,
+	withTarget
+} from '../lib/server-command.ts';
 import { instanceId, normalizeEnvTag, releaseId } from '../lib/instance.ts';
 import { ensureSuperuser, findFreePort, pocketbaseVersion } from '../lib/pocketbase.ts';
 import { readLocalMeta, readRemoteAppURL, seedRemoteMeta } from '../lib/pocketbase-settings.ts';
@@ -22,10 +28,11 @@ import { restartInstance } from '../lib/remote-env.ts';
 import {
 	readInstanceStates,
 	remotePaths,
-	type InstanceState,
 	requireProvisioned,
 	runServerScript,
-	syncServerScripts
+	serverTime,
+	syncServerScripts,
+	type InstanceState
 } from '../lib/remote.ts';
 import { collectArtifact, gitSha, runBuild } from '../lib/artifact.ts';
 import { readRemoteEnv } from '../lib/remote-env.ts';
@@ -34,6 +41,7 @@ const OptionsSchema = v.object({
 	...SSH_OPTION_SCHEMA,
 	env: v.optional(v.string()),
 	project: v.optional(v.string()),
+	...LOCK_WAIT_SCHEMA,
 	remoteDb: v.optional(v.boolean()),
 	domain: v.optional(v.string()),
 	healthPath: v.optional(v.string()),
@@ -42,9 +50,11 @@ const OptionsSchema = v.object({
 	build: v.optional(v.boolean())
 });
 
-export const deploy = addTargetOptions(
-	new Command('deploy').description('deploy the app').configureHelp(helpConfig),
-	'production'
+export const deploy = addLockWaitOption(
+	addTargetOptions(
+		new Command('deploy').description('deploy the app').configureHelp(helpConfig),
+		'production'
+	)
 )
 	.option('--project <name>', 'override the project name')
 	.option('--domain <hosts>', 'hostname(s) to serve on, comma separated')
@@ -70,7 +80,6 @@ export const deploy = addTargetOptions(
 		runCommand(async () => {
 			const options = parseOptions(OptionsSchema, raw);
 			const backend = hasBackend();
-			const release = releaseId();
 
 			p.intro(pc.bgCyan(pc.black(' vela deploy ')));
 
@@ -84,6 +93,10 @@ export const deploy = addTargetOptions(
 						);
 
 						const [existing] = await readInstanceStates(session, instance);
+						// Stamped from the server's clock, so a laptop and a CI runner
+						// deploying the same instance agree on which release is newer;
+						// apply.sh refuses one that would take the site backwards.
+						const release = releaseId(await serverTimeOrLocal(session));
 						const isPreview = ctx.target.kind === 'preview';
 						// The binding outranks the config file: one `deploy.domain` cannot
 						// serve production and staging at once. A preview inherits neither —
@@ -131,17 +144,6 @@ export const deploy = addTargetOptions(
 						const primaryUrl =
 							started?.environment.primaryUrl || normalizeOrigin(primaryHost) || '';
 
-						// Production without a domain is a warning at the end; a preview
-						// nobody can reach is not worth building.
-						if (isPreview && !primaryHost) {
-							throw new Error(
-								`Nothing routes to this preview.\n\n` +
-									`Previews get a free velastack.app hostname from velastack.dev: ${pc.cyan('vela link')} the\n` +
-									`project and ${pc.cyan('vela login')} (or set ${pc.cyan('VELA_API_KEY')}). Or pass ${pc.cyan('--domain <host>')}\n` +
-									`with DNS of your own pointing at ${ctx.server}.`
-							);
-						}
-
 						let result: {
 							url: string;
 							webPort: number;
@@ -150,6 +152,18 @@ export const deploy = addTargetOptions(
 						} | null = null;
 
 						try {
+							// Production without a domain is a warning at the end; a preview
+							// nobody can reach is not worth building. Inside the try so the
+							// deploy just announced is closed out as failed, not left open.
+							if (isPreview && !primaryHost) {
+								throw new Error(
+									`Nothing routes to this preview.\n\n` +
+										`Previews get a free velastack.app hostname from velastack.dev: ${pc.cyan('vela link')} the\n` +
+										`project and ${pc.cyan('vela login')} (or set ${pc.cyan('VELA_API_KEY')}). Or pass ${pc.cyan('--domain <host>')}\n` +
+										`with DNS of your own pointing at ${ctx.server}.`
+								);
+							}
+
 							if (options.build !== false) {
 								// Prerendering has no request to take an origin from, and the
 								// binding is not written until further down, so a first deploy
@@ -228,7 +242,8 @@ export const deploy = addTargetOptions(
 									'--pb-version',
 									options.pbVersion ?? config.deploy?.pocketbaseVersion ?? pocketbaseVersion(),
 									'--git-sha',
-									sha
+									sha,
+									...lockWaitArgs(options.lockWait)
 								],
 								stream: true
 							});
@@ -502,7 +517,10 @@ async function uploadRelease(
 	entries: { localPath: string; remoteDir: string }[]
 ): Promise<void> {
 	const dir = remotePaths.release(instance, release);
-	await session.script(`mkdir -p "$1"`, { args: [dir] });
+	// The release directory itself is made without -p: an id already on the
+	// server belongs to another deploy, and two uploads into one directory
+	// would leave a release that is neither.
+	await session.script(`mkdir -p "$(dirname "$1")" && mkdir "$1"`, { args: [dir] });
 
 	const byTarget = new Map<string, string[]>();
 	for (const entry of entries) {
@@ -548,4 +566,14 @@ async function reportEmptyEnvironment(
 			`Local ${pc.cyan('.env')} values are not uploaded by a deploy. Set them with\n` +
 			`${pc.cyan('vela env set KEY')}, or copy a file across with ${pc.cyan('vela env import .env.production')}.`
 	);
+}
+
+/** The server's clock, or this machine's with a warning when it cannot be read. */
+async function serverTimeOrLocal(session: SshSession): Promise<Date> {
+	try {
+		return await serverTime(session);
+	} catch {
+		p.log.warn('Could not read the clock on the server; stamping this release from this machine.');
+		return new Date();
+	}
 }

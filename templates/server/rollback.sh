@@ -2,7 +2,7 @@
 #
 # Put the previous release back for one instance.
 #
-# usage: rollback.sh <instance> [--to <release>]
+# usage: rollback.sh <instance> [--to <release>] [--lock-wait <seconds>]
 set -Eeuo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -13,21 +13,26 @@ require_provisioned
 [ "$(id -u)" -eq 0 ] || die "rollback must run as root"
 
 INSTANCE=${1:-}; shift || true
-[ -n "$INSTANCE" ] || die "usage: rollback.sh <instance> [--to <release>]"
+[ -n "$INSTANCE" ] || die "usage: rollback.sh <instance> [--to <release>] [--lock-wait <seconds>]"
+require_instance_id "$INSTANCE"
 
 TARGET=""
+LOCK_WAIT=300
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--to) TARGET=$2; shift 2 ;;
+		--lock-wait) LOCK_WAIT=$2; shift 2 ;;
 		*) die "unknown argument: $1" ;;
 	esac
 done
+[ -z "$TARGET" ] || require_release_id "$TARGET"
 
 # Commands that drop to the app user inherit this working directory, and the
 # directory the CLI happened to invoke from is usually one it cannot stat.
 cd "$VELA_ROOT"
 
 APP=$(app_dir "$INSTANCE")
+lock_instance "$INSTANCE" "$LOCK_WAIT"
 [ -f "$(state_file "$INSTANCE")" ] || die "no instance $INSTANCE on this server"
 
 CURRENT=$(state_get "$INSTANCE" activeRelease || echo "")

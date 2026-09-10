@@ -7,6 +7,11 @@
 # is put back and the services are restarted before exiting non-zero.
 #
 # usage: apply.sh <instance> <release> [options]
+#
+# Only one of apply, destroy, rollback and restore runs for an instance at a
+# time; a second waits for the first (--lock-wait seconds) and then gives up. A
+# release that arrives after a newer one has gone live is refused rather than
+# put live over it.
 set -Eeuo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -19,6 +24,8 @@ require_provisioned
 INSTANCE=${1:-}; shift || true
 RELEASE=${1:-}; shift || true
 [ -n "$INSTANCE" ] && [ -n "$RELEASE" ] || die "usage: apply.sh <instance> <release> [options]"
+require_instance_id "$INSTANCE"
+require_release_id "$RELEASE"
 
 APP_NAME=$INSTANCE
 APP_ID=$INSTANCE
@@ -30,10 +37,12 @@ KEEP=5
 PB_VERSION=""
 BACKEND=1
 GIT_SHA=""
+LOCK_WAIT=300
 SU_CREATED=0
 
 while [ $# -gt 0 ]; do
 	case "$1" in
+		--lock-wait) LOCK_WAIT=$2; shift 2 ;;
 		--name) APP_NAME=$2; shift 2 ;;
 		--app-id) APP_ID=$2; shift 2 ;;
 		--env) ENV_TAG=$2; shift 2 ;;
@@ -58,9 +67,21 @@ RELEASE_DIR="$APP/releases/$RELEASE"
 WEB_UNIT=$(unit_web "$INSTANCE")
 PB_UNIT=$(unit_pb "$INSTANCE")
 
+lock_instance "$INSTANCE" "$LOCK_WAIT"
+
 [ -d "$RELEASE_DIR" ] || die "release $RELEASE was not uploaded to $RELEASE_DIR"
 [ -f "$RELEASE_DIR/build/index.js" ] || die \
 	"release $RELEASE has no build/index.js - the app must build with @sveltejs/adapter-node"
+
+# A release that sorts at or below the active one arrived late: a newer deploy
+# went live while this one was building or waiting for the lock. Putting it
+# live would take the site backwards, so it is dropped - its own directory
+# only; what is live is not touched.
+ACTIVE=$(state_get "$INSTANCE" activeRelease 2>/dev/null || true)
+if [ -n "$ACTIVE" ] && [ -L "$APP/current" ] && ! [[ "$RELEASE" > "$ACTIVE" ]]; then
+	rm -rf "${RELEASE_DIR:?}"
+	die "release $RELEASE is not newer than the active release $ACTIVE on $INSTANCE - a newer deploy went live first, so this one was dropped"
+fi
 
 mkdir -p "$APP"/{releases,shared,bin,deps} "$APP/shared/pb_data"
 mkdir -p "$ETC"
@@ -188,9 +209,11 @@ install_deps() {
 		# so the app user can never swap out the scripts root runs.
 		mkdir -p "$VELA_ROOT/cache/npm"
 		chown -R "$VELA_USER:$VELA_USER" "$VELA_ROOT/cache"
+		# 8>&-: npm must not inherit the instance lock, or a child it leaves
+		# behind would hold it after this script has exited.
 		( cd "$deps" && runuser -u "$VELA_USER" -- env \
 			HOME="$deps" npm_config_cache="$VELA_ROOT/cache/npm" \
-			"${install_cmd[@]}" >&2 ) || die "dependency install failed"
+			"${install_cmd[@]}" >&2 8>&- ) || die "dependency install failed"
 	else
 		log "dependencies already installed ($key)"
 	fi
@@ -404,6 +427,8 @@ if [ "$KEEP" -gt 0 ] 2>/dev/null; then
 		[ -n "$rel" ] || continue
 		[ "$rel" = "$RELEASE" ] && continue
 		[ "$rel" = "$PREVIOUS" ] && continue
+		# Uploaded by a deploy that is waiting on the lock: not ours to prune.
+		if [[ "$rel" > "$RELEASE" ]]; then continue; fi
 		log "pruning release $rel"
 		rm -rf "${APP:?}/releases/$rel"
 	done

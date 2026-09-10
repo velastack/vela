@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+
 /**
  * Instance identity.
  *
@@ -43,14 +45,26 @@ export function normalizeEnvTag(tag: string | undefined): string {
 	return normalized === 'production' ? PROD_ENV : normalized;
 }
 
-/** Turn a git branch name into an environment tag: `feature/auth` -> `preview--feature-auth`. */
+/** Hex characters of the branch hash a lossy preview slug carries. */
+const SLUG_HASH = 6;
+
+/**
+ * Turn a git branch name into an environment tag.
+ *
+ * `fix-copy` keeps its name: `preview--fix-copy`. A branch the slug cannot
+ * spell back - punctuation folded, case folded, or cut at the length limit -
+ * carries a short hash of the full name: `feature/auth` becomes
+ * `preview--feature-auth-1a2b3c`. Without it `feature/x` and `feature-x`, or
+ * two long Dependabot branches differing only past the limit, would share one
+ * instance, and closing one pull request would remove the other's preview.
+ */
 export function branchToEnvTag(branch: string): string {
-	const slug = branch
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '')
-		.slice(0, MAX_SEGMENT);
-	return `preview--${slug}`;
+	const lower = branch.toLowerCase();
+	const slug = lower.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+	if (slug === branch && slug.length <= MAX_SEGMENT) return `preview--${slug}`;
+	const hash = crypto.createHash('sha256').update(branch).digest('hex').slice(0, SLUG_HASH);
+	const head = slug.slice(0, MAX_SEGMENT - SLUG_HASH - 1).replace(/-+$/, '');
+	return `preview--${head}-${hash}`;
 }
 
 export function instanceId(appId: string, envTag: string = PROD_ENV): string {
@@ -62,10 +76,20 @@ export function isProd(envTag: string): boolean {
 	return normalizeEnvTag(envTag) === PROD_ENV;
 }
 
-/** A release id sorts lexicographically by time, which is how `latest` is found. */
-export function releaseId(date = new Date()): string {
-	return date
+/**
+ * A release id sorts lexicographically by time, which is how the server tells
+ * a late-arriving older deploy from a newer one. The suffix keeps two deploys
+ * started in the same second out of one directory; a bare stamp, as older
+ * CLIs wrote, sorts just before its suffixed form.
+ */
+export function releaseId(date = new Date(), suffix = randomSuffix()): string {
+	const stamp = date
 		.toISOString()
 		.replace(/[-:]/g, '')
 		.replace(/\.\d+Z$/, 'Z');
+	return `${stamp}-${suffix}`;
+}
+
+function randomSuffix(): string {
+	return crypto.randomBytes(2).toString('hex');
 }

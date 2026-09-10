@@ -1,4 +1,7 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
+import process from 'node:process';
 import { templatesDir } from './templates.ts';
 import { SshSession, type RunResult } from './ssh.ts';
 
@@ -6,7 +9,13 @@ export const VELA_ROOT = '/var/lib/vela';
 export const VELA_ETC = '/etc/vela';
 /** The unprivileged account every app's files and processes belong to. */
 export const VELA_USER = 'vela';
-export const SCRIPTS_DIR = `${VELA_ROOT}/scripts`;
+/**
+ * Where each version of the server scripts lives, keyed by content hash, with
+ * a `current` link for anyone reading the box by hand. Older CLIs still rsync
+ * `--delete` into the sibling `/var/lib/vela/scripts`; keeping versions out of
+ * that tree is what stops one of them deleting the scripts a deploy is running.
+ */
+export const SCRIPT_VERSIONS_DIR = `${VELA_ROOT}/script-versions`;
 export const PROVISIONED_MARKER = `${VELA_ETC}/provisioned`;
 /** The server's registration with velastack.dev: origin name and Worker token. */
 export const ORIGIN_FILE = `${VELA_ETC}/origin.json`;
@@ -48,24 +57,99 @@ export interface InstanceState {
 	services?: { web: string; pocketbase: string };
 }
 
-/** The `templates/server` tree that gets uploaded to `/var/lib/vela/scripts`. */
+/** The `templates/server` tree that gets uploaded to the server. */
 export function serverTemplatesDir(): string {
 	return path.join(templatesDir(), 'server');
 }
+
+/** Hex digits of the content hash a script version is named by. */
+const DIGEST_LENGTH = 12;
+
+/**
+ * One hash over every file in the server templates, paths included, so a
+ * change to any byte of any script names a new version on the server.
+ */
+export function serverScriptsDigest(dir = serverTemplatesDir()): string {
+	const hash = crypto.createHash('sha256');
+	for (const file of listFiles(dir).sort()) {
+		hash
+			.update(file)
+			.update('\0')
+			.update(fs.readFileSync(path.join(dir, file)))
+			.update('\0');
+	}
+	return hash.digest('hex').slice(0, DIGEST_LENGTH);
+}
+
+function listFiles(root: string, prefix = ''): string[] {
+	const files: string[] = [];
+	for (const entry of fs.readdirSync(path.join(root, prefix), { withFileTypes: true })) {
+		const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+		if (entry.isDirectory()) files.push(...listFiles(root, rel));
+		else if (entry.isFile()) files.push(rel);
+	}
+	return files;
+}
+
+/** The script directory each open session was told to run from. */
+const scriptDirs = new WeakMap<SshSession, string>();
 
 /**
  * Put this CLI's copy of the server scripts on the box.
  *
  * Uploaded on every provision *and* every deploy, so the scripts a server runs
  * always match the CLI driving it — upgrading the CLI is all it takes to pick
- * up a fixed deploy script.
+ * up a fixed deploy script. Each version goes into its own content-hashed
+ * directory and is published with one rename, so a deploy in progress keeps
+ * running the scripts it started with while a newer (or older) CLI puts its
+ * own alongside. A version already on the box is not uploaded again.
  */
-export async function syncServerScripts(session: SshSession): Promise<void> {
-	await session.script(`mkdir -p "$1" && chmod 0755 "$1"`, { args: [SCRIPTS_DIR] });
-	await session.uploadDir(serverTemplatesDir(), SCRIPTS_DIR, ['--chmod=D755,F755']);
-	// rsync preserves the developer's uid otherwise, which leaves root-run
-	// scripts owned by a uid that means nothing on the server.
-	await session.script(`chown -R root:root "$1"`, { args: [SCRIPTS_DIR] });
+export async function syncServerScripts(session: SshSession): Promise<string> {
+	const digest = serverScriptsDigest();
+	const dir = `${SCRIPT_VERSIONS_DIR}/${digest}`;
+	const present = await session.script(`[ -d "$1" ] && echo yes || echo no`, { args: [dir] });
+	if (present.stdout.trim() !== 'yes') {
+		const incoming = `${SCRIPT_VERSIONS_DIR}/.incoming.${digest}.${process.pid}.${Date.now()}`;
+		await session.script(`mkdir -p "$1" && chmod 0755 "$(dirname "$1")" "$1"`, {
+			args: [incoming]
+		});
+		await session.uploadDir(serverTemplatesDir(), incoming, ['--chmod=D755,F755']);
+		// rsync preserves the developer's uid otherwise, which leaves root-run
+		// scripts owned by a uid that means nothing on the server. Then one
+		// rename publishes the version; if another CLI published the same hash
+		// first, theirs is identical and this upload is simply dropped.
+		await session.script(
+			`chown -R root:root "$1"
+			if [ -d "$2" ]; then rm -rf "$1"; else mv -T "$1" "$2" || { rm -rf "$1"; [ -d "$2" ]; }; fi`,
+			{ args: [incoming, dir] }
+		);
+	}
+	// \`current\` is for people, not for the CLI: every command runs the version
+	// it uploaded. Touching the directory keeps the one in use out of the
+	// pruning of versions nothing has run for a month.
+	await session.script(
+		`touch "$1"
+		ln -sfn "$1" "$2/.current.tmp" && mv -Tf "$2/.current.tmp" "$2/current"
+		find "$2" -mindepth 1 -maxdepth 1 -type d -name '[0-9a-f]*' ! -name "$(basename "$1")" -mtime +30 -exec rm -rf {} + 2>/dev/null || true
+		find "$2" -mindepth 1 -maxdepth 1 -type d -name '.incoming.*' -mmin +120 -exec rm -rf {} + 2>/dev/null || true`,
+		{ args: [dir, SCRIPT_VERSIONS_DIR] }
+	);
+	scriptDirs.set(session, dir);
+	return dir;
+}
+
+/**
+ * The clock the server keeps, for release ids: two machines deploying one
+ * instance agree on which release is newer only if both stamp it from the
+ * same clock.
+ */
+export async function serverTime(session: SshSession): Promise<Date> {
+	const result = await session.script(`date -u +%s`);
+	const seconds = Number(result.stdout.trim());
+	if (!Number.isFinite(seconds) || seconds <= 0) {
+		throw new Error(`could not read the clock on ${session.target}`);
+	}
+	return new Date(seconds * 1000);
 }
 
 export interface ScriptOptions {
@@ -85,8 +169,9 @@ export async function runServerScript<T = Record<string, unknown>>(
 ): Promise<T | null> {
 	// `bash -s -- a b c` leaves $0 as "bash", so the script path is the first
 	// positional and has to be shifted off before exec.
+	const dir = scriptDirs.get(session) ?? `${SCRIPT_VERSIONS_DIR}/current`;
 	const result = await session.script(`script="$1"; shift; exec "$script" "$@"`, {
-		args: [`${SCRIPTS_DIR}/${name}`, ...(opts.args ?? [])],
+		args: [`${dir}/${name}`, ...(opts.args ?? [])],
 		stream: opts.stream
 	});
 	return parseResult<T>(result);
