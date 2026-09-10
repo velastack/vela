@@ -56,8 +56,10 @@ for unit in "$(unit_web "$INSTANCE")" "$(unit_pb "$INSTANCE")"; do
 done
 
 log "removing routing"
+caddy_lock
 rm -f "$VELA_ETC/caddy/$INSTANCE.caddy" "$VELA_ETC/caddy/routes/$INSTANCE.route"
 caddy_reload || true
+caddy_unlock
 
 log "removing releases"
 rm -rf "${APP:?}/releases" "${APP:?}/deps" "${APP:?}/current" "${APP:?}/bin"

@@ -39,6 +39,7 @@ BACKEND=1
 GIT_SHA=""
 LOCK_WAIT=300
 SU_CREATED=0
+MIGRATED=0
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -237,6 +238,15 @@ ACTIVATED=0
 
 restore() {
 	log "deploy failed - restoring ${PREVIOUS:-nothing}"
+	# The schema moved with this release; the previous one must not run
+	# against it. Same steps `vela rollback` takes, best-effort here because
+	# the app is being put back either way and the alternative is a dead site.
+	if [ "$BACKEND" = "1" ] && [ "$MIGRATED" = "1" ] && [ -n "$PREVIOUS" ] \
+		&& [ -d "$APP/releases/$PREVIOUS" ]; then
+		systemctl stop "$PB_UNIT" >/dev/null 2>&1 || true
+		revert_migrations "$APP" "$RELEASE_DIR/migrations" "$APP/releases/$PREVIOUS/migrations" \
+			|| log "down migrations failed - the database schema is ahead of $PREVIOUS; run 'vela rollback' once it is fixed"
+	fi
 	if [ -n "$PREVIOUS" ] && [ -d "$APP/releases/$PREVIOUS" ]; then
 		ln -sfn "$APP/releases/$PREVIOUS" "$APP/.current.tmp"
 		mv -Tf "$APP/.current.tmp" "$APP/current"
@@ -268,6 +278,7 @@ if [ "$BACKEND" = "1" ]; then
 			--dir "$APP/shared/pb_data" \
 			--migrationsDir "$RELEASE_DIR/migrations" \
 			migrate up >&2
+		MIGRATED=1
 	fi
 
 	# ---------------------------------------------------- superuser bootstrap
@@ -307,8 +318,11 @@ mv -Tf "$APP/.current.tmp" "$APP/current"
 if [ "$ENV_TAG" = "prod" ]; then LINK_LABEL=$APP_NAME; else LINK_LABEL="$APP_NAME-$ENV_TAG"; fi
 LINK_NAME=$(printf '%s' "$LINK_LABEL" | tr -c 'A-Za-z0-9._-' '-')
 if [ -n "$LINK_NAME" ]; then
-	ln -sfn "$APP" "$VELA_ROOT/by-name/.link.tmp" && \
-		mv -Tf "$VELA_ROOT/by-name/.link.tmp" "$VELA_ROOT/by-name/$LINK_NAME" || true
+	# A staging name of its own: a fixed one would be shared with every other
+	# deploy on the server, and two of them would swap each other's links.
+	link_tmp=$(mktemp -u "$VELA_ROOT/by-name/.link.XXXXXX")
+	{ ln -sfn "$APP" "$link_tmp" && mv -Tf "$link_tmp" "$VELA_ROOT/by-name/$LINK_NAME"; } \
+		|| rm -f "$link_tmp" || true
 fi
 
 systemctl daemon-reload
@@ -375,6 +389,11 @@ CADDY_SNIPPET="$VELA_ETC/caddy/$INSTANCE.caddy"
 ROUTE_SNIPPET="$VELA_ETC/caddy/routes/$INSTANCE.route"
 ROUTING_CHANGED=0
 
+# From here the release is live and stays live: a routing failure below
+# exits non-zero with the site running the new release and its routes as
+# they were, which is what the messages say.
+caddy_lock
+
 if [ -n "$DOMAIN" ]; then
 	hosts=$(printf '%s' "$DOMAIN" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$' | paste -sd, - | sed 's/,/, /g')
 	tmp=$(mktemp "$VELA_ETC/caddy/.snippet.XXXXXX")
@@ -382,7 +401,8 @@ if [ -n "$DOMAIN" ]; then
 		printf '# Managed by vela - app %s (%s)\n' "$APP_NAME" "$INSTANCE"
 		printf '%s {\n\treverse_proxy 127.0.0.1:%s\n}\n' "$hosts" "$WEB_PORT"
 	} > "$tmp"
-	caddy_install "$tmp" "$CADDY_SNIPPET" || die "generated Caddy config for $DOMAIN is invalid"
+	caddy_install "$tmp" "$CADDY_SNIPPET" \
+		|| die "release $RELEASE is live, but the generated Caddy config for $DOMAIN is invalid and was not installed - routing is unchanged"
 	ROUTING_CHANGED=1
 elif [ -f "$CADDY_SNIPPET" ]; then
 	rm -f "$CADDY_SNIPPET"
@@ -409,7 +429,8 @@ if [ -n "$MANAGED" ]; then
 		printf '\t\theader_up X-Forwarded-For {http.request.header.X-Velastack-Client-IP}\n'
 		printf '\t}\n}\n'
 	} > "$tmp"
-	caddy_install "$tmp" "$ROUTE_SNIPPET" || die "generated Caddy route for $MANAGED is invalid"
+	caddy_install "$tmp" "$ROUTE_SNIPPET" \
+		|| die "release $RELEASE is live, but the generated Caddy route for $MANAGED is invalid and was not installed - routing is unchanged"
 	ROUTING_CHANGED=1
 elif [ -f "$ROUTE_SNIPPET" ]; then
 	rm -f "$ROUTE_SNIPPET"
@@ -417,7 +438,7 @@ elif [ -f "$ROUTE_SNIPPET" ]; then
 fi
 
 [ "$ROUTING_CHANGED" = 0 ] || caddy_reload
-
+caddy_unlock
 
 # ------------------------------------------------------------------- pruning
 

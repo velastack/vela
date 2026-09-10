@@ -55,15 +55,8 @@ if [ "$BACKEND" = "true" ]; then
 	# Down migrations belong to the release being left behind, so they run from
 	# the current release's migration set before the symlink moves.
 	if [ -n "$CURRENT" ] && [ -d "$APP/releases/$CURRENT/migrations" ]; then
-		AHEAD=$(migrations_ahead "$APP/releases/$CURRENT/migrations" "$APP/releases/$TARGET/migrations")
-		if [ "$AHEAD" -gt 0 ]; then
-			log "reverting $AHEAD migration(s) introduced after $TARGET"
-			runuser -u "$VELA_USER" -- "$APP/bin/pocketbase" \
-				--dir "$APP/shared/pb_data" \
-				--migrationsDir "$APP/releases/$CURRENT/migrations" \
-				migrate down "$AHEAD" >&2 \
-				|| die "down migrations failed - the app is still stopped"
-		fi
+		revert_migrations "$APP" "$APP/releases/$CURRENT/migrations" "$APP/releases/$TARGET/migrations" \
+			|| die "down migrations failed - the app is still stopped"
 	fi
 fi
 
@@ -74,7 +67,13 @@ mv -Tf "$APP/.current.tmp" "$APP/current"
 # with the symlink.
 ETC=$(etc_dir "$INSTANCE")
 if [ -f "$ETC/runtime.env" ]; then
-	sed -i "s|^VELA_RELEASE=.*|VELA_RELEASE=$TARGET|" "$ETC/runtime.env"
+	# Rewritten whole and renamed into place, the way apply.sh writes it, so
+	# systemd never reads a file with half a line in it.
+	runtime_tmp=$(mktemp "$ETC/.runtime.XXXXXX")
+	sed "s|^VELA_RELEASE=.*|VELA_RELEASE=$TARGET|" "$ETC/runtime.env" > "$runtime_tmp"
+	chmod 0600 "$runtime_tmp"
+	chown root:root "$runtime_tmp"
+	mv -f "$runtime_tmp" "$ETC/runtime.env"
 fi
 
 if [ "$BACKEND" = "true" ]; then

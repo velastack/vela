@@ -186,6 +186,25 @@ migrations_ahead() {
 	printf '%s' "$count"
 }
 
+# Revert the migrations `from_dir` has that `to_dir` lacks. They run from
+# `from_dir` - the release that introduced them owns their down steps - and
+# PocketBase reverts by count, which `migrations_ahead` supplies. The
+# instance's PocketBase must be stopped: `migrate down` opens the database
+# directly. Returns non-zero if PocketBase refuses; the caller decides how bad
+# that is.
+#
+# usage: revert_migrations <app_dir> <from_dir> <to_dir>
+revert_migrations() {
+	local app=$1 from=$2 to=$3 ahead
+	ahead=$(migrations_ahead "$from" "$to")
+	[ "$ahead" -gt 0 ] || return 0
+	log "reverting $ahead migration(s) the previous release does not have"
+	runuser -u "$VELA_USER" -- "$app/bin/pocketbase" \
+		--dir "$app/shared/pb_data" \
+		--migrationsDir "$from" \
+		migrate down "$ahead" >&2
+}
+
 emit_result() { printf 'VELA_RESULT %s\n' "$(jq -c -n "$@")"; }
 
 # Read one value out of a vela-managed env file. `vela env` writes values with
@@ -309,4 +328,21 @@ caddy_install() {
 
 caddy_reload() {
 	systemctl reload caddy >/dev/null 2>&1 || systemctl restart caddy
+}
+
+# Serialize every change to the Caddy config across instances.
+#
+# `caddy_valid` checks the whole Caddyfile, so two scripts installing snippets
+# at once would each judge the other's: a bad snippet from one deploy would
+# have the other roll back a good route of its own. Held from the first
+# snippet write through the reload. Descriptor 7; blocking, since a Caddy
+# change takes well under a second.
+caddy_lock() {
+	mkdir -p "$VELA_ROOT/state"
+	exec 7>"$VELA_ROOT/state/.caddy.lock"
+	flock 7
+}
+
+caddy_unlock() {
+	exec 7>&-
 }

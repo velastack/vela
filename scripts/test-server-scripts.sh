@@ -124,6 +124,19 @@ if command -v flock >/dev/null 2>&1; then
 	if [ "$code" = 0 ] && ! grep -q waiting <<<"$out"; then ok "lock: a different instance is independent"; else bad "lock: a different instance is independent" "$out"; fi
 
 	[ -f "$VELA_ROOT/state/locks/inst.lock" ] && ok "lock: file lives under state/locks" || bad "lock: file lives under state/locks"
+
+	# The caddy lock is held only between lock and unlock: a second taker must
+	# not wait once the first has let go.
+	out=$( (caddy_lock && caddy_unlock && caddy_lock && caddy_unlock && echo twice) 2>&1 ); code=$?
+	if [ "$code" = 0 ] && grep -q twice <<<"$out"; then ok "caddy lock: releases on unlock"; else bad "caddy lock: releases on unlock" "$out"; fi
+	(caddy_lock && sleep 2) &
+	cholder=$!
+	sleep 0.3
+	start=$(date +%s)
+	(caddy_lock && caddy_unlock) 2>/dev/null
+	elapsed=$(( $(date +%s) - start ))
+	if [ "$elapsed" -ge 1 ]; then ok "caddy lock: blocks while held"; else bad "caddy lock: blocks while held" "took ${elapsed}s"; fi
+	wait "$cholder" 2>/dev/null
 else
 	echo "SKIP lock (no flock on this platform)"
 fi
