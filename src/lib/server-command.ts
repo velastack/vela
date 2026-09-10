@@ -37,6 +37,30 @@ export const SERVER_OPTIONS_SCHEMA = {
 
 const OptionsSchema = v.object(SERVER_OPTIONS_SCHEMA);
 
+export const DEFAULT_LOCK_WAIT = '300';
+
+/** `--lock-wait`, for the schemas of commands that mutate an instance. */
+export const LOCK_WAIT_SCHEMA = {
+	lockWait: v.optional(v.pipe(v.string(), v.regex(/^\d+$/, 'must be a whole number of seconds')))
+};
+
+/**
+ * How long a server script waits for another deploy, destroy, rollback or
+ * restore of the same target to finish before giving up. `0` gives up at once.
+ */
+export function addLockWaitOption(command: Command): Command {
+	return command.option(
+		'--lock-wait <seconds>',
+		'how long to wait for another operation on this target to finish before giving up',
+		DEFAULT_LOCK_WAIT
+	);
+}
+
+/** The `--lock-wait` arguments a server script takes. */
+export function lockWaitArgs(lockWait: string | undefined): string[] {
+	return ['--lock-wait', lockWait ?? DEFAULT_LOCK_WAIT];
+}
+
 /**
  * The one selector.
  *

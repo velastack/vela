@@ -14,6 +14,13 @@
 
 export const PROD_ENV = 'prod';
 
+/**
+ * What every id `instanceId()` produces looks like. The server scripts check
+ * the same shape (`require_instance_id` in templates/server/lib.sh) before an
+ * id reaches a path root removes; keep the two in step.
+ */
+export const INSTANCE_ID_RE = /^[a-z0-9]+(-{1,2}[a-z0-9]+)*$/;
+
 const MAX_SEGMENT = 48;
 
 /** Normalize a user-supplied environment tag to its canonical form. */

@@ -41,5 +41,11 @@ jobs:
       - name: Test
         run: npm test
 
+      # The server scripts only run on the server, as root, so their helpers
+      # are exercised here in a scratch directory: locking, id validation,
+      # release ordering and the health gate.
+      - name: Test the server scripts
+        run: npm run test:scripts
+
       - name: Build
         run: npm run build

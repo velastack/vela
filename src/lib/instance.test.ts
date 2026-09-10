@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'vitest';
-import { branchToEnvTag, instanceId, normalizeEnvTag, releaseId } from './instance.ts';
+import {
+	INSTANCE_ID_RE,
+	branchToEnvTag,
+	instanceId,
+	normalizeEnvTag,
+	releaseId
+} from './instance.ts';
 
 describe('normalizeEnvTag', () => {
 	test('defaults to prod', () => {
@@ -33,6 +39,20 @@ describe('instanceId', () => {
 	test('other environments are suffixed', () => {
 		expect(instanceId('abc123', 'staging')).toBe('abc123--staging');
 		expect(instanceId('abc123', 'preview/feature-auth')).toBe('abc123--preview--feature-auth');
+	});
+
+	test('every id matches the shape the server scripts check', () => {
+		for (const id of [
+			instanceId('zdyly4bg3wuwr5x'),
+			instanceId('zdyly4bg3wuwr5x', 'staging'),
+			instanceId('velabase-e7a7079c', 'prod'),
+			instanceId('abc123', branchToEnvTag('feature/auth')),
+			instanceId('abc123', branchToEnvTag('Fix Login Form (#12)'))
+		]) {
+			expect(id).toMatch(INSTANCE_ID_RE);
+		}
+		// The same regex, so the shell side is auditable against this one.
+		expect(INSTANCE_ID_RE.source).toBe('^[a-z0-9]+(-{1,2}[a-z0-9]+)*$');
 	});
 });
 
