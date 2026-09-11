@@ -55,7 +55,9 @@ vela env import .env.production -t production
 vela admin create -t production    # a login for the admin panel
 ```
 
-Each deploy uploads an immutable release, runs migrations, restarts the app and health-checks it. A release that does not come up healthy is rolled back before the command exits.
+Each deploy uploads an immutable release, runs migrations, restarts the app and health-checks it. A release that does not come up healthy is rolled back before the command exits, migrations included.
+
+One deploy runs per target at a time. A second one started from another machine — CI and a laptop, say — waits for the first to finish (up to `--lock-wait` seconds, 300 by default; `0` gives up at once), and a release that is older than the one already live is dropped rather than put back in front of it. Release ids are stamped from the server's clock so every machine agrees on which is newer.
 
 If any of your pages prerender from data, add `--remote-db` so the build renders against the database it is being deployed to, over the same SSH connection. Without it, a build on a fresh machine renders those pages against an empty database and bakes the defaults into your static HTML.
 
@@ -64,6 +66,8 @@ vela status          # what is running, on which release
 vela logs -f         # journald, tailed
 vela rollback        # previous release, with its down migrations
 ```
+
+`vela destroy deployment -t staging` removes a copy from its server. Its database and uploads stay behind unless you pass `--purge`, which snapshots them into `/var/lib/vela/trash` on the server (kept two weeks) before deleting. Removing production, or purging anything but a preview, asks you to type the app's name; from a script, pass `--confirm <app-name>` — `--yes` alone is not accepted for either.
 
 These default to `production`; `vela env` and `vela admin` default to `local`,
 because that is the copy you are usually standing in.

@@ -62,8 +62,8 @@ const TARGET_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  * `preview:<branch>` is split before any normalization: `normalizeEnvTag` turns a
  * colon into a single dash, so `preview:feature/maps` would become
  * `preview-feature-maps` while `branchToEnvTag('feature/maps')` gives
- * `preview--feature-maps`. Two spellings of one branch pointing at two different
- * instances is the kind of thing that is only discovered on a server.
+ * `preview--feature-maps-<hash>`. Two spellings of one branch pointing at two
+ * different instances is the kind of thing that is only discovered on a server.
  */
 export function parseTarget(raw: string | undefined, fallback: TargetFallback): Target {
 	const value = raw?.trim();

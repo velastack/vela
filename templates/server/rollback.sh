@@ -2,7 +2,7 @@
 #
 # Put the previous release back for one instance.
 #
-# usage: rollback.sh <instance> [--to <release>]
+# usage: rollback.sh <instance> [--to <release>] [--lock-wait <seconds>]
 set -Eeuo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -13,21 +13,26 @@ require_provisioned
 [ "$(id -u)" -eq 0 ] || die "rollback must run as root"
 
 INSTANCE=${1:-}; shift || true
-[ -n "$INSTANCE" ] || die "usage: rollback.sh <instance> [--to <release>]"
+[ -n "$INSTANCE" ] || die "usage: rollback.sh <instance> [--to <release>] [--lock-wait <seconds>]"
+require_instance_id "$INSTANCE"
 
 TARGET=""
+LOCK_WAIT=300
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--to) TARGET=$2; shift 2 ;;
+		--lock-wait) LOCK_WAIT=$2; shift 2 ;;
 		*) die "unknown argument: $1" ;;
 	esac
 done
+[ -z "$TARGET" ] || require_release_id "$TARGET"
 
 # Commands that drop to the app user inherit this working directory, and the
 # directory the CLI happened to invoke from is usually one it cannot stat.
 cd "$VELA_ROOT"
 
 APP=$(app_dir "$INSTANCE")
+lock_instance "$INSTANCE" "$LOCK_WAIT"
 [ -f "$(state_file "$INSTANCE")" ] || die "no instance $INSTANCE on this server"
 
 CURRENT=$(state_get "$INSTANCE" activeRelease || echo "")
@@ -50,15 +55,8 @@ if [ "$BACKEND" = "true" ]; then
 	# Down migrations belong to the release being left behind, so they run from
 	# the current release's migration set before the symlink moves.
 	if [ -n "$CURRENT" ] && [ -d "$APP/releases/$CURRENT/migrations" ]; then
-		AHEAD=$(migrations_ahead "$APP/releases/$CURRENT/migrations" "$APP/releases/$TARGET/migrations")
-		if [ "$AHEAD" -gt 0 ]; then
-			log "reverting $AHEAD migration(s) introduced after $TARGET"
-			runuser -u "$VELA_USER" -- "$APP/bin/pocketbase" \
-				--dir "$APP/shared/pb_data" \
-				--migrationsDir "$APP/releases/$CURRENT/migrations" \
-				migrate down "$AHEAD" >&2 \
-				|| die "down migrations failed - the app is still stopped"
-		fi
+		revert_migrations "$APP" "$APP/releases/$CURRENT/migrations" "$APP/releases/$TARGET/migrations" \
+			|| die "down migrations failed - the app is still stopped"
 	fi
 fi
 
@@ -68,9 +66,7 @@ mv -Tf "$APP/.current.tmp" "$APP/current"
 # The running release is part of the instance's environment, so it has to move
 # with the symlink.
 ETC=$(etc_dir "$INSTANCE")
-if [ -f "$ETC/runtime.env" ]; then
-	sed -i "s|^VELA_RELEASE=.*|VELA_RELEASE=$TARGET|" "$ETC/runtime.env"
-fi
+set_runtime_release "$ETC" "$TARGET"
 
 if [ "$BACKEND" = "true" ]; then
 	systemctl restart "$PB_UNIT"

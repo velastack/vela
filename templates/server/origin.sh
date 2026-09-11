@@ -51,6 +51,7 @@ if [ -f "$SNIPPET" ] && [ "$(cat "$SNIPPET")" = "$desired" ]; then
 	exit 0
 fi
 
+caddy_lock
 tmp=$(mktemp "$VELA_ETC/caddy/.origin.XXXXXX")
 printf '%s\n' "$desired" > "$tmp"
 # Readable by the caddy user (which is what `caddy reload` runs as) and no one
@@ -58,5 +59,6 @@ printf '%s\n' "$desired" > "$tmp"
 caddy_install "$tmp" "$SNIPPET" 0640 root:caddy \
 	|| die "generated origin config for $HOST is invalid"
 caddy_reload
+caddy_unlock
 
 emit_result --arg host "$HOST" '{originHost: $host, changed: true}'

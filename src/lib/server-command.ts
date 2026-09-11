@@ -37,6 +37,30 @@ export const SERVER_OPTIONS_SCHEMA = {
 
 const OptionsSchema = v.object(SERVER_OPTIONS_SCHEMA);
 
+export const DEFAULT_LOCK_WAIT = '300';
+
+/** `--lock-wait`, for the schemas of commands that mutate an instance. */
+export const LOCK_WAIT_SCHEMA = {
+	lockWait: v.optional(v.pipe(v.string(), v.regex(/^\d+$/, 'must be a whole number of seconds')))
+};
+
+/**
+ * How long a server script waits for another deploy, destroy, rollback or
+ * restore of the same target to finish before giving up. `0` gives up at once.
+ */
+export function addLockWaitOption(command: Command): Command {
+	return command.option(
+		'--lock-wait <seconds>',
+		'how long to wait for another operation on this target to finish before giving up',
+		DEFAULT_LOCK_WAIT
+	);
+}
+
+/** The `--lock-wait` arguments a server script takes. */
+export function lockWaitArgs(lockWait: string | undefined): string[] {
+	return ['--lock-wait', lockWait ?? DEFAULT_LOCK_WAIT];
+}
+
 /**
  * The one selector.
  *
@@ -197,6 +221,13 @@ export async function ensureBinding(
 	const existing = readBinding(workspaceRootDir, key);
 	const moving = Boolean(request.server && existing && existing.server !== request.server);
 
+	// A `--server` that disagrees with the recorded binding is either a move or
+	// a mistake, and the two look the same. A terminal is asked; CI, which
+	// always passes `--server`, is refused: a workflow pointing at the wrong box
+	// would otherwise stand up a second copy of the app there and repoint every
+	// later command at it.
+	if (moving) await confirmMove(target, existing!.server, request.server!);
+
 	let server = request.server ?? existing?.server;
 	if (!server) {
 		server = await promptServer(target);
@@ -223,6 +254,29 @@ export async function ensureBinding(
 	}
 
 	return binding;
+}
+
+async function confirmMove(
+	target: RemoteTarget | PreviewTarget,
+	from: string,
+	to: string
+): Promise<void> {
+	const name = bindingName(target);
+	if (!process.stdout.isTTY || process.env.CI) {
+		throw new Error(
+			`${pc.cyan(`--server ${to}`)} does not match the server recorded for ${pc.cyan(name)}, ${pc.cyan(from)}.\n\n` +
+				`Drop ${pc.cyan('--server')} to use the recorded one, or move the binding on purpose by running\n` +
+				`this command once from a terminal (or editing .vela/project.json).`
+		);
+	}
+	const ok = await p.confirm({
+		message: `${name} ${target.kind === 'preview' ? 'run' : 'runs'} on ${from}. Point ${name} at ${to} instead?`,
+		initialValue: false
+	});
+	if (p.isCancel(ok) || !ok) {
+		p.cancel('Operation cancelled.');
+		process.exit(0);
+	}
 }
 
 /** How a binding reads in prompts: previews share one, so it is "previews", not a branch. */

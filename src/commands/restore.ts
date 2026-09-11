@@ -6,7 +6,13 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { helpConfig } from '../lib/help.ts';
 import { runCommand } from '../lib/run.ts';
-import { addTargetOptions, withTarget, type ServerContext } from '../lib/server-command.ts';
+import {
+	addLockWaitOption,
+	addTargetOptions,
+	lockWaitArgs,
+	withTarget,
+	type ServerContext
+} from '../lib/server-command.ts';
 import { withRemotePocketbase } from '../lib/remote-pocketbase.ts';
 import { readInstanceStates, remotePaths, runServerScript } from '../lib/remote.ts';
 import { formatBytes, isBackupKey, listBackups, type BackupFile } from '../lib/backups.ts';
@@ -18,19 +24,26 @@ interface RestoreResult {
 	migrated: boolean;
 }
 
-export const restore = addTargetOptions(
-	new Command('restore')
-		.description('replace a deployment’s database and uploads from a backup')
-		.argument('[source]', 'a backup key on the target, or a path to a local archive')
-		.configureHelp(helpConfig),
-	'production'
+export const restore = addLockWaitOption(
+	addTargetOptions(
+		new Command('restore')
+			.description('replace a deployment’s database and uploads from a backup')
+			.argument('[source]', 'a backup key on the target, or a path to a local archive')
+			.configureHelp(helpConfig),
+		'production'
+	)
 )
 	.option('-y, --yes', 'skip the confirmation prompt')
 	.option('--no-migrate', 'do not run migrations against the restored database')
 	.option('--keep-previous <n>', 'how many replaced databases to keep', '1')
 	.action((source: string | undefined, raw: unknown) =>
 		runCommand(async () => {
-			const options = raw as { yes?: boolean; migrate: boolean; keepPrevious: string };
+			const options = raw as {
+				yes?: boolean;
+				migrate: boolean;
+				keepPrevious: string;
+				lockWait?: string;
+			};
 			await withTarget(
 				raw,
 				{
@@ -63,7 +76,8 @@ export const restore = addTargetOptions(
 								...(options.migrate ? [] : ['--no-migrate']),
 								// A copy this machine pushed up is scratch; one already in the
 								// instance's own backups directory is not ours to delete.
-								...(local ? ['--cleanup-archive'] : [])
+								...(local ? ['--cleanup-archive'] : []),
+								...lockWaitArgs(options.lockWait)
 							],
 							stream: true
 						});

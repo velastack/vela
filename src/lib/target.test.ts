@@ -46,7 +46,7 @@ describe('parseTarget, preview', () => {
 		expect(parseTarget('preview:fix/foo.bar', 'local')).toMatchObject({
 			kind: 'preview',
 			branch: 'fix/foo.bar',
-			envTag: 'preview--fix-foo-bar'
+			envTag: branchToEnvTag('fix/foo.bar')
 		});
 		expect(parseTarget('preview:nathan@laptop', 'local')).toMatchObject({
 			branch: 'nathan@laptop'
@@ -56,7 +56,7 @@ describe('parseTarget, preview', () => {
 	test('keeps the branch as typed', () => {
 		expect(parseTarget('preview:Feature/Auth', 'local')).toMatchObject({
 			branch: 'Feature/Auth',
-			envTag: 'preview--feature-auth'
+			envTag: branchToEnvTag('Feature/Auth')
 		});
 	});
 
@@ -83,7 +83,9 @@ describe('parseTarget, preview', () => {
 		if (target.kind !== 'preview') return;
 
 		expect(target.envTag).toBe(branchToEnvTag('feature/maps'));
-		expect(instanceId('abc123', target.envTag)).toBe('abc123--preview--feature-maps');
+		expect(instanceId('abc123', target.envTag)).toMatch(
+			/^abc123--preview--feature-maps-[0-9a-f]{6}$/
+		);
 	});
 
 	test('keeps a nested branch intact', () => {

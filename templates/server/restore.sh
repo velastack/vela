@@ -23,16 +23,19 @@ require_provisioned
 
 INSTANCE=${1:-}; shift || true
 [ -n "$INSTANCE" ] || die "usage: restore.sh <instance> --archive <path> [options]"
+require_instance_id "$INSTANCE"
 
 ARCHIVE=""
 MIGRATE=1
 KEEP_PREVIOUS=1
 CLEANUP_ARCHIVE=0
 HEALTH_PATH=""
+LOCK_WAIT=300
 
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--archive) ARCHIVE=$2; shift 2 ;;
+		--lock-wait) LOCK_WAIT=$2; shift 2 ;;
 		--no-migrate) MIGRATE=0; shift ;;
 		--keep-previous) KEEP_PREVIOUS=$2; shift 2 ;;
 		--cleanup-archive) CLEANUP_ARCHIVE=1; shift ;;
@@ -46,6 +49,10 @@ done
 # Commands that drop to the app user inherit this working directory, and the
 # directory the CLI happened to invoke from is usually one it cannot stat.
 cd "$VELA_ROOT"
+
+# Taken before anything is read: a deploy or another restore in flight would
+# otherwise have this one moving a pb_data it is about to replace.
+lock_instance "$INSTANCE" "$LOCK_WAIT"
 
 require_backend "$INSTANCE"
 
@@ -65,10 +72,6 @@ PREVIOUS_DIR="$APP/shared/pb_data.pre-restore-$STAMP"
 PORTS=$(allocate_ports "$INSTANCE")
 WEB_PORT=$(printf '%s' "$PORTS" | jq -r .web)
 PB_PORT=$(printf '%s' "$PORTS" | jq -r .pb)
-
-# Two restores at once would each move the other's pb_data aside.
-exec 9>"$APP/.restore.lock"
-flock -n 9 || die "another restore is already running for $INSTANCE"
 
 # ---------------------------------------------------------------- preflight
 #

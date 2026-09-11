@@ -3,17 +3,24 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { helpConfig } from '../lib/help.ts';
 import { runCommand } from '../lib/run.ts';
-import { addTargetOptions, withTarget } from '../lib/server-command.ts';
+import {
+	addLockWaitOption,
+	addTargetOptions,
+	lockWaitArgs,
+	withTarget
+} from '../lib/server-command.ts';
 import { runServerScript } from '../lib/remote.ts';
 
-export const rollback = addTargetOptions(
-	new Command('rollback').description('put the previous release back').configureHelp(helpConfig),
-	'production'
+export const rollback = addLockWaitOption(
+	addTargetOptions(
+		new Command('rollback').description('put the previous release back').configureHelp(helpConfig),
+		'production'
+	)
 )
 	.option('--to <release>', 'roll back to a specific release instead of the previous one')
 	.action((raw: unknown) =>
 		runCommand(async () => {
-			const options = raw as { to?: string };
+			const options = raw as { to?: string; lockWait?: string };
 			await withTarget(
 				raw,
 				{
@@ -26,7 +33,11 @@ export const rollback = addTargetOptions(
 							ctx.session,
 							'rollback.sh',
 							{
-								args: [ctx.instance, ...(options.to ? ['--to', options.to] : [])],
+								args: [
+									ctx.instance,
+									...(options.to ? ['--to', options.to] : []),
+									...lockWaitArgs(options.lockWait)
+								],
 								stream: true
 							}
 						);
