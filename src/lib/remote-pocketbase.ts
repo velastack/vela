@@ -1,6 +1,6 @@
 import PocketBase from 'pocketbase';
 import { findFreePort, authWithRetries } from './pocketbase.ts';
-import { readInstanceStates } from './remote.ts';
+import { instanceHasBackend, readInstanceStates } from './remote.ts';
 import { readRemoteEnv } from './remote-env.ts';
 import type { SshSession } from './ssh.ts';
 
@@ -25,11 +25,12 @@ export async function openRemoteDatabase(
 	instance: string
 ): Promise<RemoteDatabase> {
 	const [state] = await readInstanceStates(session, instance);
-	const pbPort = state?.pbPort;
+	const pbPort = instanceHasBackend(state) ? state?.pbPort : undefined;
 	if (!pbPort) {
 		throw new Error(
 			`${instance} has no deployed database yet.\n\n` +
-				`Run \`vela deploy\` first — the database is created by the first deploy.`
+				`Run \`vela deploy\` first — the database is created by the first deploy of a\n` +
+				`project with a backend (\`vela bless\` adds one).`
 		);
 	}
 

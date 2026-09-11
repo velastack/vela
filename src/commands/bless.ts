@@ -24,6 +24,7 @@ import { writeEnvFile } from '../lib/env.ts';
 import { ensureShadcnImport } from '../lib/app-css.ts';
 import { componentsJsonHints, readComponentsJson } from '../lib/components-json.ts';
 import {
+	dropTemplateAdapters,
 	mergePackageJson,
 	readPackageJson,
 	readTemplatePackageJson,
@@ -245,7 +246,10 @@ function mergeDependencies(projectPath: string, templateDir: string) {
 		cliVersion: pkg.version
 	});
 
-	const { merged, added, conflicts, replaced } = mergePackageJson(userPkg, templatePkg);
+	const { merged, added, conflicts, replaced } = mergePackageJson(
+		userPkg,
+		dropTemplateAdapters(userPkg, templatePkg)
+	);
 	writePackageJson(userPkgPath, merged);
 
 	if (added.length > 0) {

@@ -26,6 +26,7 @@ import { normalizeOrigin, splitHosts } from '../lib/origin.ts';
 import { createDeployReporter } from '../lib/deploy-report.ts';
 import { restartInstance } from '../lib/remote-env.ts';
 import {
+	instanceHasBackend,
 	readInstanceStates,
 	remotePaths,
 	requireProvisioned,
@@ -35,6 +36,14 @@ import {
 	type InstanceState
 } from '../lib/remote.ts';
 import { collectArtifact, gitSha, runBuild } from '../lib/artifact.ts';
+import {
+	ADAPTER_AUTO,
+	ADAPTER_NODE,
+	AdapterError,
+	ensureNodeAdapter,
+	installAdapterDependencies,
+	lockfileFor
+} from '../lib/adapter.ts';
 import { readRemoteEnv } from '../lib/remote-env.ts';
 
 const OptionsSchema = v.object({
@@ -83,6 +92,13 @@ export const deploy = addLockWaitOption(
 
 			p.intro(pc.bgCyan(pc.black(' vela deploy ')));
 
+			// Local preflight, before a server is named or a deploy announced:
+			// a project that cannot build for a server has nothing to deploy.
+			if (options.build !== false) {
+				const { workspaceRootDir } = await getWorkspace();
+				await prepareAdapter(workspaceRootDir);
+			}
+
 			await withTarget(
 				raw,
 				{
@@ -113,7 +129,19 @@ export const deploy = addLockWaitOption(
 						// used a throwaway local database instead, which is how prerendered
 						// pages shipped with a developer's own data baked into them.
 						const askedForRemoteDb = options.remoteDb ?? config.deploy?.buildAgainstRemote;
-						const remoteDb = askedForRemoteDb ?? Boolean(existing?.pbPort);
+						const remoteDb = askedForRemoteDb ?? instanceHasBackend(existing);
+
+						// The backend is detected from the project, not remembered: a
+						// project blessed since its last deploy gains a PocketBase on this
+						// one, and the server moves its data directory across. Worth a
+						// line, because it is the deploy that changes what the instance is.
+						if (existing && instanceHasBackend(existing) !== backend) {
+							p.log.info(
+								backend
+									? `${pc.cyan(ctx.targetName)} was deployed without a backend before. This deploy adds PocketBase.`
+									: `${pc.cyan(ctx.targetName)} was deployed with a backend before. This deploy removes PocketBase; its database stays on the server.`
+							);
+						}
 
 						// Announce the deploy before building. The answer carries the
 						// hostnames velastack.dev has for this environment — including a
@@ -331,6 +359,55 @@ export const deploy = addLockWaitOption(
 	);
 
 /**
+ * Get the project onto @sveltejs/adapter-node, and say what that took.
+ *
+ * `sv create` and vela's own templates ship adapter-auto, which builds nothing
+ * on a server of your own; the deploy would otherwise fail after the build with
+ * no build/index.js. The switch is ordinary source - a rewritten config line and
+ * a devDependency - so it is made here and the user is asked to commit it. A
+ * project on adapter-static or a hosted platform's adapter has decided
+ * otherwise, and that decision is reported, not overridden.
+ */
+async function prepareAdapter(workspaceRootDir: string): Promise<void> {
+	const rethrow = (err: unknown): never => {
+		if (err instanceof AdapterError) {
+			throw new Error(err.snippet ? `${err.message}\n\n${pc.cyan(err.snippet)}` : err.message);
+		}
+		throw err;
+	};
+
+	const outcome = await ensureNodeAdapter(workspaceRootDir, { install: false }).catch(rethrow);
+	if (!outcome.configFile && !outcome.packageJsonChanged) return;
+
+	const changed = [
+		outcome.configFile,
+		outcome.packageJsonChanged ? 'package.json' : undefined
+	].filter((f): f is string => Boolean(f));
+	const why =
+		outcome.previous === 'auto'
+			? `${ADAPTER_AUTO} builds nothing for a server of your own`
+			: outcome.previous === 'none'
+				? 'No adapter was configured'
+				: `${ADAPTER_NODE} was configured but not in package.json`;
+
+	p.log.step(`Switching the adapter to ${pc.cyan(ADAPTER_NODE)}`);
+	p.log.info(
+		`${why}, and vela deploy runs the app as a Node server.\n\n` +
+			`  Changed  ${changed.join(', ')}` +
+			(outcome.removedDeps.length ? `\n  Removed  ${outcome.removedDeps.join(', ')}` : '')
+	);
+
+	if (outcome.packageJsonChanged) {
+		try {
+			changed.push(lockfileFor(await installAdapterDependencies(workspaceRootDir)));
+		} catch (err) {
+			rethrow(err);
+		}
+	}
+	p.log.warn(`Commit ${changed.join(', ')} so every deploy builds the same way.`);
+}
+
+/**
  * Point out an `appURL` that no longer matches the domain being deployed to.
  *
  * `appURL` is seeded once and belongs to the deployed admin panel from then on,
@@ -424,10 +501,10 @@ async function openDatabaseTunnel(
 	instance: string,
 	state: InstanceState | undefined
 ): Promise<Tunnel> {
-	const pbPort = state?.pbPort;
+	const pbPort = instanceHasBackend(state) ? state?.pbPort : undefined;
 	if (!pbPort) {
 		throw new Error(
-			`--remote-db needs an existing deployment to build against, and ${instance} has not been deployed yet.\n\n` +
+			`--remote-db needs a deployed database to build against, and ${instance} ${state ? 'has no backend' : 'has not been deployed yet'}.\n\n` +
 				`Deploy once without it, then turn it on.`
 		);
 	}

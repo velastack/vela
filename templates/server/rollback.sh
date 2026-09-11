@@ -41,10 +41,10 @@ CURRENT=$(state_get "$INSTANCE" activeRelease || echo "")
 [ -d "$APP/releases/$TARGET" ] || die "release $TARGET is no longer on disk"
 [ "$TARGET" != "$CURRENT" ] || die "$TARGET is already the active release"
 
-BACKEND=$(state_get "$INSTANCE" backend 2>/dev/null || echo "true")
+BACKEND=$(instance_backend "$INSTANCE")
 HEALTH_PATH=$(state_get "$INSTANCE" healthCheckPath 2>/dev/null || echo "/")
 WEB_PORT=$(state_get "$INSTANCE" webPort)
-PB_PORT=$(state_get "$INSTANCE" pbPort)
+PB_PORT=$(state_get "$INSTANCE" pbPort 2>/dev/null || echo "")
 WEB_UNIT=$(unit_web "$INSTANCE")
 PB_UNIT=$(unit_pb "$INSTANCE")
 

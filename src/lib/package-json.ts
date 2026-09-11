@@ -17,7 +17,7 @@ export interface MergeResult {
 	replaced: MergeChange[];
 }
 
-type PkgJson = Record<string, unknown> & {
+export type PkgJson = Record<string, unknown> & {
 	dependencies?: Record<string, string>;
 	devDependencies?: Record<string, string>;
 	scripts?: Record<string, string>;
@@ -77,6 +77,25 @@ export function mergePackageJson(user: PkgJson, template: PkgJson): MergeResult 
 	return { merged, added, conflicts, replaced };
 }
 
+/**
+ * Leave a template's SvelteKit adapter out of the merge when the project has
+ * one of its own. The template carries adapter-auto because that is where a new
+ * project starts; a project that `vela deploy` has already moved to adapter-node
+ * would otherwise get adapter-auto added back beside it. Returns a copy.
+ */
+export function dropTemplateAdapters(user: PkgJson, template: PkgJson): PkgJson {
+	const isAdapter = (name: string) => name.startsWith('@sveltejs/adapter-');
+	const userHasOne = DEP_KINDS.some((kind) => Object.keys(user[kind] ?? {}).some(isAdapter));
+	if (!userHasOne) return template;
+	const copy: PkgJson = { ...template };
+	for (const kind of DEP_KINDS) {
+		const deps = template[kind];
+		if (!deps) continue;
+		copy[kind] = Object.fromEntries(Object.entries(deps).filter(([name]) => !isAdapter(name)));
+	}
+	return copy;
+}
+
 export function readPackageJson(path: string): PkgJson {
 	return JSON.parse(fs.readFileSync(path, 'utf8')) as PkgJson;
 }
@@ -133,7 +152,7 @@ export function toValidPackageName(name: string): string {
 		.replace(/[^a-z0-9~.-]+/g, '-');
 }
 
-function sortKeys<T extends Record<string, string>>(obj: T): T {
+export function sortKeys<T extends Record<string, string>>(obj: T): T {
 	const sorted: Record<string, string> = {};
 	for (const key of Object.keys(obj).sort()) sorted[key] = obj[key]!;
 	return sorted as T;

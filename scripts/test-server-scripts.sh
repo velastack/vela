@@ -77,6 +77,21 @@ else
 fi
 expect_ok "runtime.env: missing file is not an error" set_runtime_release "$SCRATCH/etc/apps/none" 20260910T120000Z
 
+# ------------------------------------------------------------ backend flag
+#
+# Absent state, or state written before the flag existed, counts as having a
+# backend; only an instance deployed with --backend 0 answers false.
+
+state_merge withdb '{"webPort": 4101, "pbPort": 8101}'
+state_merge nodb '{"webPort": 4102, "pbPort": 8102, "backend": false}'
+state_merge withflag '{"webPort": 4103, "pbPort": 8103, "backend": true}'
+[ "$(instance_backend withdb)" = true ] && ok "backend: legacy state has one" || bad "backend: legacy state has one"
+[ "$(instance_backend withflag)" = true ] && ok "backend: recorded true" || bad "backend: recorded true"
+[ "$(instance_backend nodb)" = false ] && ok "backend: recorded false" || bad "backend: recorded false"
+[ "$(instance_backend never)" = true ] && ok "backend: no state counts as having one" || bad "backend: no state counts as having one"
+expect_ok "require_backend passes with a database" require_backend withdb
+expect_die "require_backend refuses without one" require_backend nodb
+
 # ------------------------------------------------------------- health gate
 #
 # A one-shot HTTP server that answers every request with one status code.

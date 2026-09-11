@@ -76,7 +76,10 @@ const NO_BACKEND_COMMMANDS = new Set([
 	// Acts on whichever target `-t` names; the local path reads the project's
 	// own credentials rather than requiring them in this process.
 	'backup',
-	'restore'
+	'restore',
+	// Removes a copy from its server; the other `destroy` subcommands edit the
+	// local schema and stay gated.
+	'destroy deployment'
 ]);
 
 /**

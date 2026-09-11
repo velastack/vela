@@ -2,7 +2,31 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { parseResult, serverScriptsDigest, serverTemplatesDir } from './remote.ts';
+import {
+	instanceHasBackend,
+	parseResult,
+	serverScriptsDigest,
+	serverTemplatesDir,
+	type InstanceState
+} from './remote.ts';
+
+describe('instanceHasBackend', () => {
+	const base: InstanceState = { appId: 'a', name: 'a', env: 'prod', instance: 'a' };
+
+	test('is what the server recorded, whatever ports it allocated', () => {
+		expect(instanceHasBackend({ ...base, backend: false, pbPort: 8101 })).toBe(false);
+		expect(instanceHasBackend({ ...base, backend: true, pbPort: 8101 })).toBe(true);
+	});
+
+	test('falls back to the port pair for state written before the flag', () => {
+		expect(instanceHasBackend({ ...base, pbPort: 8101 })).toBe(true);
+		expect(instanceHasBackend({ ...base })).toBe(false);
+	});
+
+	test('an instance that was never deployed has no database', () => {
+		expect(instanceHasBackend(undefined)).toBe(false);
+	});
+});
 
 describe('serverScriptsDigest', () => {
 	let dir: string;

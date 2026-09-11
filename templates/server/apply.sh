@@ -84,26 +84,66 @@ if [ -n "$ACTIVE" ] && [ -L "$APP/current" ] && ! [[ "$RELEASE" > "$ACTIVE" ]]; 
 	die "release $RELEASE is not newer than the active release $ACTIVE on $INSTANCE - a newer deploy went live first, so this one was dropped"
 fi
 
-mkdir -p "$APP"/{releases,shared,bin,deps} "$APP/shared/pb_data"
+# Whether the release this one replaces had a PocketBase backend. The CLI
+# detects the backend from the project on every deploy, so an instance can gain
+# one (`vela bless` between two deploys) or lose one; both are handled below.
+# Empty on a first deploy.
+PREVIOUS_BACKEND=""
+if [ -f "$(state_file "$INSTANCE")" ]; then
+	PREVIOUS_BACKEND=$(instance_backend "$INSTANCE")
+fi
+
+# Where this app keeps state that has to outlive a release.
+#
+# An app that works this out from its own working directory puts it inside the
+# release, which is the one place it cannot survive: `current` moves on the next
+# deploy and the pruner deletes what it left behind. An instance with a database
+# shares PocketBase's directory, so anything the app writes there is inside the
+# archives `vela backup` takes and inside the directory `vela restore` swaps. An
+# instance without one gets a directory of its own, which nothing backs up -
+# there is no database to back it up alongside.
+if [ "$BACKEND" = "1" ]; then
+	APP_DATA_DIR="$APP/shared/pb_data"
+else
+	APP_DATA_DIR="$APP/shared/data"
+fi
+
+mkdir -p "$APP"/{releases,shared,bin,deps} "$APP_DATA_DIR"
 mkdir -p "$ETC"
 chmod 0700 "$ETC"
 
 # Only the directories just created need their ownership set, and only at the
-# top level: everything below pb_data is written by PocketBase as $VELA_USER
-# already. Recursing here would walk every uploaded file on every deploy, which
-# makes deploy time grow with the size of the app's storage forever.
+# top level: everything below the data directory is written by PocketBase (or
+# the app) as $VELA_USER already. Recursing here would walk every uploaded file
+# on every deploy, which makes deploy time grow with the size of the app's
+# storage forever.
 chown "$VELA_USER:$VELA_USER" \
-	"$APP" "$APP/releases" "$APP/shared" "$APP/shared/pb_data" "$APP/bin" "$APP/deps"
+	"$APP" "$APP/releases" "$APP/shared" "$APP_DATA_DIR" "$APP/bin" "$APP/deps"
 # The release is the exception - rsync uploaded it as whoever we ssh'd in as.
 chown -R "$VELA_USER:$VELA_USER" "$RELEASE_DIR"
 
-# A pb_data the app cannot write is a dead instance, and it fails as an opaque
-# 500 rather than anything that names a cause. This is what the blanket recurse
-# above used to paper over; checking costs one stat, repairing costs a walk that
-# now happens only when something is actually wrong.
-if ! runuser -u "$VELA_USER" -- test -w "$APP/shared/pb_data"; then
+# A data directory the app cannot write is a dead instance, and it fails as an
+# opaque 500 rather than anything that names a cause. This is what the blanket
+# recurse above used to paper over; checking costs one stat, repairing costs a
+# walk that now happens only when something is actually wrong.
+if ! runuser -u "$VELA_USER" -- test -w "$APP_DATA_DIR"; then
 	log "repairing ownership under shared/"
 	chown -R "$VELA_USER:$VELA_USER" "$APP/shared"
+fi
+
+# An instance gaining a backend moves its data directory: VELA_DATA_DIR was
+# shared/data and is now shared/pb_data, which is what `vela backup` archives.
+# Whatever the app kept follows it, into a pb_data that PocketBase has not yet
+# written - once there is a database in there, nothing is moved over it.
+if [ "$PREVIOUS_BACKEND" = "false" ] && [ "$BACKEND" = "1" ] \
+	&& [ -d "$APP/shared/data" ] && [ -n "$(ls -A "$APP/shared/data")" ]; then
+	if [ ! -e "$APP/shared/pb_data/data.db" ]; then
+		log "adding a backend - moving shared/data into shared/pb_data"
+		find "$APP/shared/data" -mindepth 1 -maxdepth 1 -exec mv -t "$APP/shared/pb_data" {} +
+	else
+		log "warning: this instance now has a backend, and its data directory is $APP/shared/pb_data"
+		log "warning: what the app kept in $APP/shared/data was left there"
+	fi
 fi
 
 # ---------------------------------------------------------------- ports & env
@@ -126,23 +166,6 @@ fi
 # Nothing here reads or rewrites that file.
 [ -f "$ETC/env" ] || { : > "$ETC/env"; chmod 0600 "$ETC/env"; chown root:root "$ETC/env"; }
 
-# Where this app keeps state that has to outlive a release.
-#
-# An app that works this out from its own working directory puts it inside the
-# release, which is the one place it cannot survive: `current` moves on the next
-# deploy and the pruner deletes what it left behind. An instance with a database
-# shares PocketBase's directory, so anything the app writes there is inside the
-# archives `vela backup` takes and inside the directory `vela restore` swaps. An
-# instance without one gets a directory of its own, which nothing backs up -
-# there is no database to back it up alongside.
-if [ "$BACKEND" = "1" ]; then
-	APP_DATA_DIR="$APP/shared/pb_data"
-else
-	APP_DATA_DIR="$APP/shared/data"
-	mkdir -p "$APP_DATA_DIR"
-	chown "$VELA_USER:$VELA_USER" "$APP_DATA_DIR"
-fi
-
 runtime_tmp=$(mktemp "$ETC/.runtime.XXXXXX")
 {
 	printf '# Generated by vela on each deploy. Edit /etc/vela/apps/%s/env instead.\n' "$INSTANCE"
@@ -150,8 +173,14 @@ runtime_tmp=$(mktemp "$ETC/.runtime.XXXXXX")
 	printf 'HOST=127.0.0.1\n'
 	printf 'PORT=%s\n' "$WEB_PORT"
 	printf 'ORIGIN=%s\n' "$ORIGIN"
-	printf 'PB_PORT=%s\n' "$PB_PORT"
-	printf 'POCKETBASE_URL=http://127.0.0.1:%s\n' "$PB_PORT"
+	# Only an instance with a PocketBase gets pointed at one: a URL to a port
+	# nothing listens on is not a setting, it is a trap. Kept for one more
+	# deploy when the backend is being removed, so that a failed deploy can put
+	# the previous release - which still needs it - back.
+	if [ "$BACKEND" = "1" ] || [ "$PREVIOUS_BACKEND" = "true" ]; then
+		printf 'PB_PORT=%s\n' "$PB_PORT"
+		printf 'POCKETBASE_URL=http://127.0.0.1:%s\n' "$PB_PORT"
+	fi
 	printf 'VELA_DATA_DIR=%s\n' "$APP_DATA_DIR"
 	printf 'VELA_APP_ID=%s\n' "$APP_ID"
 	printf 'VELA_APP_NAME=%s\n' "$APP_NAME"
@@ -253,7 +282,10 @@ restore() {
 		# runtime.env was already written for the release that failed; the
 		# services about to restart must read the one they will actually run.
 		set_runtime_release "$ETC" "$PREVIOUS"
-		if [ "$BACKEND" = "1" ]; then systemctl restart "$PB_UNIT" >/dev/null 2>&1 || true; fi
+		# The previous release needs its PocketBase whether or not this one did.
+		if [ "$BACKEND" = "1" ] || [ "$PREVIOUS_BACKEND" = "true" ]; then
+			systemctl restart "$PB_UNIT" >/dev/null 2>&1 || true
+		fi
 		systemctl restart "$WEB_UNIT" >/dev/null 2>&1 || true
 	else
 		systemctl stop "$WEB_UNIT" >/dev/null 2>&1 || true
@@ -364,6 +396,15 @@ wait_for_http "http://127.0.0.1:$WEB_PORT$HEALTH_PATH" 60 0.5 \
 	|| die "app did not become healthy at $HEALTH_PATH - journalctl -u $WEB_UNIT"
 
 ACTIVATED=1
+
+# An instance that no longer has a backend keeps its database on disk - only
+# `vela destroy deployment --purge` removes data - but the unit serving it is
+# retired, or `vela status` would keep reporting a PocketBase and every restart
+# would bring it back up.
+if [ "$PREVIOUS_BACKEND" = "true" ] && [ "$BACKEND" = "0" ]; then
+	log "removing the backend - stopping PocketBase; $APP/shared/pb_data is kept"
+	systemctl disable --now "$PB_UNIT" >/dev/null 2>&1 || true
+fi
 
 # --------------------------------------------------------------------- state
 

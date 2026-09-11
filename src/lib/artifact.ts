@@ -73,9 +73,10 @@ export function collectArtifact(cwd: string, config: VelaDeployConfig = {}): Art
 	const buildPath = path.join(cwd, outputDir);
 	if (!fs.existsSync(path.join(buildPath, 'index.js'))) {
 		throw new BuildError(
-			`No ${outputDir}/index.js after the build.\n\n` +
-				`Deploying to a server needs @sveltejs/adapter-node. Install it and set it as\n` +
-				`the adapter in your Vite or Svelte config, then build again.`
+			`No ${outputDir}/index.js to deploy.\n\n` +
+				`Deploying to a server needs the output of @sveltejs/adapter-node. Check that the\n` +
+				`build ran with it as the adapter (and that \`outputDir\` in velastack.config\n` +
+				`matches where it writes), then deploy again.`
 		);
 	}
 	entries.push({ localPath: buildPath, remoteDir: '' });

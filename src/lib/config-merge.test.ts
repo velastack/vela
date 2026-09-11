@@ -219,6 +219,13 @@ describe('mergeGitignore', () => {
 		expect(updated).toContain('!.env.example');
 	});
 
+	test('keeps the database out of git but not the fixtures, seeds and hooks', () => {
+		const filePath = write('.gitignore', 'node_modules\n');
+		mergeGitignore(filePath);
+		const updated = fs.readFileSync(filePath, 'utf8');
+		expect(updated).toContain('/data/*\n!/data/fixtures\n!/data/seeds\n!/data/hooks\n/backups');
+	});
+
 	test('creates gitignore when missing', () => {
 		const filePath = path.join(tmp, '.gitignore');
 		const result = mergeGitignore(filePath);
@@ -229,7 +236,7 @@ describe('mergeGitignore', () => {
 	test('no-op when all entries present', () => {
 		const filePath = write(
 			'.gitignore',
-			'.env\n.env.*\n!.env.example\n!.env.test\nvite.config.js.timestamp-*\nvite.config.ts.timestamp-*\n'
+			'.env\n.env.*\n!.env.example\n!.env.test\nvite.config.js.timestamp-*\nvite.config.ts.timestamp-*\n/data/*\n!/data/fixtures\n!/data/seeds\n!/data/hooks\n/backups\n'
 		);
 		const before = fs.readFileSync(filePath, 'utf8');
 		const result = mergeGitignore(filePath);

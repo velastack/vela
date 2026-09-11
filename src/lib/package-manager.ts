@@ -51,7 +51,19 @@ export async function packageManagerPrompt(cwd: string): Promise<AgentName | und
 	return pm;
 }
 
-export async function installDependencies(agent: AgentName, cwd: string): Promise<void> {
+/**
+ * Run the package manager's install in `cwd`.
+ *
+ * Scaffolding commands have nothing to offer once an install fails, so by
+ * default this ends the process. A command that can still say something useful
+ * - `vela deploy` has already changed the project and can name what to run -
+ * passes `exitOnFailure: false` and gets `false` back instead.
+ */
+export async function installDependencies(
+	agent: AgentName,
+	cwd: string,
+	{ exitOnFailure = true }: { exitOnFailure?: boolean } = {}
+): Promise<boolean> {
 	const task = p.taskLog({
 		title: `Installing dependencies with ${agent}...`,
 		limit: Math.ceil(process.stdout.rows / 2),
@@ -71,8 +83,10 @@ export async function installDependencies(agent: AgentName, cwd: string): Promis
 
 		await proc;
 		task.success('Successfully installed dependencies');
+		return true;
 	} catch {
 		task.error('Failed to install dependencies');
+		if (!exitOnFailure) return false;
 		p.cancel('Operation failed.');
 		process.exit(2);
 	}

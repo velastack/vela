@@ -58,11 +58,20 @@ require_provisioned() {
 	[ -f "$VELA_ETC/provisioned" ] || die "server is not provisioned - run 'vela provision' first"
 }
 
-# Refuse on a frontend-only instance. Absent state is treated as having one, so
-# this only ever fires on an instance that was deployed with --backend 0.
+# Whether an instance was last deployed with a PocketBase backend: `true` or
+# `false`. Absent state, or state from before the flag existed, is treated as
+# having one, so this only ever answers `false` for an instance that was
+# deployed with --backend 0.
+instance_backend() {
+	local instance=$1 value
+	value=$(state_get "$instance" backend 2>/dev/null || echo true)
+	[ "$value" = "false" ] && printf 'false' || printf 'true'
+}
+
+# Refuse on a frontend-only instance.
 require_backend() {
 	local instance=$1
-	[ "$(state_get "$instance" backend 2>/dev/null || echo true)" = "true" ] \
+	[ "$(instance_backend "$instance")" = "true" ] \
 		|| die "$instance has no database - there is nothing to back up or restore"
 }
 
@@ -71,8 +80,10 @@ state_get() {
 	local instance=$1 key=$2 file
 	file=$(state_file "$instance")
 	[ -f "$file" ] || return 1
-	# `// empty` would swallow a legitimate `false`, so test for the key itself.
-	jq -er --arg k "$key" 'if has($k) and .[$k] != null then .[$k] else empty end' "$file" 2>/dev/null
+	# Presence is checked on its own: `// empty` would swallow a legitimate
+	# `false`, and so would `-e` on the read, which exits non-zero for one.
+	jq -e --arg k "$key" 'has($k) and .[$k] != null' "$file" >/dev/null 2>&1 || return 1
+	jq -r --arg k "$key" '.[$k]' "$file" 2>/dev/null
 }
 
 # Merge a JSON object into an instance's state file, atomically.

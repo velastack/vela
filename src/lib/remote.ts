@@ -57,6 +57,21 @@ export interface InstanceState {
 	services?: { web: string; pocketbase: string };
 }
 
+/**
+ * Whether a deployed instance runs a PocketBase.
+ *
+ * The backend is detected from the project on every deploy and recorded in the
+ * instance's state, so this is the server's answer, not the local project's -
+ * the two disagree on the deploy that adds or removes one. Ports are allocated
+ * in web/PocketBase pairs whether or not there is a database, so `pbPort` alone
+ * proves nothing; it is only the best evidence state from before the `backend`
+ * flag existed can offer.
+ */
+export function instanceHasBackend(state: InstanceState | undefined): boolean {
+	if (!state) return false;
+	return state.backend ?? Boolean(state.pbPort);
+}
+
 /** The `templates/server` tree that gets uploaded to the server. */
 export function serverTemplatesDir(): string {
 	return path.join(templatesDir(), 'server');

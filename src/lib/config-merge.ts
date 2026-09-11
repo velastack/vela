@@ -179,7 +179,14 @@ const GITIGNORE_ENTRIES = [
 	'!.env.example',
 	'!.env.test',
 	'vite.config.js.timestamp-*',
-	'vite.config.ts.timestamp-*'
+	'vite.config.ts.timestamp-*',
+	// The local database, minus the parts that are source. Same block as the
+	// template's _gitignore; without it a blessed project commits its SQLite.
+	'/data/*',
+	'!/data/fixtures',
+	'!/data/seeds',
+	'!/data/hooks',
+	'/backups'
 ];
 
 export function mergeGitignore(filePath: string): MergeOutcome {

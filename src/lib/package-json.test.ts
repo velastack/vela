@@ -2,12 +2,33 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
+	dropTemplateAdapters,
 	fillTemplatePlaceholders,
 	mergePackageJson,
 	readTemplatePackageJson,
 	toValidPackageName
 } from './package-json.ts';
 import { listProjectTemplates } from './templates.ts';
+
+describe('dropTemplateAdapters', () => {
+	const template = {
+		devDependencies: { '@sveltejs/adapter-auto': '^7.0.1', '@sveltejs/kit': '^2.70.3' }
+	};
+
+	test('keeps the adapter the project already has', () => {
+		const user = { devDependencies: { '@sveltejs/adapter-node': '^5.5.7' } };
+		const merged = mergePackageJson(user, dropTemplateAdapters(user, template)).merged;
+		expect(merged.devDependencies).toEqual({
+			'@sveltejs/adapter-node': '^5.5.7',
+			'@sveltejs/kit': '^2.70.3'
+		});
+	});
+
+	test('adds the template adapter to a project without one', () => {
+		const user = { devDependencies: {} };
+		expect(dropTemplateAdapters(user, template)).toEqual(template);
+	});
+});
 
 describe('mergePackageJson', () => {
 	test('adds missing devDependencies', () => {

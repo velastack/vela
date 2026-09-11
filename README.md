@@ -45,6 +45,15 @@ vela provision root@your-server                        # Caddy, Node, PocketBase
 vela deploy --server root@your-server --domain example.com
 ```
 
+Any SvelteKit project deploys this way, PocketBase or not — `npx sv create my-app`
+straight into `vela deploy` works. The deploy looks at the project rather than at a
+config: a server needs `@sveltejs/adapter-node`, so a project still on `adapter-auto`
+(what `sv create` gives you) is switched to it on the first deploy, the package
+installed, and you are asked to commit the change. A project on `adapter-static` or a
+hosting platform's adapter is left alone and told why. Nothing on the server assumes a
+database: run `vela bless` whenever you want one and deploy again, and the same instance
+gains its PocketBase.
+
 That first deploy binds `production` to the server, so nothing after it names a
 machine again. Every command takes the same selector — `-t local`, `-t production`
 (or `prod`), or any name you choose such as `-t staging`:
@@ -80,7 +89,9 @@ Same thing from CI with [`velastack/action`](https://github.com/velastack/action
 vela bless
 ```
 
-Adds the backend and the rest of the setup to a vanilla SvelteKit project, in place.
+Adds the backend and the rest of the setup to a vanilla SvelteKit project, in place. A
+project that is already deployed keeps deploying to the same instance, now with a
+database.
 
 ## It stays your code
 
