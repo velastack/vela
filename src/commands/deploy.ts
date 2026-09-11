@@ -361,9 +361,8 @@ export const deploy = addLockWaitOption(
 /**
  * Get the project onto @sveltejs/adapter-node, and say what that took.
  *
- * `sv create` and vela's own templates ship adapter-auto, which builds nothing
- * on a server of your own; the deploy would otherwise fail after the build with
- * no build/index.js. The switch is ordinary source - a rewritten config line and
+ * `sv create` ships adapter-auto, which builds nothing on a server of your own;
+ * the deploy would otherwise fail after the build with no build/index.js. The switch is ordinary source - a rewritten config line and
  * a devDependency - so it is made here and the user is asked to commit it. A
  * project on adapter-static or a hosted platform's adapter has decided
  * otherwise, and that decision is reported, not overridden.

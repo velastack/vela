@@ -79,9 +79,9 @@ export function mergePackageJson(user: PkgJson, template: PkgJson): MergeResult 
 
 /**
  * Leave a template's SvelteKit adapter out of the merge when the project has
- * one of its own. The template carries adapter-auto because that is where a new
- * project starts; a project that `vela deploy` has already moved to adapter-node
- * would otherwise get adapter-auto added back beside it. Returns a copy.
+ * one of its own. The adapter is the project's decision: a project deploying
+ * somewhere adapter-node does not serve would otherwise get the template's
+ * adapter added beside its own. Returns a copy.
  */
 export function dropTemplateAdapters(user: PkgJson, template: PkgJson): PkgJson {
 	const isAdapter = (name: string) => name.startsWith('@sveltejs/adapter-');

@@ -23,8 +23,8 @@ import { getUserAgent, installDependencies } from './package-manager.ts';
  * The SvelteKit adapter a server deploy needs, and how to get a project onto it.
  *
  * `vela deploy` runs the build as a Node server, so it needs the output
- * `@sveltejs/adapter-node` produces. What `sv create` (and vela's own templates)
- * ship instead is `@sveltejs/adapter-auto`, which only recognises hosted
+ * `@sveltejs/adapter-node` produces. What `sv create` ships instead is
+ * `@sveltejs/adapter-auto`, which only recognises hosted
  * platforms and writes nothing at all on a machine of your own. Rather than
  * fail after the build with "no build/index.js", the deploy detects the adapter
  * before building and switches an undecided project to adapter-node. A project
