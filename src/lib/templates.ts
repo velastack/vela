@@ -37,6 +37,12 @@ export interface TemplateInfo {
 	price?: number;
 	/** Replaces the generic "what next" lines `vela create` prints. */
 	nextSteps?: string[];
+	/**
+	 * Whether the template reads its copy from a hosted CMS through
+	 * `site.cmsEndpoint` in `src/lib/site.ts`. `vela create` fills that in from
+	 * the linked velastack.dev project, or asks where the CMS is.
+	 */
+	cms?: boolean;
 }
 
 /** A template with its files on disk, ready to copy. */
@@ -156,6 +162,7 @@ export async function listAllTemplates(
 			tags: entry.tags,
 			price: entry.price,
 			nextSteps: entry.nextSteps,
+			cms: entry.cms,
 			entry,
 			indexUrl
 		});
@@ -257,6 +264,7 @@ function readManifest(root: string, name: string): ProjectTemplate | undefined {
 		tags: optionalStringArray(manifest.tags),
 		price: typeof manifest.price === 'number' ? manifest.price : undefined,
 		nextSteps: optionalStringArray(manifest.nextSteps),
+		cms: typeof manifest.cms === 'boolean' ? manifest.cms : undefined,
 		dir: path.join(root, name)
 	};
 }

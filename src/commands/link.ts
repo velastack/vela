@@ -8,14 +8,8 @@ import { requireApiKey } from '../lib/config.ts';
 import { getWorkspace } from '../lib/workspace.ts';
 import { readPackageJson } from '../lib/package-json.ts';
 import { readProjectConfig, writeProjectConfig } from '../lib/project-config.ts';
-import {
-	createProject,
-	getCurrentUser,
-	listProjects,
-	listTeams,
-	type ProjectRecord,
-	type Team
-} from '../lib/velastack-api.ts';
+import { listProjects, listTeams, type ProjectRecord } from '../lib/velastack-api.ts';
+import { linkNewProject, pickTeam, toLinked } from '../lib/link-project.ts';
 
 const CREATE_NEW = '__new__';
 
@@ -34,33 +28,22 @@ async function linkProject() {
 	}
 
 	const apiKey = requireApiKey();
-	const [user, teams, projects] = await Promise.all([
-		getCurrentUser(apiKey),
-		listTeams(apiKey),
-		listProjects(apiKey)
-	]);
-
-	let projectId: string;
-	let teamId: string;
-	let projectName: string;
+	const [teams, projects] = await Promise.all([listTeams(apiKey), listProjects(apiKey)]);
 
 	const picked = projects.length > 0 ? await pickExistingProject(projects) : CREATE_NEW;
+	let linked;
 	if (picked !== CREATE_NEW) {
 		const project = projects.find((pr) => pr.id === picked)!;
-		projectId = project.id;
-		teamId = project.team;
-		projectName = project.name;
+		linked = toLinked(project, project.expand?.team);
 	} else {
 		const team = await pickTeam(teams);
 		const name = await promptProjectName(workspaceRootDir);
-		const created = await createProject(apiKey, { name, teamId: team.id, userId: user.id });
-		projectId = created.id;
-		teamId = team.id;
-		projectName = created.name;
+		linked = await linkNewProject(apiKey, { name, teamId: team.id, interactive: true });
 	}
 
+	const { projectId, teamId, projectName } = linked;
 	writeProjectConfig(workspaceRootDir, { projectId, teamId, projectName });
-	p.log.success(`Linked to ${projectName}.`);
+	p.log.success(`Linked to ${projectName} (${linked.dashboardUrl}).`);
 }
 
 async function pickExistingProject(projects: ProjectRecord[]): Promise<string> {
@@ -79,22 +62,6 @@ async function pickExistingProject(projects: ProjectRecord[]): Promise<string> {
 		process.exit(0);
 	}
 	return choice;
-}
-
-async function pickTeam(teams: Team[]): Promise<Team> {
-	if (teams.length === 1) return teams[0]!;
-	const choice = await p.select({
-		message: 'Select a team',
-		options: teams.map((team) => ({
-			value: team.id,
-			label: team.is_personal ? `${team.name} (personal)` : team.name
-		}))
-	});
-	if (p.isCancel(choice)) {
-		p.cancel('Operation cancelled.');
-		process.exit(0);
-	}
-	return teams.find((team) => team.id === choice)!;
 }
 
 async function promptProjectName(workspaceRootDir: string): Promise<string> {

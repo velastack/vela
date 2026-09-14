@@ -37,6 +37,10 @@ const entrySchema = v.object({
 	price: v.optional(v.number()),
 	previewUrl: v.optional(v.string()),
 	nextSteps: v.optional(v.array(v.string())),
+	/** Reads its copy from a hosted CMS through `site.cmsEndpoint`. */
+	cms: v.optional(v.boolean()),
+	/** A prebuilt static build is published for velastack.dev's instant deploys. */
+	instantDeploy: v.optional(v.boolean()),
 	/** Tarball location, relative to the index URL. */
 	file: v.string(),
 	sha256: v.pipe(v.string(), v.regex(/^[0-9a-f]{64}$/)),

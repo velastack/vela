@@ -107,27 +107,47 @@ export function readPackageJson(path: string): PkgJson {
  * into `~VELA_VERSION~` so a generated project pins the exact CLI that produced
  * it, rather than whatever was hardcoded when the template was last edited.
  *
- * `~APP_NAME~` is escaped for a single-quoted JS string, which is the only place
- * a template uses it.
+ * `~SITE_URL~` and `~CMS_ENDPOINT~` are the two per-site values a static
+ * template's `src/lib/site.ts` carries: where the site is served, and the
+ * hosted CMS it reads its copy from (empty when there is none yet). The
+ * templates repository fills the same placeholders when it prebuilds a
+ * template for velastack.dev's instant deploys, so a template author only ever
+ * writes them once.
+ *
+ * `~APP_NAME~`, `~SITE_URL~` and `~CMS_ENDPOINT~` are escaped for a
+ * single-quoted JS string, which is the only place a template uses them.
  */
 const PACKAGE_NAME_PLACEHOLDER = /~TODO~/g;
 const APP_NAME_PLACEHOLDER = /~APP_NAME~/g;
 const CLI_VERSION_PLACEHOLDER = /~VELA_VERSION~/g;
+const SITE_URL_PLACEHOLDER = /~SITE_URL~/g;
+const CMS_ENDPOINT_PLACEHOLDER = /~CMS_ENDPOINT~/g;
+
+/** Where a freshly created site is served until it is deployed. */
+export const LOCAL_SITE_URL = 'http://localhost:5173';
 
 export interface TemplateValues {
 	appName: string;
 	cliVersion: string;
+	/** Defaults to the dev server; a deployed project sets its own. */
+	siteUrl?: string;
+	/** The hosted CMS `site.cmsEndpoint` reads from; empty leaves the site offline. */
+	cmsEndpoint?: string;
 }
 
 /** Substitute template placeholders in a raw template source string. */
 export function fillTemplatePlaceholders(raw: string, values: TemplateValues): string {
 	const packageName = toValidPackageName(values.appName);
 	const appName = escapeSingleQuoted(values.appName);
+	const siteUrl = escapeSingleQuoted(values.siteUrl ?? LOCAL_SITE_URL);
+	const cmsEndpoint = escapeSingleQuoted(values.cmsEndpoint ?? '');
 	// Function replacements: `$&` and friends in an app name are literal text.
 	return raw
 		.replace(PACKAGE_NAME_PLACEHOLDER, () => packageName)
 		.replace(APP_NAME_PLACEHOLDER, () => appName)
-		.replace(CLI_VERSION_PLACEHOLDER, () => values.cliVersion);
+		.replace(CLI_VERSION_PLACEHOLDER, () => values.cliVersion)
+		.replace(SITE_URL_PLACEHOLDER, () => siteUrl)
+		.replace(CMS_ENDPOINT_PLACEHOLDER, () => cmsEndpoint);
 }
 
 function escapeSingleQuoted(value: string): string {

@@ -97,6 +97,16 @@ describe('parseTemplateIndex', () => {
 		expect(index.skipped).toBe(1);
 	});
 
+	test('keeps the cms and instantDeploy flags a newer registry publishes', () => {
+		const text = JSON.stringify({
+			schemaVersion: 1,
+			templates: [{ ...entry, cms: true, instantDeploy: true, futureField: 1 }]
+		});
+		const [parsed] = parseTemplateIndex(text, indexUrl).templates;
+		expect(parsed).toMatchObject({ name: 'sample', cms: true, instantDeploy: true });
+		expect(parsed).not.toHaveProperty('futureField');
+	});
+
 	test('rejects an index this CLI cannot read', () => {
 		expect(() => parseTemplateIndex('{"schemaVersion":2,"templates":[]}', 'x')).toThrow(
 			'unsupported format'

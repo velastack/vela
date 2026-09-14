@@ -8,6 +8,8 @@ export interface User {
 export interface Team {
 	id: string;
 	name: string;
+	/** URL segment of the team on velastack.dev. */
+	slug: string;
 	is_personal: boolean;
 	owner: string;
 }
@@ -15,8 +17,12 @@ export interface Team {
 export interface ProjectRecord {
 	id: string;
 	name: string;
+	/** URL segment of the project within its team, assigned by velastack.dev. */
+	slug: string;
 	team: string;
 	user?: string;
+	/** The registry template the project was created from, when known. */
+	template?: string;
 	expand?: { team?: Team };
 }
 
@@ -78,11 +84,16 @@ export async function listProjects(apiKey: string): Promise<ProjectRecord[]> {
 
 export async function createProject(
 	apiKey: string,
-	args: { name: string; teamId: string; userId: string }
+	args: { name: string; teamId: string; userId: string; template?: string }
 ): Promise<ProjectRecord> {
 	return apiFetch<ProjectRecord>(apiKey, '/api/collections/projects/records', {
 		method: 'POST',
-		body: JSON.stringify({ name: args.name, team: args.teamId, user: args.userId })
+		body: JSON.stringify({
+			name: args.name,
+			team: args.teamId,
+			user: args.userId,
+			...(args.template ? { template: args.template } : {})
+		})
 	});
 }
 

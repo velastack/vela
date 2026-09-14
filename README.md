@@ -20,6 +20,16 @@ That's a running app with a database behind it. No separate PocketBase install, 
 - **Describe it instead.** Pass `--ai "a blog post with tags and a cover image"` and review the collection it designs before anything is written.
 - **shadcn-svelte components** on tap, and fixtures and seeds for realistic data while you work.
 - **Themed templates.** `vela create --template broadsheet` pulls a finished blog design from the template registry; `--template` lists what is available, grouped by category.
+- **Linked from the start.** Logged in to velastack.dev, `vela create` links the new project there (`.vela/project.json`), so `vela deploy` reports to it and a CMS-ready template such as `hearth` reads from the project's free hosted CMS right away. `vela login` first if you are not; `vela link` does the same for a project you already have.
+
+```sh
+vela create my-site --template hearth              # linked, CMS endpoint written into src/lib/site.ts
+vela create my-site --template hearth --link none  # keep it local; fill in `cmsEndpoint` later
+vela create my-site --template hearth --cms https://cms.example/v1/projects/<id>/cms
+CI=1 VELA_API_KEY=… vela create my-site --template hearth --link new --no-install
+```
+
+Off a terminal nothing is created on velastack.dev unless `--link new` or `--link <project-id>` says so (`--team <id>` picks the team for a new one; the personal team is the default).
 
 ## The shape of a day
 

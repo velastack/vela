@@ -202,6 +202,29 @@ describe('fillTemplatePlaceholders', () => {
 			fillTemplatePlaceholders("name: '~APP_NAME~'", { appName: '$& $1', cliVersion: '0.9.0' })
 		).toBe("name: '$& $1'");
 	});
+
+	test('fills the site URL and CMS endpoint when given', () => {
+		expect(
+			fillTemplatePlaceholders("url: '~SITE_URL~', cmsEndpoint: '~CMS_ENDPOINT~'", {
+				appName: 'app',
+				cliVersion: '0.9.0',
+				siteUrl: 'https://vela-site-origin.invalid',
+				cmsEndpoint: 'https://velastack.dev/v1/projects/2tj321uzke7k7fn/cms'
+			})
+		).toBe(
+			"url: 'https://vela-site-origin.invalid', cmsEndpoint: 'https://velastack.dev/v1/projects/2tj321uzke7k7fn/cms'"
+		);
+	});
+
+	// A site without a CMS yet must still be a valid, offline project.
+	test('defaults the site URL to the dev server and the CMS endpoint to empty', () => {
+		expect(
+			fillTemplatePlaceholders("url: '~SITE_URL~', cmsEndpoint: '~CMS_ENDPOINT~'", {
+				appName: 'app',
+				cliVersion: '0.9.0'
+			})
+		).toBe("url: 'http://localhost:5173', cmsEndpoint: ''");
+	});
 });
 
 describe('shipped templates', () => {

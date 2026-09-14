@@ -7,5 +7,5 @@
  */
 export const site = {
 	name: '~APP_NAME~',
-	url: 'http://localhost:5173'
+	url: '~SITE_URL~'
 };
