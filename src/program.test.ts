@@ -42,6 +42,7 @@ const EXPECTED_COMMANDS = [
 const EXPECTED_GENERATE_SUBCOMMANDS = ['form', 'schema', 'resource', 'scaffold', 'migration'];
 
 const EXPECTED_ENABLE_SUBCOMMANDS = [
+	'analytics',
 	'auth',
 	'api',
 	'api-keys',
@@ -271,5 +272,25 @@ describe('pattern argv forwarding', () => {
 		// The endpoint is a declared option so it can lift the static-site guard;
 		// anything else still passes through to the pattern.
 		expect(seen).toEqual({ endpoint: url, args: ['--other'] });
+	});
+
+	test('enable analytics parses --provider <id> as its own option', async () => {
+		const enable = program.commands.find((c) => c.name() === 'enable')!;
+		const analytics = enable.commands.find((c) => c.name() === 'analytics')!;
+		const original = (analytics as unknown as { _actionHandler: unknown })._actionHandler;
+		let seen: { provider?: string; args: string[] } | undefined;
+		analytics.exitOverride().action((opts: { provider?: string }, c: Command) => {
+			seen = { provider: opts.provider, args: c.args };
+		});
+		try {
+			await program.parseAsync(['enable', 'analytics', '--provider', 'plausible', '--other'], {
+				from: 'user'
+			});
+		} finally {
+			(analytics as unknown as { _actionHandler: unknown })._actionHandler = original;
+		}
+		// The provider is consumed here and handed to the pattern as input, so it
+		// never reaches the argv the generic --provider guard inspects.
+		expect(seen).toEqual({ provider: 'plausible', args: ['--other'] });
 	});
 });

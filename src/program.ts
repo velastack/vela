@@ -63,6 +63,8 @@ const NO_BACKEND_COMMMANDS = new Set([
 	'generate form',
 	// The CMS keeps its own SQLite database and editors; PocketBase is never involved.
 	'enable cms',
+	// Analytics only touches the root layout and .env; it must work on static sites.
+	'enable analytics',
 	'cms',
 	// Server commands talk to a VPS over SSH, never to the local database.
 	'provision',

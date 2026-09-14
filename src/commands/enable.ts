@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { helpConfig } from '../lib/help.ts';
+import { analytics } from './enable/analytics.ts';
 import { auth } from './enable/auth.ts';
 import { api } from './enable/api.ts';
 import { apiKeys } from './enable/api-keys.ts';
@@ -18,6 +19,7 @@ import { contentNegotiation } from './enable/content-negotiation.ts';
 export const enable = new Command('enable')
 	.description('enable features')
 	.configureHelp(helpConfig)
+	.addCommand(analytics)
 	.addCommand(auth)
 	.addCommand(api)
 	.addCommand(apiKeys)

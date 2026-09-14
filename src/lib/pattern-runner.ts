@@ -1,9 +1,10 @@
 import path from 'node:path';
 import * as p from '@clack/prompts';
-import { bySlug, type Slug } from '@velastack/patterns';
+import { bySlug, type Pattern, type Slug } from '@velastack/patterns';
 import { withPocketbase } from './pocketbase.ts';
 import { getWorkspace } from './workspace.ts';
 import { reportResult, type ReportFailure } from './result-report.ts';
+import { checkProviderInput } from './providers.ts';
 
 export interface PatternReport {
 	summary?: string;
@@ -42,10 +43,12 @@ export async function runPattern(
 	input: Record<string, unknown>,
 	report: PatternReport
 ): Promise<void> {
-	const pattern = bySlug[slug];
+	const pattern: Pattern = bySlug[slug];
 	if (!pattern) {
 		throw new Error(`Unknown pattern: ${slug}`);
 	}
+
+	checkProviderInput(pattern, argv, input);
 
 	const { workspaceRootDir, features } = await getWorkspace();
 
