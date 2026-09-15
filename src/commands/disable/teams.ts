@@ -15,12 +15,9 @@ export const teams = new Command('teams')
 					{
 						slug: 'disable-teams',
 						confirmMessage:
-							'Disable teams? Drops teams, team_memberships, team_invites, and team_invite_links collections and removes team routes. app-sidebar and +layout.server.ts must be reverted manually.',
+							'Disable teams? Drops the teams, team_users, team_memberships, team_invites, and team_invite_links collections, removes team routes, and reverts the team switcher, nav item, layout props and loader.',
 						report: {
 							summary: 'Disabled teams.',
-							nextSteps: [
-								'Manually revert the Teams nav item in app-sidebar and any team context loading in +layout.server.ts.'
-							],
 							task: {
 								title: 'Disabling teams',
 								success: 'Disabled teams',

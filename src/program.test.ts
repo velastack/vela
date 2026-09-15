@@ -56,6 +56,21 @@ const EXPECTED_ENABLE_SUBCOMMANDS = [
 	'cms'
 ];
 
+const EXPECTED_DISABLE_SUBCOMMANDS = [
+	'auth',
+	'api',
+	'api-keys',
+	'backend',
+	'content-negotiation',
+	'i18n',
+	'notifications',
+	'teams',
+	'payments',
+	'subscriptions',
+	's3',
+	'smtp'
+];
+
 const EXPECTED_MIGRATE_SUBCOMMANDS = ['up', 'down', 'create', 'collections', 'history-sync'];
 
 const EXPECTED_ENV_SUBCOMMANDS = ['list', 'set', 'unset', 'import'];
@@ -112,6 +127,14 @@ describe('program registration', () => {
 		const enable = program.commands.find((c) => c.name() === 'enable')!;
 		const names = enable.commands.map((c) => c.name());
 		for (const expected of EXPECTED_ENABLE_SUBCOMMANDS) {
+			expect(names).toContain(expected);
+		}
+	});
+
+	test('disable registers all feature subcommands', () => {
+		const disable = program.commands.find((c) => c.name() === 'disable')!;
+		const names = disable.commands.map((c) => c.name());
+		for (const expected of EXPECTED_DISABLE_SUBCOMMANDS) {
 			expect(names).toContain(expected);
 		}
 	});
