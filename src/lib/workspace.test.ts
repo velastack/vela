@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { findWorkspaceRoot, hasBackend, localDataDir } from './workspace.ts';
+import { findWorkspaceRoot, hasApiRoutes, hasBackend, localDataDir } from './workspace.ts';
 
 describe('findWorkspaceRoot', () => {
 	let tmpDir: string;
@@ -53,6 +53,38 @@ describe('hasBackend', () => {
 		const nested = path.join(tmpDir, 'src', 'routes');
 		fs.mkdirSync(nested, { recursive: true });
 		expect(hasBackend(nested)).toBe(true);
+	});
+});
+
+describe('hasApiRoutes', () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-workspace-test-'));
+		fs.writeFileSync(path.join(tmpDir, 'package.json'), '{}\n');
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	test('returns false without an api directory', () => {
+		expect(hasApiRoutes(tmpDir)).toBe(false);
+	});
+
+	test("ignores the template's README, which every minimal project ships", () => {
+		const api = path.join(tmpDir, 'src', 'routes', 'api');
+		fs.mkdirSync(api, { recursive: true });
+		fs.writeFileSync(path.join(api, 'README.md'), '# API Routes\n');
+		expect(hasApiRoutes(tmpDir)).toBe(false);
+	});
+
+	test('returns true once the directory holds anything else', () => {
+		const api = path.join(tmpDir, 'src', 'routes', 'api');
+		fs.mkdirSync(api, { recursive: true });
+		fs.writeFileSync(path.join(api, 'README.md'), '# API Routes\n');
+		fs.writeFileSync(path.join(api, 'server.test.ts'), '');
+		expect(hasApiRoutes(tmpDir)).toBe(true);
 	});
 });
 

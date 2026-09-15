@@ -67,6 +67,17 @@ export function hasBackend(from: string = process.cwd()): boolean {
  * database inside a release — where the next deploy leaves it behind and the
  * pruner eventually deletes it.
  */
+/**
+ * Whether the project has API routes of its own. The minimal template ships
+ * `src/routes/api/README.md`, so the directory existing proves nothing; only
+ * entries besides that README count.
+ */
+export function hasApiRoutes(root: string): boolean {
+	const dir = path.join(root, 'src', 'routes', 'api');
+	if (!fs.existsSync(dir)) return false;
+	return fs.readdirSync(dir).some((entry) => entry !== 'README.md');
+}
+
 export function localDataDir(from: string = process.cwd()): string {
 	return path.join(findWorkspaceRoot(from) ?? from, DATA_DIR);
 }
@@ -122,7 +133,7 @@ function detectFeatures(
 
 	return {
 		auth: isAppMode,
-		api: has('src/routes/api'),
+		api: hasApiRoutes(root),
 		apiKeys: has('src/routes/api/api-keys') || has('src/routes/(app)/api-keys'),
 		backend: has(DATA_DIR),
 		i18n: has('wuchale.config.js') || hasDep('wuchale'),
