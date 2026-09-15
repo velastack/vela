@@ -79,6 +79,8 @@ const EXPECTED_DESTROY_SUBCOMMANDS = ['form', 'schema', 'resource', 'scaffold', 
 
 const EXPECTED_BACKUP_SUBCOMMANDS = ['create', 'list', 'download', 'delete', 'schedule'];
 
+const EXPECTED_CMS_SUBCOMMANDS = ['editor', 'deploy'];
+
 const EXPECTED_CMS_EDITOR_SUBCOMMANDS = ['add', 'password', 'list'];
 
 const EXPECTED_UI_SUBCOMMANDS = ['add', 'list', 'style', 'base', 'theme'];
@@ -137,6 +139,25 @@ describe('program registration', () => {
 		for (const expected of EXPECTED_DISABLE_SUBCOMMANDS) {
 			expect(names).toContain(expected);
 		}
+	});
+
+	test('cms registers its subcommands', () => {
+		const cms = program.commands.find((c) => c.name() === 'cms')!;
+		const names = cms.commands.map((c) => c.name());
+		for (const expected of EXPECTED_CMS_SUBCOMMANDS) {
+			expect(names).toContain(expected);
+		}
+	});
+
+	test('cms deploy names the project and can return before the build ends', () => {
+		const cms = program.commands.find((c) => c.name() === 'cms')!;
+		const deploy = cms.commands.find((c) => c.name() === 'deploy')!;
+		const flags = deploy.options.map((o) => o.long);
+		expect(flags).toContain('--project');
+		expect(flags).toContain('--no-wait');
+		// A hosted site is not a target: no `-t`, and no SSH options.
+		expect(flags).not.toContain('--target');
+		expect(deploy.registeredArguments).toHaveLength(0);
 	});
 
 	test('cms editor registers its subcommands', () => {

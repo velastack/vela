@@ -183,6 +183,38 @@ export async function finishDeployment(
 	});
 }
 
+// ------------------------------------------------------------ hosted sites
+//
+// A site velastack.dev hosts is a prebuilt template copy, so a publish in the
+// hosted CMS reaches visitors only once the site is built again. `vela cms
+// deploy` asks for that rebuild and watches it; the wire shape is the one the
+// admin bar's "Deploy Site…" reads from the CMS's own `/deploy`.
+
+export interface SiteDeployRun {
+	id: string;
+	status: 'pending' | 'building' | 'deployed' | 'failed';
+	createdAt: string;
+	finishedAt?: string;
+	error?: string;
+}
+
+export interface SiteDeployState {
+	/** False for a project with no hosted site: one deployed with `vela deploy`, or none at all. */
+	available: boolean;
+	site?: { url: string };
+	latest?: SiteDeployRun | null;
+}
+
+export async function getSiteDeploy(apiKey: string, projectId: string): Promise<SiteDeployState> {
+	return apiFetch<SiteDeployState>(apiKey, `/v1/projects/${projectId}/site/deploy`);
+}
+
+export async function startSiteDeploy(apiKey: string, projectId: string): Promise<SiteDeployState> {
+	return apiFetch<SiteDeployState>(apiKey, `/v1/projects/${projectId}/site/deploy`, {
+		method: 'POST'
+	});
+}
+
 export async function destroyEnvironment(
 	apiKey: string,
 	projectId: string,
