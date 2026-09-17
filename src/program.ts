@@ -44,6 +44,7 @@ import { i18n } from './commands/i18n.ts';
 import { oauth } from './commands/oauth.ts';
 import { schemas } from './commands/schemas.ts';
 import { cms } from './commands/cms.ts';
+import { workflows } from './commands/workflows.ts';
 
 /**
  * Commands that never touch the database, whether or not the project has one.
@@ -194,7 +195,8 @@ for (const command of [
 	i18n,
 	oauth,
 	schemas,
-	cms
+	cms,
+	workflows
 ]) {
 	program.addCommand(command);
 }

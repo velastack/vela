@@ -15,6 +15,8 @@ export interface Features {
 	blog: boolean;
 	contentNegotiation: boolean;
 	cms: boolean;
+	/** The workflow runtime; in the base template since 0.13, so older projects lack it. */
+	workflows: boolean;
 }
 
 export interface Workspace {
@@ -141,6 +143,7 @@ function detectFeatures(
 		payments: isPaymentsMode,
 		blog: hasDep('mdsvex'),
 		contentNegotiation: hasDep('sveltekit-negotiate'),
-		cms: hasDep('@velastack/cms')
+		cms: hasDep('@velastack/cms'),
+		workflows: has('src/lib/server/workflows.ts')
 	};
 }

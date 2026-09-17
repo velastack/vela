@@ -62,6 +62,10 @@ export const testServer = new Command('test:server')
 		};
 		const cleanup = async () => {
 			if (cleanedUp) return;
+			// The app's workflow worker runs inside this Vite server and stops on
+			// the event adapter-node emits in production; PocketBase is still up
+			// at this point, so it drains cleanly instead of erroring every poll.
+			process.emit('sveltekit:shutdown' as 'exit', 0);
 			await vite?.close().catch(() => {});
 			cleanupSync();
 		};
@@ -138,6 +142,9 @@ export const testServer = new Command('test:server')
 			process.exitCode = 1;
 		} finally {
 			await cleanup();
+			// Anything the app started in-process (a workflow worker, a timer) would
+			// otherwise keep the event loop, and this command, alive after the suite.
+			process.exit(process.exitCode ?? 0);
 		}
 	});
 

@@ -15,6 +15,7 @@ import { smtp } from './enable/smtp.ts';
 import { cms } from './enable/cms.ts';
 import { blog } from './enable/blog.ts';
 import { contentNegotiation } from './enable/content-negotiation.ts';
+import { workflows } from './enable/workflows.ts';
 
 export const enable = new Command('enable')
 	.description('enable features')
@@ -33,4 +34,5 @@ export const enable = new Command('enable')
 	.addCommand(s3)
 	.addCommand(smtp)
 	.addCommand(cms)
-	.addCommand(blog);
+	.addCommand(blog)
+	.addCommand(workflows);

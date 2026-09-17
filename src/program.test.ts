@@ -36,10 +36,18 @@ const EXPECTED_COMMANDS = [
 	'i18n',
 	'oauth',
 	'schemas',
-	'cms'
+	'cms',
+	'workflows'
 ];
 
-const EXPECTED_GENERATE_SUBCOMMANDS = ['form', 'schema', 'resource', 'scaffold', 'migration'];
+const EXPECTED_GENERATE_SUBCOMMANDS = [
+	'form',
+	'schema',
+	'resource',
+	'scaffold',
+	'migration',
+	'workflow'
+];
 
 const EXPECTED_ENABLE_SUBCOMMANDS = [
 	'analytics',
@@ -53,7 +61,8 @@ const EXPECTED_ENABLE_SUBCOMMANDS = [
 	'notifications',
 	's3',
 	'smtp',
-	'cms'
+	'cms',
+	'workflows'
 ];
 
 const EXPECTED_DISABLE_SUBCOMMANDS = [
@@ -84,6 +93,8 @@ const EXPECTED_CMS_SUBCOMMANDS = ['editor', 'deploy'];
 const EXPECTED_CMS_EDITOR_SUBCOMMANDS = ['add', 'password', 'list'];
 
 const EXPECTED_UI_SUBCOMMANDS = ['add', 'list', 'style', 'base', 'theme'];
+
+const EXPECTED_WORKFLOWS_SUBCOMMANDS = ['list', 'run', 'cancel'];
 
 describe('program registration', () => {
 	test('every top-level command is registered', () => {
@@ -185,6 +196,18 @@ describe('program registration', () => {
 		);
 		const list = ui.commands.find((c) => c.name() === 'list')!;
 		expect(list.options.map((o) => o.long)).toContain('--json');
+	});
+
+	test('workflows registers its subcommands', () => {
+		const workflows = program.commands.find((c) => c.name() === 'workflows')!;
+		const names = workflows.commands.map((c) => c.name());
+		for (const expected of EXPECTED_WORKFLOWS_SUBCOMMANDS) {
+			expect(names).toContain(expected);
+		}
+		const list = workflows.commands.find((c) => c.name() === 'list')!;
+		expect(list.options.map((o) => o.long)).toEqual(
+			expect.arrayContaining(['--status', '--name', '--limit'])
+		);
 	});
 
 	test('migrate registers all subcommands', () => {
