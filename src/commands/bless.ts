@@ -86,7 +86,11 @@ const VELA_ONLY_FILES: VelaFile[] = [
 		adds: 'the shadcn-svelte config (vega style, lucide icons) that `vela ui add` reads'
 	},
 	{ path: '.npmrc', adds: 'engine-strict=true' },
-	{ path: '.ignore', adds: 'search ignores for generated files' }
+	{ path: '.ignore', adds: 'search ignores for generated files' },
+	{
+		path: 'vitest.config.ts',
+		adds: 'the server test project `vela test:server` runs — without it test/setup.ts never loads'
+	}
 ];
 const VELA_ONLY_DIRS = ['src/lib/components', 'data', 'test', 'static'];
 
