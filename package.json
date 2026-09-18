@@ -49,7 +49,7 @@
 		"package-manager-detector": "^1.8.0",
 		"picocolors": "^1.1.1",
 		"pocketbase": "^0.28.0",
-		"pocketbase-server": "^0.40.4",
+		"pocketbase-server": "^0.40.5-beta.1",
 		"stripe": "^19.3.0",
 		"svelte": "^5.56.10",
 		"tar": "^7.5.22",
