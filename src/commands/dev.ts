@@ -11,6 +11,7 @@ import PocketBase from 'pocketbase';
 import { helpConfig } from '../lib/help.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { startPocketbaseServe } from '../lib/pocketbase.ts';
+import { createPocketbaseLogFilter } from '../lib/pocketbase-log-filter.ts';
 import { hasBackend, localDataDir } from '../lib/workspace.ts';
 import { loadVite } from '../lib/vite.ts';
 
@@ -26,10 +27,11 @@ interface DevOptions {
 	cors?: boolean;
 	strictPort?: boolean;
 	force?: boolean;
+	allSql?: boolean;
 }
 
-/** Everything except `--force`, which vite routes outside `server`. */
-type ServerFlags = Omit<DevOptions, 'force'>;
+/** Everything except `--force` and `--all-sql`, which are not vite server options. */
+type ServerFlags = Omit<DevOptions, 'force' | 'allSql'>;
 
 function parsePort(value: string): number {
 	const port = Number(value);
@@ -47,6 +49,7 @@ export const dev = new Command('dev')
 	.option('--strictPort', 'exit if the port is already in use instead of taking the next one')
 	.option('--cors', 'enable CORS')
 	.option('--force', 're-bundle dependencies, ignoring the optimizer cache')
+	.option('--all-sql', 'also print the auth lookup PocketBase runs on every request')
 	.configureHelp(helpConfig)
 	.action(async (options: DevOptions) => {
 		const cwd = process.cwd();
@@ -84,7 +87,11 @@ export const dev = new Command('dev')
 			pbProc = started.proc;
 			process.env.POCKETBASE_URL = started.url;
 
-			pbProc.stdout?.pipe(process.stdout);
+			// PocketBase echoes every query under --dev, including the token lookup
+			// behind each authenticated request; with a polling worker that one line
+			// buries everything else.
+			if (options.allSql) pbProc.stdout?.pipe(process.stdout);
+			else pbProc.stdout?.pipe(createPocketbaseLogFilter()).pipe(process.stdout);
 			pbProc.stderr?.pipe(process.stderr);
 			pbProc.on('error', (err) => console.error('PocketBase error:', err));
 			pbProc.on('exit', (code) => console.log(`PocketBase exited with code ${code}`));
