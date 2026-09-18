@@ -3,6 +3,8 @@ import * as p from '@clack/prompts';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { runPattern } from '../../lib/pattern-runner.ts';
+import { resolveFormInput } from '../../lib/form-ui.ts';
+import { getWorkspace } from '../../lib/workspace.ts';
 import {
 	runSchemaStage,
 	runLayoutStage,
@@ -20,6 +22,10 @@ export const form = new Command('form')
 		'place the form at a custom route (e.g. "(app)/[team_id]/projects/new"). Defaults to the model name under (app)/(public).'
 	)
 	.option(
+		'--ui <ui>',
+		'markup to generate: "shadcn" components or "plain" HTML. Defaults to shadcn when the project has shadcn-svelte, plain otherwise.'
+	)
+	.option(
 		'--ai <description>',
 		'design the form with AI from a natural-language description (two stages: schema → layout)'
 	)
@@ -30,7 +36,7 @@ export const form = new Command('form')
 		(
 			model: string | undefined,
 			fields: string[],
-			options: { remote?: boolean; route?: string; ai?: string }
+			options: { remote?: boolean; route?: string; ui?: string; ai?: string }
 		) =>
 			runCommand(async () => {
 				let argv: string[];
@@ -62,6 +68,12 @@ export const form = new Command('form')
 					modelName = model;
 				}
 
+				const { workspaceRootDir } = await getWorkspace();
+				const formInput = resolveFormInput(workspaceRootDir, options.ui);
+				if (formInput.ui === 'plain' && !options.ui) {
+					p.log.info('shadcn-svelte not detected: generating a plain HTML form.');
+				}
+
 				const slug = options.remote ? 'generate-form-remote' : 'generate-form';
 				const nextSteps: string[] = [
 					'Edit the form fields and validation in the generated +page.svelte.',
@@ -76,7 +88,7 @@ export const form = new Command('form')
 				await runPattern(
 					slug,
 					argv,
-					{ route: options.route },
+					{ route: options.route, ...formInput },
 					{
 						summary: `Created ${modelName} form.`,
 						nextSteps,
