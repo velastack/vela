@@ -19,7 +19,7 @@ export const form = new Command('form')
 	.option('--remote', 'generate a form backed by a remote PocketBase collection')
 	.option(
 		'--route <route>',
-		'place the form at a custom route (e.g. "(app)/[team_id]/projects/new"). Defaults to the model name under (app)/(public).'
+		'place the form at a custom route (e.g. "(app)/[team_id]/projects/new"). Defaults to the model name under the (app) or (public) group, or src/routes when it has neither.'
 	)
 	.option(
 		'--ui <ui>',
@@ -68,9 +68,9 @@ export const form = new Command('form')
 					modelName = model;
 				}
 
-				const { workspaceRootDir } = await getWorkspace();
-				const formInput = resolveFormInput(workspaceRootDir, options.ui);
-				if (formInput.ui === 'plain' && !options.ui) {
+				const { workspaceRootDir, features } = await getWorkspace();
+				const formInput = resolveFormInput(workspaceRootDir, features.ui, options.ui);
+				if (features.ui === 'plain' && !options.ui) {
 					p.log.info('shadcn-svelte not detected: generating a plain HTML form.');
 				}
 

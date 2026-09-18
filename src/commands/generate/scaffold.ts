@@ -17,7 +17,7 @@ export const scaffold = new Command('scaffold')
 	.option('--remote', 'generate a scaffold backed by a remote PocketBase collection')
 	.option(
 		'--route <route>',
-		'place the scaffold at a custom route (e.g. "(app)/[team_id]/projects"). Defaults to the pluralized model name under (app)/(public).'
+		'place the scaffold at a custom route (e.g. "(app)/[team_id]/projects"). Defaults to the pluralized model name under the (app) or (public) group, or src/routes when it has neither.'
 	)
 	.option(
 		'--ai <description>',

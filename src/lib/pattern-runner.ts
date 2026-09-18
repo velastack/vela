@@ -50,7 +50,7 @@ export async function runPattern(
 
 	checkProviderInput(pattern, argv, input);
 
-	const { workspaceRootDir, features } = await getWorkspace();
+	const { workspaceRootDir, features, routeGroups } = await getWorkspace();
 
 	const log = p.taskLog({ title: report.task.title });
 
@@ -61,6 +61,7 @@ export async function runPattern(
 			env: 'runtime',
 			root: workspaceRootDir,
 			features,
+			routeGroups,
 			input,
 			// Patterns no longer read the schema themselves: @velastack/pocketbase-codegen
 			// takes an injected client, and only the CLI knows how to reach (or spawn)

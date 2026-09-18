@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { APP_DIR, PUBLIC_DIR, DATA_DIR } from './constants.ts';
+import { readComponentsJson } from './components-json.ts';
 import { readPackageJson } from './package-json.ts';
+
+export type Ui = 'shadcn' | 'plain';
 
 export interface Features {
 	auth: boolean;
@@ -17,6 +20,18 @@ export interface Features {
 	cms: boolean;
 	/** The workflow runtime; in the base template since 0.13, so older projects lack it. */
 	workflows: boolean;
+	/** The component kit generators can assume; `plain` means native elements. */
+	ui: Ui;
+}
+
+/**
+ * The route groups the project has, as directory names under `src/routes`.
+ * `null` means there is no such group, as in a SvelteKit project vela did not
+ * create, so patterns place default routes directly under `src/routes`.
+ */
+export interface RouteGroups {
+	public: string | null;
+	app: string | null;
 }
 
 export interface Workspace {
@@ -24,6 +39,7 @@ export interface Workspace {
 	routesDir: string;
 	publicRoutesDir: string;
 	appRoutesDir?: string;
+	routeGroups: RouteGroups;
 	isAppMode: boolean;
 	isPaymentsMode: boolean;
 	features: Features;
@@ -98,15 +114,10 @@ export async function getWorkspace(): Promise<Workspace> {
 		throw new Error('Could not find src/routes directory');
 	}
 
-	let publicRoutesDir = path.join(routesDir, PUBLIC_DIR);
-	if (!fs.existsSync(path.join(workspaceRootDir, publicRoutesDir))) {
-		publicRoutesDir = routesDir;
-	}
-
-	let appRoutesDir: string | undefined;
-	const appRoutesPath = path.join(fullRoutesPath, APP_DIR);
-	const isAppMode = fs.existsSync(appRoutesPath);
-	if (isAppMode) appRoutesDir = path.join(routesDir, APP_DIR);
+	const routeGroups = detectRouteGroups(workspaceRootDir);
+	const publicRoutesDir = path.join(routesDir, routeGroups.public ?? '');
+	const isAppMode = routeGroups.app !== null;
+	const appRoutesDir = routeGroups.app ? path.join(routesDir, routeGroups.app) : undefined;
 
 	const isPaymentsMode = fs.existsSync(
 		path.join(workspaceRootDir, routesDir, 'webhooks', 'stripe')
@@ -119,10 +130,30 @@ export async function getWorkspace(): Promise<Workspace> {
 		routesDir,
 		publicRoutesDir,
 		appRoutesDir,
+		routeGroups,
 		isAppMode,
 		isPaymentsMode,
 		features
 	};
+}
+
+export function detectRouteGroups(root: string): RouteGroups {
+	const group = (name: string) =>
+		fs.existsSync(path.join(root, 'src', 'routes', name)) ? name : null;
+	return { public: group(PUBLIC_DIR), app: group(APP_DIR) };
+}
+
+/**
+ * shadcn markup needs both halves: `components.json` is what `shadcn-svelte
+ * add` reads, and the dependency is what the installed components import. A
+ * project with neither gets native elements, which need nothing installed.
+ */
+export function detectUi(root: string): Ui {
+	const pkg = readPackageJson(path.join(root, 'package.json'));
+	const hasDep = (name: string) => Boolean(pkg.dependencies?.[name] || pkg.devDependencies?.[name]);
+	const shadcn =
+		readComponentsJson(root) !== undefined && (hasDep('shadcn-svelte') || hasDep('bits-ui'));
+	return shadcn ? 'shadcn' : 'plain';
 }
 
 function detectFeatures(
@@ -144,6 +175,7 @@ function detectFeatures(
 		blog: hasDep('mdsvex'),
 		contentNegotiation: hasDep('sveltekit-negotiate'),
 		cms: hasDep('@velastack/cms'),
-		workflows: has('src/lib/server/workflows.ts')
+		workflows: has('src/lib/server/workflows.ts'),
+		ui: detectUi(root)
 	};
 }

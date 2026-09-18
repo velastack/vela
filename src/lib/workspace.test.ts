@@ -2,7 +2,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { findWorkspaceRoot, hasApiRoutes, hasBackend, localDataDir } from './workspace.ts';
+import {
+	detectRouteGroups,
+	detectUi,
+	findWorkspaceRoot,
+	hasApiRoutes,
+	hasBackend,
+	localDataDir
+} from './workspace.ts';
 
 describe('findWorkspaceRoot', () => {
 	let tmpDir: string;
@@ -119,5 +126,73 @@ describe('localDataDir', () => {
 		} finally {
 			fs.rmSync(orphan, { recursive: true, force: true });
 		}
+	});
+});
+
+describe('detectUi', () => {
+	let tmpDir: string;
+
+	const writePackageJson = (devDependencies: Record<string, string>) =>
+		fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ devDependencies }));
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-workspace-test-'));
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	test('a bare SvelteKit project is plain', () => {
+		writePackageJson({ '@sveltejs/kit': '^2.0.0' });
+		expect(detectUi(tmpDir)).toBe('plain');
+	});
+
+	test('components.json plus the package is shadcn', () => {
+		writePackageJson({ 'shadcn-svelte': '^1.6.0' });
+		fs.writeFileSync(path.join(tmpDir, 'components.json'), JSON.stringify({ style: 'vega' }));
+		expect(detectUi(tmpDir)).toBe('shadcn');
+	});
+
+	test('bits-ui counts as the package, for shadcn-svelte projects vela did not create', () => {
+		writePackageJson({ 'bits-ui': '^2.0.0' });
+		fs.writeFileSync(path.join(tmpDir, 'components.json'), '{}');
+		expect(detectUi(tmpDir)).toBe('shadcn');
+	});
+
+	test('components.json without the package is not enough', () => {
+		writePackageJson({});
+		fs.writeFileSync(path.join(tmpDir, 'components.json'), '{}');
+		expect(detectUi(tmpDir)).toBe('plain');
+	});
+
+	test('the package without components.json is not enough', () => {
+		writePackageJson({ 'bits-ui': '^2.0.0' });
+		expect(detectUi(tmpDir)).toBe('plain');
+	});
+});
+
+describe('detectRouteGroups', () => {
+	let tmpDir: string;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-workspace-test-'));
+		fs.mkdirSync(path.join(tmpDir, 'src', 'routes'), { recursive: true });
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	test('a bare SvelteKit project has no groups', () => {
+		expect(detectRouteGroups(tmpDir)).toEqual({ public: null, app: null });
+	});
+
+	test('a vela project has (public), and (app) once auth is enabled', () => {
+		fs.mkdirSync(path.join(tmpDir, 'src', 'routes', '(public)'));
+		expect(detectRouteGroups(tmpDir)).toEqual({ public: '(public)', app: null });
+
+		fs.mkdirSync(path.join(tmpDir, 'src', 'routes', '(app)'));
+		expect(detectRouteGroups(tmpDir)).toEqual({ public: '(public)', app: '(app)' });
 	});
 });
