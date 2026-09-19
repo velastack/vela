@@ -1,11 +1,15 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import favicon from '$lib/assets/favicon.svg';
+	import { site } from '$lib/site';
 
 	import { toggleMode } from 'mode-watcher';
 	import * as Navbar from '$lib/components/ui/navbar';
 	import { Button } from '$lib/components/ui/button';
 
-	let { children, data } = $props();
+	// Layout data is passed through for navbar items a feature adds; enable auth
+	// reads the signed-in user from it.
+	let { children }: { children?: Snippet; data?: any } = $props();
 </script>
 
 <div class="min-h-dvh grid grid-rows-[max-content_1fr_max-content] root-layout">
@@ -33,7 +37,7 @@
 		>
 			<p class="text-muted-foreground text-sm">
 				&copy; {new Date().getFullYear()}
-				{data.meta.appName}. All rights reserved.
+				{site.name}. All rights reserved.
 			</p>
 			<nav class="flex items-center gap-4 text-sm">
 				<Button onclick={toggleMode} variant="ghost" size="icon">

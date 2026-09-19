@@ -19,6 +19,7 @@ That's a running app with a database behind it. No separate PocketBase install, 
 - **CRUD you didn't write.** `vela generate scaffold post title:text body:editor` gives you the model, schema, forms, and pages.
 - **Describe it instead.** Pass `--ai "a blog post with tags and a cover image"` and review the collection it designs before anything is written.
 - **shadcn-svelte components** on tap, and fixtures and seeds for realistic data while you work.
+- **The app's name in code.** Every project keeps its name and public URL in `src/lib/site.ts`; canonical links, Open Graph images and feeds are built from it, and `vela dev` / `vela deploy` copy the name into PocketBase for the emails it sends.
 - **Themed templates.** `vela create --template broadsheet` pulls a finished blog design from the template registry; `--template` lists what is available, grouped by category.
 - **Linked from the start.** Logged in to velastack.dev, `vela create` links the new project there (`.vela/project.json`), so `vela deploy` reports to it and a CMS-ready template such as `hearth` reads from the project's free hosted CMS right away. `vela login` first if you are not; `vela link` does the same for a project you already have.
 

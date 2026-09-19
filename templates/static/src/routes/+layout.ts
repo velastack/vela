@@ -29,7 +29,6 @@ export const load: LayoutLoad = ({ url }) => {
 	});
 
 	return {
-		meta: { appName: site.name, appURL: site.url },
 		...baseTags
 	};
 };

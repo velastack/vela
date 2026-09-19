@@ -25,11 +25,13 @@ import { ensureShadcnImport } from '../lib/app-css.ts';
 import { componentsJsonHints, readComponentsJson } from '../lib/components-json.ts';
 import {
 	dropTemplateAdapters,
+	fillTemplatePlaceholders,
 	mergePackageJson,
 	readPackageJson,
 	readTemplatePackageJson,
 	writePackageJson
 } from '../lib/package-json.ts';
+import { SITE_FILE } from '../lib/site.ts';
 import {
 	mergeGitignore,
 	mergeSvelteConfig,
@@ -156,6 +158,7 @@ async function blessProject(cwdArg: string | undefined, options: Options) {
 
 	mergeDependencies(projectPath, templateDir);
 	copyVelaOnlyFiles(templateDir, projectPath);
+	writeSiteFile(templateDir, projectPath);
 	ensureShadcnCss(projectPath);
 	hintComponentsJson(projectPath);
 	mergeConfigFiles(projectPath);
@@ -300,6 +303,35 @@ function copyVelaOnlyFiles(templateDir: string, projectPath: string) {
 		if (!fs.existsSync(src)) continue;
 		copyDirShallow(src, dest);
 	}
+}
+
+/**
+ * The app's name and public URL, which the template's layouts and pages read
+ * from `$lib/site`. A project that already has the file keeps it; one that
+ * doesn't is named after its package until someone edits it.
+ */
+function writeSiteFile(templateDir: string, projectPath: string) {
+	const source = path.join(templateDir, SITE_FILE.replace(/\.ts$/, '.template.ts'));
+	const dest = path.join(projectPath, SITE_FILE);
+	if (!fs.existsSync(source)) return;
+	if (fs.existsSync(dest)) {
+		p.log.info(
+			`Kept your ${pc.bold(SITE_FILE)}. Vela's layouts read ${pc.cyan('name')} and ${pc.cyan('url')} from its ${pc.cyan('site')} export.`
+		);
+		return;
+	}
+
+	const userPkg = readPackageJson(path.join(projectPath, 'package.json'));
+	const appName = typeof userPkg.name === 'string' && userPkg.name ? userPkg.name : 'SvelteKit';
+	fs.mkdirSync(path.dirname(dest), { recursive: true });
+	fs.writeFileSync(
+		dest,
+		fillTemplatePlaceholders(fs.readFileSync(source, 'utf8'), {
+			appName,
+			cliVersion: pkg.version
+		})
+	);
+	p.log.info(`Wrote ${pc.bold(SITE_FILE)}, naming the app ${pc.cyan(appName)}. Edit it to rename.`);
 }
 
 /**

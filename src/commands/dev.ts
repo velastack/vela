@@ -12,6 +12,7 @@ import { helpConfig } from '../lib/help.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { startPocketbaseServe } from '../lib/pocketbase.ts';
 import { createPocketbaseLogFilter } from '../lib/pocketbase-log-filter.ts';
+import { readSite, SITE_FILE } from '../lib/site.ts';
 import { hasBackend, localDataDir } from '../lib/workspace.ts';
 import { loadVite } from '../lib/vite.ts';
 
@@ -145,7 +146,24 @@ export const dev = new Command('dev')
 					process.env.POCKETBASE_SUPERUSER_EMAIL!,
 					process.env.POCKETBASE_SUPERUSER_PASSWORD!
 				);
-			await pb.settings.update({ meta: { appURL: `http://${viteHost}:${vitePort}` } });
+			// PocketBase fills in its own emails from `meta`. The app's name lives
+			// in `src/lib/site.ts`, so it is copied across on every start and a
+			// name set in the admin panel does not outlast the next one.
+			const site = await readSite(cwd);
+			await pb.settings.update({
+				meta: {
+					appURL: `http://${viteHost}:${vitePort}`,
+					...(site?.name && { appName: site.name })
+				}
+			});
+			if (!site?.name) {
+				console.log(
+					pc.dim(
+						`No app name in ${SITE_FILE}, so PocketBase keeps the one it has. Add ` +
+							`\`export const site = { name: '…', url: '…' }\` there to set it from code.`
+					)
+				);
+			}
 
 			await startWatchingTypes(cwd, pb);
 		});

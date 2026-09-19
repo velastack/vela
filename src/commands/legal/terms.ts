@@ -16,9 +16,11 @@ import {
 	onCancel,
 	pageMetaTagsLoader,
 	sharedFields,
+	siteFields,
 	titledSection,
 	type LegalCoreAnswers
 } from './shared.ts';
+import { readSite } from '../../lib/site.ts';
 
 type TermsAnswers = {
 	core: LegalCoreAnswers;
@@ -386,11 +388,12 @@ export const generateTermsHtml = (answers: TermsAnswers) => {
 
 async function termsAction(): Promise<void> {
 	const { workspaceRootDir, publicRoutesDir } = await getWorkspace();
+	const site = siteFields(await readSite(workspaceRootDir));
 
 	const core = await p.group(
 		{
-			websiteUrl: sharedFields.websiteUrl,
-			websiteName: sharedFields.websiteName,
+			websiteUrl: site.websiteUrl,
+			websiteName: site.websiteName,
 			entityType: sharedFields.entityType,
 			businessName: sharedFields.businessName,
 			businessAddress: sharedFields.businessAddress,

@@ -117,8 +117,10 @@ function warnIfPrerendered(cwd: string): void {
 	if (!fs.existsSync(dir) || fs.readdirSync(dir).length === 0) return;
 
 	p.log.warn(
-		`Prerendered pages were built with no domain configured, so their canonical\n` +
-			`links point at SvelteKit's placeholder host rather than at this site.\n\n` +
+		`Prerendered pages were built with no domain configured, so anything they take\n` +
+			`from the request's origin points at SvelteKit's placeholder host rather than at\n` +
+			`this site. Links built from ${pc.cyan('src/lib/site.ts')}, as the templates' canonical\n` +
+			`links are, don't depend on it.\n\n` +
 			`Set one with ${pc.cyan('vela deploy --domain example.com')}, or pass ${pc.cyan('VELA_ORIGIN')}.`
 	);
 }

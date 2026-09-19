@@ -1,12 +1,16 @@
 import { loadFlash } from 'sveltekit-flash-message/server';
 import { defineBaseMetaTags } from 'svelte-meta-tags';
+import { site } from '$lib/site';
 
-export const load = loadFlash(async ({ locals, url }) => {
-	const canonical = new URL(url.pathname, url.origin).href;
+export const load = loadFlash(async ({ url }) => {
+	// Built from `site.url`, not `url.origin`: every deployment and every
+	// prerendered page (where the origin is SvelteKit's placeholder host) should
+	// point at the one address the site is published under.
+	const canonical = new URL(url.pathname, site.url).href;
 
 	const baseTags = defineBaseMetaTags({
 		title: '',
-		titleTemplate: `%s | ${locals.meta.appName}`,
+		titleTemplate: `%s | ${site.name}`,
 		description: '',
 		canonical,
 		openGraph: {
@@ -14,8 +18,8 @@ export const load = loadFlash(async ({ locals, url }) => {
 			url: canonical,
 			images: [
 				{
-					url: `${locals.meta.appURL}/og.jpg`,
-					alt: locals.meta.appName,
+					url: `${site.url}/og.jpg`,
+					alt: site.name,
 					width: 1200,
 					height: 630
 				}
@@ -24,7 +28,6 @@ export const load = loadFlash(async ({ locals, url }) => {
 	});
 
 	return {
-		meta: locals.meta,
 		...baseTags
 	};
 });

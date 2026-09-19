@@ -242,5 +242,12 @@ describe('shipped templates', () => {
 			const filled = fillTemplatePlaceholders(raw, { appName: 'app', cliVersion: '9.9.9' });
 			expect(filled).not.toMatch(/~[A-Z_]+~|~TODO~/);
 		});
+
+		test(`${name} names the app in src/lib/site.ts`, () => {
+			const raw = fs.readFileSync(path.join(dir, 'src', 'lib', 'site.template.ts'), 'utf8');
+			const filled = fillTemplatePlaceholders(raw, { appName: 'My App', cliVersion: '9.9.9' });
+			expect(filled).toContain("name: 'My App'");
+			expect(filled).toContain("url: 'http://localhost:5173'");
+		});
 	}
 });

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import favicon from '$lib/assets/favicon.svg';
-
-	let { data } = $props();
+	import { site } from '$lib/site';
 </script>
 
 <main class="flex-1">
@@ -13,11 +12,11 @@
 				>
 					<img src={favicon} alt="logo" class="size-4" />
 				</span>
-				{data.meta.appName}
+				{site.name}
 			</a>
 
 			<h1 class="mt-6 text-4xl font-semibold tracking-tight sm:text-5xl">
-				{data.meta.appName} is running on VelaStack
+				{site.name} is running on VelaStack
 			</h1>
 			<p class="text-muted-foreground mt-4 text-lg">
 				A SvelteKit site that prerenders to static HTML, so there is no server to run and nothing to

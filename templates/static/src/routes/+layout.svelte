@@ -2,6 +2,7 @@
 	import '../app.css';
 
 	import favicon from '$lib/assets/favicon.svg';
+	import { site } from '$lib/site';
 
 	import { ModeWatcher } from 'mode-watcher';
 	import { page } from '$app/state';
@@ -14,7 +15,7 @@
 </script>
 
 <svelte:head>
-	<title>{data.meta.appName}</title>
+	<title>{site.name}</title>
 	<link rel="icon" href={favicon} />
 </svelte:head>
 

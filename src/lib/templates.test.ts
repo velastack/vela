@@ -71,6 +71,27 @@ describe('backend', () => {
 	});
 });
 
+describe('app name and URL', () => {
+	function files(dir: string): string[] {
+		return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+			const full = path.join(dir, entry.name);
+			if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : files(full);
+			return /\.(svelte|ts|js)$/.test(entry.name) ? [full] : [];
+		});
+	}
+
+	// `src/lib/site.ts` is where they live; PocketBase's settings only mirror the
+	// name for its emails, and a static site has no PocketBase at all.
+	test('no template reads them from PocketBase meta', () => {
+		for (const template of listProjectTemplates()) {
+			const offenders = files(template.dir).filter((file) =>
+				/\b(?:locals|data)\??\.meta\b/.test(fs.readFileSync(file, 'utf8'))
+			);
+			expect(offenders).toEqual([]);
+		}
+	});
+});
+
 describe('findProjectTemplate', () => {
 	test('returns the directory the template lives in', () => {
 		const template = findProjectTemplate('minimal');

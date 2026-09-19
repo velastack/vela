@@ -1,27 +1,41 @@
 import process from 'node:process';
 import * as p from '@clack/prompts';
+import { isLocalUrl, type SiteInfo } from '../../lib/site.ts';
+
+/**
+ * The website URL and name prompts, filled in from the project's
+ * `src/lib/site.ts` where it has them. A URL still pointing at localhost is
+ * not offered: it is not where the policy's readers find the site.
+ */
+export function siteFields(site: SiteInfo | null) {
+	const url = site?.url && !isLocalUrl(site.url) ? site.url : undefined;
+	return {
+		websiteUrl: () =>
+			p.text({
+				message: 'What is your website URL?',
+				placeholder: 'http://www.mysite.com',
+				initialValue: url,
+				validate: (value: string | undefined) => {
+					if (!value || !value.startsWith('http')) {
+						return 'Please enter a valid URL starting with http or https';
+					}
+				}
+			}),
+		websiteName: () =>
+			p.text({
+				message: 'What is your website name?',
+				placeholder: 'My Site',
+				initialValue: site?.name,
+				validate: (value: string | undefined) => {
+					if (!value) {
+						return 'Please enter a website name';
+					}
+				}
+			})
+	};
+}
 
 export const sharedFields = {
-	websiteUrl: () =>
-		p.text({
-			message: 'What is your website URL?',
-			placeholder: 'http://www.mysite.com',
-			validate: (value: string | undefined) => {
-				if (!value || !value.startsWith('http')) {
-					return 'Please enter a valid URL starting with http or https';
-				}
-			}
-		}),
-	websiteName: () =>
-		p.text({
-			message: 'What is your website name?',
-			placeholder: 'My Site',
-			validate: (value: string | undefined) => {
-				if (!value) {
-					return 'Please enter a website name';
-				}
-			}
-		}),
 	entityType: () =>
 		p.select({
 			message: 'Entity type',

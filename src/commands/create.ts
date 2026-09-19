@@ -108,7 +108,7 @@ export const create = new Command('create')
 	.argument('[path]', 'where the project will be created')
 	.option('--template <type>', 'template to scaffold (built-in or from the registry)', 'minimal')
 	.option('--no-install', 'skip installing dependencies')
-	.option('--name <name>', 'app name (used for emails, etc)')
+	.option('--name <name>', 'app name, written to src/lib/site.ts')
 	.option('--email <email>', 'email of the admin user')
 	.option('--password <password>', 'password of the admin user')
 	.option(
@@ -159,6 +159,7 @@ export const create = new Command('create')
 				nextSteps.push(...template.nextSteps);
 			} else if (template.backend) {
 				nextSteps.push('Run `vela generate scaffold <model>` to generate your first CRUD pages.');
+				nextSteps.push('Set your deployed URL in `src/lib/site.ts` before deploying.');
 			} else {
 				nextSteps.push(
 					'Set your deployed URL in `src/lib/site.ts` before building for production.'
@@ -219,7 +220,7 @@ async function createProject(
 			name: () => {
 				if (options.name) return Promise.resolve(options.name);
 				return p.text({
-					message: 'App name (used for emails, etc)',
+					message: 'App name (written to src/lib/site.ts)',
 					initialValue: dirName || 'SvelteKit',
 					validate: (value) => (value?.trim() ? undefined : 'App name is required')
 				});
@@ -282,6 +283,8 @@ async function createProject(
 		await withPocketbase(
 			projectPath,
 			async (pb) => {
+				// PocketBase's own copy of the name, for the emails it sends. The
+				// project's is `src/lib/site.ts`; `vela dev` keeps this one in step.
 				await pb.settings.update({
 					meta: { appName: name, appURL: 'http://localhost:5173' }
 				});

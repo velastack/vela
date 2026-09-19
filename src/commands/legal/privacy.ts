@@ -19,11 +19,13 @@ import {
 	onCancel,
 	pageMetaTagsLoader,
 	sharedFields,
+	siteFields,
 	subSection,
 	titledSection,
 	usStateRightsBlock,
 	type LegalCoreAnswers
 } from './shared.ts';
+import { readSite } from '../../lib/site.ts';
 
 const mapLabels = {
 	personalInfo: {
@@ -593,11 +595,12 @@ async function promptWithCustom(
 
 async function privacyAction(): Promise<void> {
 	const { workspaceRootDir, publicRoutesDir } = await getWorkspace();
+	const site = siteFields(await readSite(workspaceRootDir));
 
 	const core = await p.group(
 		{
-			websiteUrl: sharedFields.websiteUrl,
-			websiteName: sharedFields.websiteName,
+			websiteUrl: site.websiteUrl,
+			websiteName: site.websiteName,
 			entityType: sharedFields.entityType,
 			businessName: sharedFields.businessName,
 			businessAddress: sharedFields.businessAddress,

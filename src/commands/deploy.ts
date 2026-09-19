@@ -21,10 +21,10 @@ import {
 } from '../lib/server-command.ts';
 import { instanceId, normalizeEnvTag, releaseId } from '../lib/instance.ts';
 import { ensureSuperuser, findFreePort, pocketbaseVersion } from '../lib/pocketbase.ts';
-import { readLocalMeta, readRemoteAppURL, seedRemoteMeta } from '../lib/pocketbase-settings.ts';
+import { copiedMeta, readLocalMeta, syncRemoteMeta } from '../lib/pocketbase-settings.ts';
 import { normalizeOrigin, splitHosts } from '../lib/origin.ts';
+import { isLocalUrl, readSite, SITE_FILE } from '../lib/site.ts';
 import { createDeployReporter } from '../lib/deploy-report.ts';
-import { restartInstance } from '../lib/remote-env.ts';
 import {
 	instanceHasBackend,
 	readInstanceStates,
@@ -322,12 +322,14 @@ export const deploy = addLockWaitOption(
 						// Created by the server on the first deploy of a backend instance, and
 						// never printed: the app reads it from the environment, and a human who
 						// wants the admin UI sets their own with `vela env set`.
+						const site = await readSite(workspaceRootDir);
 						if (result?.superuserCreated) {
-							await copyLocalBranding(
+							await seedNewDatabase(
 								session,
 								instance,
 								workspaceRootDir,
-								primaryHost ? (result?.url ?? '') : ''
+								primaryHost ? (result?.url ?? '') : '',
+								site?.name
 							);
 							p.log.info(
 								`Created the PocketBase superuser this app authenticates as.\n\n` +
@@ -335,9 +337,10 @@ export const deploy = addLockWaitOption(
 									`your own instead, ${pc.cyan('vela env set POCKETBASE_SUPERUSER_PASSWORD')}\n` +
 									`and deploy again.`
 							);
-						} else if (backend && primaryHost) {
-							await reportAppURLDrift(session, instance, primaryHost);
+						} else if (backend) {
+							await syncAppName(session, instance, site?.name, primaryHost);
 						}
+						reportSiteUrl(site?.url, primaryUrl, isPreview);
 
 						if (!primaryHost) {
 							p.log.warn(
@@ -407,72 +410,100 @@ async function prepareAdapter(workspaceRootDir: string): Promise<void> {
 }
 
 /**
- * Point out an `appURL` that no longer matches the domain being deployed to.
+ * Keep a deployment's PocketBase calling the app what `src/lib/site.ts` does,
+ * for the emails it sends, and point out an `appURL` that no longer matches
+ * the domain being deployed to.
  *
- * `appURL` is seeded once and belongs to the deployed admin panel from then on,
- * which is deliberate — it is how an app serves one canonical domain while being
- * deployed to another. That also makes it the one setting that can quietly go
- * stale after a domain change, taking password-reset emails and every other link
- * PocketBase renders with it. Reported rather than corrected, so the override
- * keeps working.
+ * The name is code, so every deploy sets it. `appURL` is seeded once and
+ * belongs to the deployed admin panel from then on, which is deliberate — it
+ * is how an app serves one canonical domain while being deployed to another.
+ * That also makes it the one setting that can quietly go stale after a domain
+ * change, taking password-reset emails and every other link PocketBase renders
+ * with it. Reported rather than corrected, so the override keeps working.
  */
-async function reportAppURLDrift(
+async function syncAppName(
 	session: SshSession,
 	instance: string,
+	appName: string | undefined,
 	domain: string
 ): Promise<void> {
+	if (!appName && !domain) return;
+	let result: Awaited<ReturnType<typeof syncRemoteMeta>>;
+	try {
+		result = await syncRemoteMeta(session, instance, { appName });
+	} catch (err) {
+		if (appName) {
+			p.log.warn(
+				`Could not set this app's name in its PocketBase settings, which its emails use.\n` +
+					`${pc.dim(String(err))}`
+			);
+		}
+		return;
+	}
+	if (result.written.length > 0) {
+		p.log.success(`Named the app ${pc.cyan(appName ?? '')} in PocketBase, from ${SITE_FILE}`);
+	}
+
 	const expected = normalizeOrigin(domain);
-	if (!expected) return;
-
-	const current = await readRemoteAppURL(session, instance);
-	if (!current || normalizeOrigin(current) === expected) return;
-
+	if (!expected || !result.appURL || normalizeOrigin(result.appURL) === expected) return;
 	p.log.warn(
-		`This app's PocketBase ${pc.cyan('appURL')} is ${pc.dim(current)}, but it is served on ${pc.dim(expected)}.\n\n` +
+		`This app's PocketBase ${pc.cyan('appURL')} is ${pc.dim(result.appURL)}, but it is served on ${pc.dim(expected)}.\n\n` +
 			`Emails and anything else PocketBase links to will use the former. Update it in\n` +
 			`the admin panel if that is not deliberate.`
 	);
 }
 
 /**
- * Give a database this deploy created the branding the project already has.
- *
- * A fresh PocketBase answers with its own defaults, which is how a new
- * deployment ends up calling itself "Acme" on every page that reads
- * `locals.meta`. Best-effort by design: the deploy has already succeeded, so
- * nothing here is worth failing it over.
+ * Give a database this deploy created what PocketBase's emails need: the app's
+ * name from `src/lib/site.ts`, the URL it is served on, and the sender the
+ * project's own database has. Best-effort by design: the deploy has already
+ * succeeded, so nothing here is worth failing it over.
  */
-async function copyLocalBranding(
+async function seedNewDatabase(
 	session: SshSession,
 	instance: string,
 	workspaceRootDir: string,
-	appURL: string
+	appURL: string,
+	appName: string | undefined
 ): Promise<void> {
 	const local = await readLocalMeta(workspaceRootDir);
-	if (!local) return;
-
 	try {
-		const copied = await seedRemoteMeta(session, instance, local, appURL);
-		if (copied.length === 0) return;
-
-		// The app caches `meta` in process, and it read the defaults on the way up
-		// a moment ago. Without this the site serves PocketBase's "Acme" until
-		// something else happens to restart it.
-		const outcome = await restartInstance(session, instance);
-		if (outcome.deployed && !outcome.restarted) {
-			p.log.warn(
-				`Copied ${copied.join(', ')}, but the app did not restart to pick them up.\n` +
-					`${pc.dim(outcome.error ?? '')}`
-			);
-			return;
-		}
-		p.log.success(`Copied ${copied.join(', ')} from this project's database`);
+		const { written } = await syncRemoteMeta(session, instance, {
+			...copiedMeta(local),
+			appURL,
+			appName
+		});
+		if (written.length > 0) p.log.success(`Set ${written.join(', ')} in the new database`);
 	} catch (err) {
 		p.log.warn(
-			`Could not copy this project's PocketBase settings across.\n` +
-				`Set them in the admin panel instead. ${pc.dim(String(err))}`
+			`Could not set up this app's PocketBase settings.\n` +
+				`Set its name and sender in the admin panel instead. ${pc.dim(String(err))}`
 		);
 	}
+}
+
+/**
+ * Point out a `site.url` that is not where this deploy serves the app: the
+ * canonical links, Open Graph images and feeds it built are made from it. A
+ * preview is expected to point at production, so only an address that was
+ * never set is worth a word there.
+ */
+function reportSiteUrl(url: string | undefined, primaryUrl: string, isPreview: boolean): void {
+	const expected = normalizeOrigin(primaryUrl);
+	if (!url || !expected) return;
+	if (isLocalUrl(url)) {
+		p.log.warn(
+			`${SITE_FILE} still says the site is at ${pc.dim(url)}. Canonical links, Open Graph\n` +
+				`images and feeds are built from it; set ${pc.cyan('url')} to ${pc.cyan(expected)} and deploy again.`
+		);
+		return;
+	}
+	if (isPreview || normalizeOrigin(url) === expected) return;
+	p.log.warn(
+		`${SITE_FILE} says the site is at ${pc.dim(url)}, but this deploy serves ${pc.dim(expected)}.\n` +
+			`Canonical links, Open Graph images and feeds point at the former. Update ${pc.cyan('url')}\n` +
+			`if that is not deliberate.`
+	);
 }
 
 interface Tunnel {
