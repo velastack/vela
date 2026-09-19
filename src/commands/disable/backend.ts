@@ -15,7 +15,7 @@ export const backend = new Command('backend')
 					{
 						slug: 'disable-backend',
 						confirmMessage:
-							'Disable the PocketBase backend? Removes hooks.server.ts, the data/ scaffold, and reverts the SvelteKit adapter. The @velastack/pocketbase and pocketbase-sveltekit packages stay installed.',
+							'Disable the PocketBase backend? Takes the PocketBase handle and workflow worker out of hooks.server.ts (deleting it if nothing else is left), removes the data/ scaffold, and reverts the SvelteKit adapter. The @velastack/pocketbase and pocketbase-sveltekit packages stay installed.',
 						report: {
 							summary: 'Disabled the PocketBase backend.',
 							task: {
