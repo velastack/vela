@@ -1,4 +1,8 @@
-import { describe, expect, test } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import process from 'node:process';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { Command } from 'commander';
 import { program } from './program.ts';
 
@@ -359,5 +363,71 @@ describe('pattern argv forwarding', () => {
 		// The provider is consumed here and handed to the pattern as input, so it
 		// never reaches the argv the generic --provider guard inspects.
 		expect(seen).toEqual({ provider: 'plausible', args: ['--other'] });
+	});
+});
+
+describe('backend gate', () => {
+	let tmpDir: string;
+	let cwd: string;
+
+	beforeEach(() => {
+		// A bare `sv create` project: a package.json and no `data` directory.
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-program-test-'));
+		fs.writeFileSync(path.join(tmpDir, 'package.json'), '{}\n');
+		cwd = process.cwd();
+		process.chdir(tmpDir);
+		vi.spyOn(process, 'exit').mockImplementation((code) => {
+			throw new Error(`process.exit(${code})`);
+		});
+	});
+
+	afterEach(() => {
+		process.chdir(cwd);
+		vi.restoreAllMocks();
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	async function runs(argv: string[]): Promise<boolean> {
+		const [name, sub] = argv;
+		const command = program.commands
+			.find((c) => c.name() === name)!
+			.commands.find((c) => c.name() === sub)!;
+		const original = (command as unknown as { _actionHandler: unknown })._actionHandler;
+		let ran = false;
+		command.action(() => {
+			ran = true;
+		});
+		try {
+			await program.parseAsync(argv, { from: 'user' });
+		} catch {
+			// The gate exits; `ran` stays false.
+		} finally {
+			(command as unknown as { _actionHandler: unknown })._actionHandler = original;
+		}
+		return ran;
+	}
+
+	// A generator that works without a backend has to be undoable without one.
+	test.each([
+		['generate', 'form'],
+		['destroy', 'form'],
+		['generate', 'schema'],
+		['destroy', 'schema'],
+		['enable', 'content-negotiation'],
+		['disable', 'content-negotiation'],
+		['enable', 'blog'],
+		['enable', 'i18n'],
+		['disable', 'i18n']
+	])('%s %s runs in a project without a backend', async (name, sub) => {
+		expect(await runs([name, sub, 'contact', '--yes'])).toBe(true);
+	});
+
+	test.each([
+		['destroy', 'resource'],
+		['destroy', 'scaffold']
+	])('%s %s still needs a backend', async (name, sub) => {
+		vi.spyOn(console, 'log').mockImplementation(() => {});
+		vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+		expect(await runs([name, sub, 'contact', '--yes'])).toBe(false);
 	});
 });

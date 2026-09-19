@@ -62,10 +62,22 @@ const NO_BACKEND_COMMMANDS = new Set([
 	'i18n',
 	'generate schema',
 	'generate form',
+	// Only delete the files their generators wrote, so they must work wherever
+	// those generators do.
+	'destroy schema',
+	'destroy form',
 	// The CMS keeps its own SQLite database and editors; PocketBase is never involved.
 	'enable cms',
 	// Analytics only touches the root layout and .env; it must work on static sites.
 	'enable analytics',
+	// Only wires hooks, reroute and the root layout; no collections involved.
+	'enable content-negotiation',
+	'disable content-negotiation',
+	// Posts are mdsvex files on disk.
+	'enable blog',
+	// Translations live in wuchale catalogs.
+	'enable i18n',
+	'disable i18n',
 	'cms',
 	// Server commands talk to a VPS over SSH, never to the local database.
 	'provision',
@@ -80,8 +92,8 @@ const NO_BACKEND_COMMMANDS = new Set([
 	// own credentials rather than requiring them in this process.
 	'backup',
 	'restore',
-	// Removes a copy from its server; the other `destroy` subcommands edit the
-	// local schema and stay gated.
+	// Removes a copy from its server. `destroy resource` and `destroy scaffold`
+	// drop collections and stay gated.
 	'destroy deployment'
 ]);
 
