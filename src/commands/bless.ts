@@ -21,6 +21,7 @@ import {
 import pkg from '../../package.json' with { type: 'json' };
 import { createSuperuser } from '../lib/pocketbase.ts';
 import { writeEnvFile } from '../lib/env.ts';
+import { emailFlag, passwordFlag, promptSuperuser } from '../lib/superuser.ts';
 import { ensureShadcnImport } from '../lib/app-css.ts';
 import { componentsJsonHints, readComponentsJson } from '../lib/components-json.ts';
 import {
@@ -53,8 +54,8 @@ function optionsSchema() {
 	return v.strictObject({
 		install: v.union([v.boolean(), v.picklist(AGENT_NAMES)], 'must be a package manager'),
 		template: v.optional(v.picklist(templates, `must be one of: ${templates.join(', ')}`)),
-		email: v.optional(v.pipe(v.string(), v.email('must be a valid email address'))),
-		password: v.optional(v.pipe(v.string(), v.minLength(8, 'must be at least 8 characters long'))),
+		email: emailFlag,
+		password: passwordFlag,
 		skipRoutes: v.optional(v.boolean()),
 		forceRoutes: v.optional(v.boolean())
 	});
@@ -124,37 +125,10 @@ async function blessProject(cwdArg: string | undefined, options: Options) {
 
 	const templateDir = findProjectTemplate(options.template ?? DEFAULT_TEMPLATE).dir;
 
-	const { email, password } = await p.group(
-		{
-			email: () => {
-				if (options.email) return Promise.resolve(options.email);
-				return p.text({
-					message: 'Enter an email for the admin user',
-					defaultValue: 'admin@example.com',
-					validate: (value) =>
-						!value ? 'Email is required' : !value.includes('@') ? 'Invalid email' : undefined
-				});
-			},
-			password: () => {
-				if (options.password) return Promise.resolve(options.password);
-				return p.password({
-					message: 'Enter a password for the admin user (at least 8 characters)',
-					validate: (value) =>
-						!value
-							? 'Password is required'
-							: value.length < 8
-								? 'Password must be at least 8 characters long'
-								: undefined
-				});
-			}
-		},
-		{
-			onCancel: () => {
-				p.cancel('Operation cancelled.');
-				process.exit(0);
-			}
-		}
-	);
+	const { email, password } = await promptSuperuser(options, () => {
+		p.cancel('Operation cancelled.');
+		process.exit(0);
+	});
 
 	mergeDependencies(projectPath, templateDir);
 	copyVelaOnlyFiles(templateDir, projectPath);

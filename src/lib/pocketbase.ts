@@ -199,27 +199,60 @@ export async function withPocketbase(
 	}
 }
 
-export async function createSuperuser(cwd: string, email: string, password: string): Promise<void> {
+async function runSuperuserCommand(
+	cwd: string,
+	action: 'create' | 'upsert',
+	email: string,
+	password: string
+): Promise<void> {
 	const dir = path.join(cwd, DATA_DIR);
 	const migrationsDir = path.join(cwd, MIGRATIONS_DIR);
 	fs.mkdirSync(dir, { recursive: true });
 	fs.mkdirSync(migrationsDir, { recursive: true });
 
-	await execPackageBin(
-		cwd,
-		[
-			'pocketbase-server',
-			'--dir',
-			dir,
-			'--migrationsDir',
-			migrationsDir,
-			'superuser',
-			'create',
-			email,
-			password
-		],
-		'pipe'
-	);
+	try {
+		await execPackageBin(
+			cwd,
+			[
+				'pocketbase-server',
+				'--dir',
+				dir,
+				'--migrationsDir',
+				migrationsDir,
+				'superuser',
+				action,
+				email,
+				password
+			],
+			'pipe'
+		);
+	} catch (e) {
+		// tinyexec reports a failure by quoting the whole command, and the last
+		// argument of this one is the superuser's password. Rethrown without it:
+		// the message reaches terminals and CI logs, neither of which should end
+		// up holding the credential.
+		const detail = e instanceof Error ? e.message.replaceAll(password, '<password>') : '';
+		throw new Error(
+			`PocketBase could not ${action} the superuser ${email}.${detail ? `\n\n${detail}` : ''}`
+		);
+	}
+}
+
+export function createSuperuser(cwd: string, email: string, password: string): Promise<void> {
+	return runSuperuserCommand(cwd, 'create', email, password);
+}
+
+/**
+ * Create the superuser, or reset its password when the account is already there.
+ *
+ * `createSuperuser` fails on an email the database already knows, which is right
+ * for `vela create` and `vela bless` — both start from a directory with no
+ * database in it. `vela enable backend` can run in a project whose `data/`
+ * survived a `vela disable backend`, or whose `.env` already names a superuser,
+ * and upserting is what keeps the two from disagreeing.
+ */
+export function upsertSuperuser(cwd: string, email: string, password: string): Promise<void> {
+	return runSuperuserCommand(cwd, 'upsert', email, password);
 }
 
 export async function launchPocketbase(

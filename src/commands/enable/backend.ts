@@ -1,34 +1,111 @@
+import process from 'node:process';
+import * as v from 'valibot';
 import { Command } from 'commander';
+import * as p from '@clack/prompts';
+import pc from 'picocolors';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { runPattern } from '../../lib/pattern-runner.ts';
+import { parseOptions } from '../../lib/options.ts';
+import { getWorkspace } from '../../lib/workspace.ts';
+import { upsertSuperuser } from '../../lib/pocketbase.ts';
+import { upsertEnvFile } from '../../lib/env.ts';
+import { isInteractive } from '../../lib/providers.ts';
+import {
+	decideSuperuser,
+	emailFlag,
+	passwordFlag,
+	promptSuperuser,
+	superuserFromEnv,
+	type Credentials
+} from '../../lib/superuser.ts';
+
+const optionsSchema = v.strictObject({
+	email: emailFlag,
+	password: passwordFlag
+});
 
 export const backend = new Command('backend')
 	.description('enable the PocketBase backend')
+	.option('--email <email>', 'email of the admin user')
+	.option('--password <password>', 'password of the admin user')
 	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
-	.action((_opts, cmd) =>
-		runCommand(
-			() =>
-				runPattern(
-					'enable-backend',
-					cmd.args,
-					{},
-					{
-						summary: 'Enabled the PocketBase backend.',
-						nextSteps: [
-							'Set POCKETBASE_URL, POCKETBASE_SUPERUSER_EMAIL, and POCKETBASE_SUPERUSER_PASSWORD in your environment.',
-							'Run `vela dev` to start with PocketBase wired up.',
-							'Run `vela enable auth` to add user authentication on top of the backend.'
-						],
-						task: {
-							title: 'Enabling backend',
-							success: 'Enabled backend',
-							error: 'Failed to enable backend'
-						}
+	.action((rawOpts, cmd) =>
+		runCommand(async () => {
+			const options = parseOptions(optionsSchema, rawOpts);
+			const { workspaceRootDir } = await getWorkspace();
+
+			// Asked before anything is installed or rewritten, the way `vela create`
+			// and `vela bless` ask: cancelling at a prompt leaves the project alone.
+			const credentials = await resolveCredentials(options);
+
+			await runPattern(
+				'enable-backend',
+				cmd.args,
+				{},
+				{
+					summary: 'Enabled the PocketBase backend.',
+					nextSteps: [
+						'Run `vela dev` — PocketBase starts alongside the app, with its admin interface at /admin.',
+						'Run `vela enable auth` to add user authentication on top of the backend.',
+						'Run `vela generate scaffold <model>` to scaffold your first CRUD pages.'
+					],
+					task: {
+						title: 'Enabling backend',
+						success: 'Enabled backend',
+						error: 'Failed to enable backend'
 					}
-				),
-			'Failed to enable backend.'
-		)
+				},
+				// The pattern installs `pocketbase-server` before this runs, and
+				// scaffolds the `data/` directory the database lives in.
+				() => initPocketbase(workspaceRootDir, credentials)
+			);
+		}, 'Failed to enable backend.')
 	);
+
+/**
+ * Give the new database a superuser and record it in `.env`, exactly as
+ * `vela create` does for a backend template — without it `vela dev` starts a
+ * PocketBase nothing can authenticate against, and every other command stops at
+ * the missing-credentials guard.
+ */
+async function initPocketbase(root: string, { email, password }: Credentials): Promise<void> {
+	p.log.step('Initializing PocketBase...');
+	await upsertSuperuser(root, email, password);
+
+	upsertEnvFile(
+		root,
+		{
+			POCKETBASE_SUPERUSER_EMAIL: email,
+			POCKETBASE_SUPERUSER_PASSWORD: password
+		},
+		['PocketBase superuser credentials — used by `vela` commands']
+	);
+
+	p.log.success(`PocketBase initialized, credentials written to ${pc.bold('.env')}`);
+}
+
+async function resolveCredentials(options: {
+	email?: string;
+	password?: string;
+}): Promise<Credentials> {
+	const decision = decideSuperuser(options, superuserFromEnv(), isInteractive());
+
+	if (decision.kind === 'error') throw new Error(decision.message);
+
+	if (decision.kind === 'use') {
+		if (decision.reused) {
+			p.log.info(
+				`Using the superuser credentials already in your environment (${pc.cyan(decision.credentials.email)}).`
+			);
+		}
+		return decision.credentials;
+	}
+
+	return promptSuperuser(decision.known, () => {
+		p.cancel('Operation cancelled.');
+		process.exit(0);
+	});
+}

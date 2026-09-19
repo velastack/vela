@@ -28,6 +28,7 @@ import {
 } from '../lib/package-manager.ts';
 import { createSuperuser, withPocketbase } from '../lib/pocketbase.ts';
 import { writeEnvFile } from '../lib/env.ts';
+import { emailFlag, passwordFlag, promptSuperuser } from '../lib/superuser.ts';
 import pkg from '../../package.json' with { type: 'json' };
 import { applyTemplateFiles } from '../lib/template-files.ts';
 import { reportResult } from '../lib/result-report.ts';
@@ -64,8 +65,8 @@ export function optionsSchema(listing: TemplateListing) {
 		install: v.union([v.boolean(), v.picklist(AGENT_NAMES)], 'must be a package manager'),
 		template: v.optional(v.picklist(names, choices)),
 		name: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1, 'must not be empty'))),
-		email: v.optional(v.pipe(v.string(), v.email('must be a valid email address'))),
-		password: v.optional(v.pipe(v.string(), v.minLength(8, 'must be at least 8 characters long'))),
+		email: emailFlag,
+		password: passwordFlag,
 		link: v.optional(
 			v.pipe(
 				v.string(),
@@ -229,7 +230,7 @@ async function createProject(
 		{ onCancel }
 	);
 
-	const credentials = template.backend ? await promptCredentials(options, onCancel) : undefined;
+	const credentials = template.backend ? await promptSuperuser(options, onCancel) : undefined;
 
 	// Before any file is written: a failed copy leaves at most an orphan row on
 	// velastack.dev, where a half-written project would be the worse leftover.
@@ -416,33 +417,4 @@ async function promptCms(onCancel: () => void): Promise<CmsPromptChoice> {
 	});
 	if (p.isCancel(url)) onCancel();
 	return { kind: 'url', url: normalizeCmsUrl(url as string) };
-}
-
-function promptCredentials(options: Options, onCancel: () => void) {
-	return p.group(
-		{
-			email: () => {
-				if (options.email) return Promise.resolve(options.email);
-				return p.text({
-					message: 'Enter an email for the admin user',
-					initialValue: 'admin@example.com',
-					validate: (value) =>
-						!value ? 'Email is required' : !value.includes('@') ? 'Invalid email' : undefined
-				});
-			},
-			password: () => {
-				if (options.password) return Promise.resolve(options.password);
-				return p.password({
-					message: 'Enter a password for the admin user (at least 8 characters)',
-					validate: (value) =>
-						!value
-							? 'Password is required'
-							: value.length < 8
-								? 'Password must be at least 8 characters long'
-								: undefined
-				});
-			}
-		},
-		{ onCancel }
-	);
 }

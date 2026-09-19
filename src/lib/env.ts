@@ -30,6 +30,27 @@ export function writeEnvFile(
 }
 
 /**
+ * Write `vars` into `.env`, replacing any line already setting one of them.
+ *
+ * `writeEnvFile` above never overwrites, which is what scaffolding a new project
+ * wants: a value someone put in the file by hand survives. Adding a backend to a
+ * project that already has an `.env` is the other case — the credentials being
+ * written are the ones the database was just given, so a stale line for the same
+ * key is exactly what has to go.
+ */
+export function upsertEnvFile(
+	cwd: string,
+	vars: Record<string, string>,
+	comments: string[] = []
+): void {
+	const envPath = path.join(cwd, '.env');
+	let content = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+	for (const comment of comments) content = addEnvComment(content, comment);
+	for (const [key, value] of Object.entries(vars)) content = upsertEnvVar(content, key, value);
+	fs.writeFileSync(envPath, content);
+}
+
+/**
  * Set a value in a `.env` file, in place.
  *
  * `addEnvVar` above is append-only and silently does nothing when the key is

@@ -41,7 +41,14 @@ export async function runPattern(
 	slug: Slug,
 	argv: string[],
 	input: Record<string, unknown>,
-	report: PatternReport
+	report: PatternReport,
+	/**
+	 * Work that has to land after the files but before the report.
+	 *
+	 * `vela enable backend` creates the PocketBase superuser here, so the next
+	 * steps it prints are already true by the time they are read.
+	 */
+	after?: () => Promise<void>
 ): Promise<void> {
 	const pattern: Pattern = bySlug[slug];
 	if (!pattern) {
@@ -82,6 +89,18 @@ export async function runPattern(
 		throw e;
 	}
 
+	// Held rather than thrown: the pattern's files are on disk either way, so the
+	// report below is true and worth printing before the failure explains what is
+	// still missing. Re-running is how the rest gets finished.
+	let afterError: unknown;
+	if (after) {
+		try {
+			await after();
+		} catch (e) {
+			afterError = e;
+		}
+	}
+
 	const rel = (f: string) => toRelative(workspaceRootDir, f);
 
 	const files: ResultFile[] = [...result.creates, ...result.modifies, ...result.deletes];
@@ -108,20 +127,21 @@ export async function runPattern(
 	// A run that only produced failures still has something to say.
 	if (totalChanges === 0 && failures.length === 0) {
 		p.log.info(`${pattern.title ?? slug} produced no changes.`);
-		return;
+	} else {
+		reportResult({
+			summary: report.summary ?? `Applied ${pattern.title ?? slug}.`,
+			filesCreated: created.map((f: { path: string }) => rel(f.path)),
+			filesModified: modified.map((f: { path: string }) => rel(f.path)),
+			filesDeleted: deleted.map((f: { path: string }) => rel(f.path)),
+			componentsAdded: result.components,
+			packagesInstalled: result.packages,
+			collectionsAdded: result.collections.map((c: { name: string }) => c.name),
+			failures,
+			// Next steps assume the pattern applied; when part of it didn't, the
+			// remediation snippets above are the actual next step.
+			nextSteps: failures.length > 0 || afterError ? undefined : report.nextSteps
+		});
 	}
 
-	reportResult({
-		summary: report.summary ?? `Applied ${pattern.title ?? slug}.`,
-		filesCreated: created.map((f: { path: string }) => rel(f.path)),
-		filesModified: modified.map((f: { path: string }) => rel(f.path)),
-		filesDeleted: deleted.map((f: { path: string }) => rel(f.path)),
-		componentsAdded: result.components,
-		packagesInstalled: result.packages,
-		collectionsAdded: result.collections.map((c: { name: string }) => c.name),
-		failures,
-		// Next steps assume the pattern applied; when part of it didn't, the
-		// remediation snippets above are the actual next step.
-		nextSteps: failures.length > 0 ? undefined : report.nextSteps
-	});
+	if (afterError) throw afterError;
 }
