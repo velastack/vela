@@ -71,6 +71,8 @@ const EXPECTED_ENABLE_SUBCOMMANDS = [
 ];
 
 const EXPECTED_DISABLE_SUBCOMMANDS = [
+	'ai',
+	'analytics',
 	'auth',
 	'api',
 	'api-keys',
@@ -417,7 +419,10 @@ describe('backend gate', () => {
 		['enable', 'content-negotiation'],
 		['disable', 'content-negotiation'],
 		['enable', 'blog'],
+		['enable', 'backend'],
 		['enable', 'ai'],
+		['disable', 'ai'],
+		['disable', 'analytics'],
 		['enable', 'i18n'],
 		['disable', 'i18n']
 	])('%s %s runs in a project without a backend', async (name, sub) => {

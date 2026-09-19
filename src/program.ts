@@ -68,11 +68,16 @@ const NO_BACKEND_COMMMANDS = new Set([
 	'destroy form',
 	// The CMS keeps its own SQLite database and editors; PocketBase is never involved.
 	'enable cms',
+	// Adds PocketBase to a project that has none, so it can never require one.
+	'enable backend',
 	// Analytics only touches the root layout and .env; it must work on static sites.
 	'enable analytics',
 	// The model is called from a SvelteKit endpoint; PocketBase is only read for
 	// the signed-in check when auth is on.
 	'enable ai',
+	// Both only delete files and strip .env, so they run wherever enabling did.
+	'disable ai',
+	'disable analytics',
 	// Only wires hooks, reroute and the root layout; no collections involved.
 	'enable content-negotiation',
 	'disable content-negotiation',

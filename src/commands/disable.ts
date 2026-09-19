@@ -1,5 +1,7 @@
 import { Command } from 'commander';
 import { helpConfig } from '../lib/help.ts';
+import { ai } from './disable/ai.ts';
+import { analytics } from './disable/analytics.ts';
 import { auth } from './disable/auth.ts';
 import { api } from './disable/api.ts';
 import { apiKeys } from './disable/api-keys.ts';
@@ -16,6 +18,8 @@ import { smtp } from './disable/smtp.ts';
 export const disable = new Command('disable')
 	.description('disable features')
 	.configureHelp(helpConfig)
+	.addCommand(ai)
+	.addCommand(analytics)
 	.addCommand(auth)
 	.addCommand(api)
 	.addCommand(apiKeys)

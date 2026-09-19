@@ -14,7 +14,7 @@ export const scaffold = new Command('scaffold')
 	.description('generate a full CRUD scaffold (model, forms, list, detail)')
 	.argument('[model]', 'model name')
 	.argument('[fields...]', 'field definitions')
-	.option('--remote', 'generate a scaffold backed by a remote PocketBase collection')
+	.option('--remote', 'generate create/update forms with SvelteKit remote functions')
 	.option(
 		'--route <route>',
 		'place the scaffold at a custom route (e.g. "(app)/[team_id]/projects"). Defaults to the pluralized model name under the (app) or (public) group, or src/routes when it has neither.'

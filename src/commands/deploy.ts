@@ -77,7 +77,7 @@ export const deploy = addLockWaitOption(
 	.addOption(
 		new Option(
 			'--remote-db',
-			'render the build against the database on the server, over an SSH tunnel — on by default once the target has been deployed to'
+			'render the build against the database on the server, over an SSH tunnel — on by default once the target has been deployed to with a backend'
 		).default(undefined)
 	)
 	.addOption(

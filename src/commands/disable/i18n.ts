@@ -15,12 +15,10 @@ export const i18n = new Command('i18n')
 					{
 						slug: 'disable-i18n',
 						confirmMessage:
-							'Disable i18n? Removes i18n scaffolding files and the Wuchale .gitignore block. Manual reverts are still required in vite.config, svelte.config, hooks.server, app.html, and +layout.ts.',
+							'Disable i18n? Deletes the Wuchale config, reroute hook, URL helpers and language select, uninstalls wuchale, and reverts vite.config, svelte.config, hooks.server, app.html, the root +layout.ts and layout, and .gitignore. The translation catalogs in src/locales stay.',
 						report: {
-							summary: 'Disabled i18n scaffolding.',
-							nextSteps: [
-								'Manually revert the Wuchale wiring in vite.config, svelte.config, hooks.server, app.html, and +layout.ts.'
-							],
+							summary: 'Disabled i18n.',
+							nextSteps: ['Delete src/locales if you no longer need the translation catalogs.'],
 							task: {
 								title: 'Disabling i18n',
 								success: 'Disabled i18n',

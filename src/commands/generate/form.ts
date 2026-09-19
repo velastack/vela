@@ -16,7 +16,7 @@ export const form = new Command('form')
 	.description('generate a form from a model')
 	.argument('[model]', 'model name (e.g. "contact")')
 	.argument('[fields...]', 'field definitions (e.g. "name:text", "email:email")')
-	.option('--remote', 'generate a form backed by a remote PocketBase collection')
+	.option('--remote', 'generate the form with SvelteKit remote functions instead of superforms')
 	.option(
 		'--route <route>',
 		'place the form at a custom route (e.g. "(app)/[team_id]/projects/new"). Defaults to the model name under the (app) or (public) group, or src/routes when it has neither.'

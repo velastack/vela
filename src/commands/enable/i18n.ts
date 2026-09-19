@@ -20,7 +20,7 @@ export const i18n = new Command('i18n')
 						nextSteps: [
 							'Add or adjust locales in wuchale.config.js.',
 							'Run `vela i18n extract` to pull translatable strings from your components.',
-							'Edit the generated .po files under locales/ to add translations.'
+							'Edit the generated .po files under src/locales/ to add translations.'
 						],
 						task: {
 							title: 'Enabling i18n',
