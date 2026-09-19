@@ -70,6 +70,9 @@ const NO_BACKEND_COMMMANDS = new Set([
 	'enable cms',
 	// Analytics only touches the root layout and .env; it must work on static sites.
 	'enable analytics',
+	// The model is called from a SvelteKit endpoint; PocketBase is only read for
+	// the signed-in check when auth is on.
+	'enable ai',
 	// Only wires hooks, reroute and the root layout; no collections involved.
 	'enable content-negotiation',
 	'disable content-negotiation',

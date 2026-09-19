@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { helpConfig } from '../lib/help.ts';
+import { ai } from './enable/ai.ts';
 import { analytics } from './enable/analytics.ts';
 import { auth } from './enable/auth.ts';
 import { api } from './enable/api.ts';
@@ -20,6 +21,7 @@ import { workflows } from './enable/workflows.ts';
 export const enable = new Command('enable')
 	.description('enable features')
 	.configureHelp(helpConfig)
+	.addCommand(ai)
 	.addCommand(analytics)
 	.addCommand(auth)
 	.addCommand(api)

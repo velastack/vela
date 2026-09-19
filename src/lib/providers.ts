@@ -129,7 +129,8 @@ export async function resolveProvider(slug: Slug, flagValue?: string): Promise<P
 /**
  * Values for the provider's declared env keys. One already in the
  * environment (the workspace `.env` is loaded before every command) is kept
- * without asking; on a terminal the rest are prompted for, blank allowed;
+ * without asking; on a terminal the rest are prompted for, blank allowed, and
+ * a `secret` one (an API key) without echoing it;
  * off a terminal they fall back to the declared default or blank, and the
  * pattern writes an empty assignment for the developer to fill in.
  */
@@ -147,11 +148,17 @@ export async function collectProviderEnv(provider: Provider): Promise<Record<str
 			values[variable.key] = variable.default ?? '';
 			continue;
 		}
-		const value = await p.text({
-			message: variable.label,
-			placeholder: variable.placeholder,
-			initialValue: variable.default
-		});
+		const value = variable.secret
+			? await p.password({
+					message: variable.placeholder
+						? `${variable.label} (${variable.placeholder})`
+						: variable.label
+				})
+			: await p.text({
+					message: variable.label,
+					placeholder: variable.placeholder,
+					initialValue: variable.default
+				});
 		if (p.isCancel(value)) {
 			p.cancel('Operation cancelled.');
 			process.exit(0);
