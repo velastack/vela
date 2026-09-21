@@ -209,7 +209,7 @@ fi
 
 install_deps() {
 	local lock="$RELEASE_DIR/package-lock.json"
-	local key
+	local key foreign="" name
 	local -a install_cmd
 	# `--no-engine-strict`: vela projects set engine-strict for development, but a
 	# production install takes only `dependencies` - a dev tool that wants a newer
@@ -219,7 +219,13 @@ install_deps() {
 		key=$(sha256sum "$lock" | cut -c1-16)
 		install_cmd=(npm ci "${flags[@]}")
 	elif [ -f "$RELEASE_DIR/package.json" ]; then
-		key=$(sha256sum "$RELEASE_DIR/package.json" | cut -c1-16)
+		# A project pinned by pnpm, yarn or bun: npm cannot replay the lockfile, so
+		# this resolves afresh, but the key still follows it - a dependency bump
+		# that only touched the lockfile must not reuse the old tree.
+		for name in pnpm-lock.yaml yarn.lock bun.lock bun.lockb; do
+			if [ -f "$RELEASE_DIR/$name" ]; then foreign="$RELEASE_DIR/$name"; break; fi
+		done
+		key=$(cat "$RELEASE_DIR/package.json" ${foreign:+"$foreign"} | sha256sum | cut -c1-16)
 		install_cmd=(npm install "${flags[@]}")
 	else
 		log "no package.json in release - skipping dependency install"
@@ -233,6 +239,20 @@ install_deps() {
 		mkdir -p "$deps"
 		cp "$RELEASE_DIR/package.json" "$deps/"
 		if [ -f "$lock" ]; then cp "$lock" "$deps/"; fi
+		# npm reads a yarn.lock beside package.json for resolution hints.
+		if [ "${foreign##*/}" = "yarn.lock" ]; then cp "$foreign" "$deps/"; fi
+		# `prepare` is a development hook (`svelte-kit sync`, husky) whose tools
+		# are devDependencies, which are not installed here: it can only print
+		# "svelte-kit: not found". Dependencies' own install scripts still run.
+		node -e '
+			const fs = require("fs");
+			const file = process.argv[1];
+			const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+			if (pkg.scripts && pkg.scripts.prepare) {
+				delete pkg.scripts.prepare;
+				fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+			}
+		' "$deps/package.json" || die "could not read package.json"
 		if [ -f "$RELEASE_DIR/.npmrc" ]; then cp "$RELEASE_DIR/.npmrc" "$deps/"; fi
 		chown -R "$VELA_USER:$VELA_USER" "$deps"
 		# npm needs a writable HOME and cache; $VELA_ROOT itself stays root-owned

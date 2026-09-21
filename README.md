@@ -60,10 +60,13 @@ Any SvelteKit project deploys this way, PocketBase or not — `npx sv create my-
 straight into `vela deploy` works. The deploy looks at the project rather than at a
 config: a server needs `@sveltejs/adapter-node`, so a project still on `adapter-auto`
 (what `sv create` gives you) is switched to it on the first deploy, the package
-installed, and you are asked to commit the change. A project on `adapter-static` or a
-hosting platform's adapter is left alone and told why. Nothing on the server assumes a
-database: run `vela bless` whenever you want one and deploy again, and the same instance
-gains its PocketBase.
+installed, and you are asked to commit the change. At a terminal the deploy asks before
+it edits the config file and `package.json`; in CI it goes ahead. A project on
+`adapter-static` or a hosting platform's adapter is left alone and told why. The server
+installs dependencies with npm, so a pnpm, yarn or bun project should commit a
+`package-lock.json` for a reproducible deploy; the deploy warns when it finds only theirs.
+Nothing on the server assumes a database: run `vela enable backend` whenever you want
+one and deploy again, and the same instance gains its PocketBase.
 
 That first deploy binds `production` to the server, so nothing after it names a
 machine again. Every command takes the same selector — `-t local`, `-t production`
@@ -97,12 +100,24 @@ Same thing from CI with [`velastack/action`](https://github.com/velastack/action
 ## Already have a project?
 
 ```sh
-vela bless
+vela enable backend   # just PocketBase and the server test harness
+vela bless            # the full upgrade: Tailwind, shadcn-svelte, vela's layout and routes, the backend
 ```
 
-Adds the backend and the rest of the setup to a vanilla SvelteKit project, in place. A
-project that is already deployed keeps deploying to the same instance, now with a
-database.
+Both work in place on a vanilla SvelteKit project. A project that is already deployed
+keeps deploying to the same instance, now with a database.
+
+Much of `vela` needs neither. In a plain `npx sv create` project, with no setup:
+
+- `vela generate schema` and `vela generate form`, the form in plain HTML
+- `vela enable i18n`, `ai`, `analytics`, `content-negotiation` and `cms`
+- `vela legal` and `vela routes`
+- `vela deploy`, `env`, `status`, `logs` and `rollback`
+
+`vela ui`, `vela enable blog`, `vela enable auth` and what builds on it, and
+`vela generate scaffold` write shadcn-svelte markup. Without it they refuse before
+changing anything and name the setup: `npx sv add tailwindcss`, then
+`npx shadcn-svelte@latest init`.
 
 ## It stays your code
 

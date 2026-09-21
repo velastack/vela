@@ -46,9 +46,28 @@ describe('hasBackend', () => {
 		fs.rmSync(tmpDir, { recursive: true, force: true });
 	});
 
-	test('returns true when the project has a data directory', () => {
+	const withPocketbase = () =>
+		fs.writeFileSync(
+			path.join(tmpDir, 'package.json'),
+			JSON.stringify({ dependencies: { 'pocketbase-sveltekit': '^0.28.0' } })
+		);
+
+	test('returns true when the project has a data directory and the PocketBase client', () => {
+		withPocketbase();
 		fs.mkdirSync(path.join(tmpDir, 'data'));
 		expect(hasBackend(tmpDir)).toBe(true);
+	});
+
+	// `data/` is also VELA_DATA_DIR: a self-hosted CMS on adapter-node creates it
+	// for cms.sqlite, and that must not send every command looking for PocketBase.
+	test('returns false for a data directory without PocketBase', () => {
+		fs.mkdirSync(path.join(tmpDir, 'data'));
+		expect(hasBackend(tmpDir)).toBe(false);
+	});
+
+	test('returns false for the dependency alone, before the backend is enabled', () => {
+		withPocketbase();
+		expect(hasBackend(tmpDir)).toBe(false);
 	});
 
 	test('returns false for a static project, which has no data directory', () => {
@@ -56,6 +75,7 @@ describe('hasBackend', () => {
 	});
 
 	test('finds the backend from a nested directory', () => {
+		withPocketbase();
 		fs.mkdirSync(path.join(tmpDir, 'data'));
 		const nested = path.join(tmpDir, 'src', 'routes');
 		fs.mkdirSync(nested, { recursive: true });

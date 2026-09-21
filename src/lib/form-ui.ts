@@ -39,7 +39,7 @@ export function resolveFormInput(root: string, detectedUi: Ui, requested?: strin
 	if (requested === 'shadcn' && detectedUi !== 'shadcn') {
 		throw new Error(
 			'--ui shadcn needs a shadcn-svelte project (a components.json and the shadcn-svelte package). ' +
-				'Run `vela bless` to set one up, or use --ui plain.'
+				'Set one up with `npx sv add tailwindcss`, then `npx shadcn-svelte@latest init`, or use --ui plain.'
 		);
 	}
 	return { ...detected, ui: requested as Ui };

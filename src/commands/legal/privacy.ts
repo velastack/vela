@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
@@ -17,7 +16,7 @@ import {
 	legalBasesBlock,
 	list,
 	onCancel,
-	pageMetaTagsLoader,
+	writeLegalPage,
 	sharedFields,
 	siteFields,
 	subSection,
@@ -901,32 +900,18 @@ async function privacyAction(): Promise<void> {
 		retention: retention as string | undefined
 	});
 
-	const privacyPage = path.join(
+	const [relativePrivacyPage, ...rest] = writeLegalPage(
 		workspaceRootDir,
-		publicRoutesDir,
-		LEGAL_DIR,
-		'privacy',
-		'+page.svelte'
+		path.join(publicRoutesDir, LEGAL_DIR, 'privacy'),
+		{
+			html,
+			title: 'Privacy Policy',
+			description: `Privacy Policy for ${core.websiteName}`
+		}
 	);
-	const privacyPageTs = path.join(
-		workspaceRootDir,
-		publicRoutesDir,
-		LEGAL_DIR,
-		'privacy',
-		'+page.ts'
-	);
-	fs.mkdirSync(path.dirname(privacyPage), { recursive: true });
-	fs.writeFileSync(privacyPage, html);
-	fs.writeFileSync(
-		privacyPageTs,
-		pageMetaTagsLoader('Privacy Policy', `Privacy Policy for ${core.websiteName}`)
-	);
-
-	const relativePrivacyPage = path.relative(workspaceRootDir, privacyPage);
-	const relativePrivacyPageTs = path.relative(workspaceRootDir, privacyPageTs);
 	reportResult({
 		summary: 'Generated placeholder privacy policy.',
-		filesCreated: [relativePrivacyPage, relativePrivacyPageTs],
+		filesCreated: [relativePrivacyPage, ...rest],
 		nextSteps: [
 			`Review the generated copy in ${relativePrivacyPage} and fill in company-specific details (data processors, retention, contact info).`,
 			'Have the final document reviewed by a lawyer before publishing — this is a starter template, not legal advice.',

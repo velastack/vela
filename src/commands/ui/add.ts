@@ -4,6 +4,7 @@ import { installComponents, type InstallComponentsResult } from '@velastack/patt
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
+import { assertShadcn } from '../../lib/require-ui.ts';
 import { reportResult } from '../../lib/result-report.ts';
 import { uiAddReport } from '../../lib/ui-add.ts';
 
@@ -15,6 +16,7 @@ export const add = new Command('add')
 	.action((components: string[], options: { overwrite: boolean }) =>
 		runCommand(async () => {
 			const { workspaceRootDir } = await getWorkspace();
+			assertShadcn('vela ui add', workspaceRootDir);
 
 			// One installer for patterns and this command: vela's own components
 			// (data-table, multiselect, ...) are copied in, everything else goes to

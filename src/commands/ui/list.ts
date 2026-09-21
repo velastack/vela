@@ -4,6 +4,7 @@ import { listComponents } from '@velastack/patterns';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
+import { assertShadcn } from '../../lib/require-ui.ts';
 import { reportResult } from '../../lib/result-report.ts';
 import { uiListReport } from '../../lib/ui-list.ts';
 
@@ -14,6 +15,7 @@ export const list = new Command('list')
 	.action((options: { json: boolean }) =>
 		runCommand(async () => {
 			const { workspaceRootDir } = await getWorkspace();
+			assertShadcn('vela ui list', workspaceRootDir);
 
 			if (options.json) {
 				const result = await listComponents({ root: workspaceRootDir });

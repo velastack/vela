@@ -4,6 +4,7 @@ import { switchStyle, type SwitchStyleResult } from '@velastack/patterns';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
+import { assertShadcn } from '../../lib/require-ui.ts';
 import { reportResult } from '../../lib/result-report.ts';
 import { STYLES } from '../../lib/ui-add.ts';
 import { uiStyleReport } from '../../lib/ui-style.ts';
@@ -17,6 +18,7 @@ export const style = new Command('style')
 	.action((name: string, options: { yes?: boolean; font: boolean }) =>
 		runCommand(async () => {
 			const { workspaceRootDir } = await getWorkspace();
+			assertShadcn('vela ui style', workspaceRootDir);
 
 			// The registry is read before anything is written, so the prompt can
 			// name exactly which components are about to be replaced; only once

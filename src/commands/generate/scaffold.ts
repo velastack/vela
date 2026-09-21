@@ -3,6 +3,7 @@ import * as p from '@clack/prompts';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { runPattern } from '../../lib/pattern-runner.ts';
+import { assertShadcn } from '../../lib/require-ui.ts';
 import {
 	runSchemaStage,
 	runLayoutStage,
@@ -33,6 +34,10 @@ export const scaffold = new Command('scaffold')
 			options: { remote?: boolean; route?: string; ai?: string }
 		) =>
 			runCommand(async () => {
+				// The pattern is refused the same way, but only after the AI stages
+				// have been paid for and the layout sidecar written.
+				assertShadcn('vela generate scaffold');
+
 				let argv: string[];
 				let modelName: string;
 				let sidecarPath: string | null = null;

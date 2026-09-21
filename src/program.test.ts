@@ -38,8 +38,6 @@ const EXPECTED_COMMANDS = [
 	'test:server',
 	'routes',
 	'i18n',
-	'oauth',
-	'schemas',
 	'cms',
 	'workflows'
 ];

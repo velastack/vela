@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
@@ -14,7 +13,7 @@ import {
 	escapeHtml,
 	list,
 	onCancel,
-	pageMetaTagsLoader,
+	writeLegalPage,
 	sharedFields,
 	siteFields,
 	titledSection,
@@ -530,26 +529,18 @@ async function termsAction(): Promise<void> {
 		contact
 	});
 
-	const termsPage = path.join(
+	const [relativeTermsPage, ...rest] = writeLegalPage(
 		workspaceRootDir,
-		publicRoutesDir,
-		LEGAL_DIR,
-		'terms',
-		'+page.svelte'
+		path.join(publicRoutesDir, LEGAL_DIR, 'terms'),
+		{
+			html,
+			title: 'Terms of Service',
+			description: `Terms of Service for ${core.websiteName}`
+		}
 	);
-	const termsPageTs = path.join(workspaceRootDir, publicRoutesDir, LEGAL_DIR, 'terms', '+page.ts');
-	fs.mkdirSync(path.dirname(termsPage), { recursive: true });
-	fs.writeFileSync(termsPage, html);
-	fs.writeFileSync(
-		termsPageTs,
-		pageMetaTagsLoader('Terms of Service', `Terms of Service for ${core.websiteName}`)
-	);
-
-	const relativeTermsPage = path.relative(workspaceRootDir, termsPage);
-	const relativeTermsPageTs = path.relative(workspaceRootDir, termsPageTs);
 	reportResult({
 		summary: 'Generated placeholder terms and conditions.',
-		filesCreated: [relativeTermsPage, relativeTermsPageTs],
+		filesCreated: [relativeTermsPage, ...rest],
 		nextSteps: [
 			`Review the generated copy in ${relativeTermsPage} and replace placeholder sections with details for your business.`,
 			'Have the final document reviewed by a lawyer before publishing — this is a starter template, not legal advice.',

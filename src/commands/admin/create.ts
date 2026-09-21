@@ -6,7 +6,8 @@ import pc from 'picocolors';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { addTargetOptions, withTarget } from '../../lib/server-command.ts';
-import { withRemotePocketbase } from '../../lib/remote-pocketbase.ts';
+import { requireRemoteDatabase, withRemotePocketbase } from '../../lib/remote-pocketbase.ts';
+import { hasBackend } from '../../lib/workspace.ts';
 import { readInstanceStates } from '../../lib/remote.ts';
 import { getPocketbaseMetadata, withPocketbase } from '../../lib/pocketbase.ts';
 import { readLocalEnv } from '../../lib/local-env.ts';
@@ -27,6 +28,14 @@ export const adminCreate = addTargetOptions(
 				raw,
 				{
 					local: async (ctx) => {
+						// Checked before the prompts: the account lives in PocketBase, and
+						// asking for a password first only to fail is the wrong order.
+						if (!hasBackend(ctx.workspaceRootDir)) {
+							throw new Error(
+								'This project has no backend, so there is no admin panel to sign in to.\n\n' +
+									`Run ${pc.cyan('vela enable backend')} to add one.`
+							);
+						}
 						const creds = readLocalEnv(ctx.envFile);
 						const address = email ?? (await promptEmail());
 						const password = await promptPassword();
@@ -62,6 +71,7 @@ export const adminCreate = addTargetOptions(
 						);
 					},
 					remote: async (ctx) => {
+						await requireRemoteDatabase(ctx.session, ctx.instance);
 						const address = email ?? (await promptEmail());
 						const password = await promptPassword();
 						const [state] = await readInstanceStates(ctx.session, ctx.instance);

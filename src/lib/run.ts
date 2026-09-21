@@ -24,9 +24,3 @@ export async function runCommand(action: MaybePromise, failureMessage?: string):
 		process.exitCode = 1;
 	}
 }
-
-export function notImplemented(name: string) {
-	return runCommand(async () => {
-		p.log.warn(`\`${name}\` is not yet implemented — see ${pc.cyan('https://docs.velastack.dev')}`);
-	});
-}

@@ -7,7 +7,7 @@ import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { runPattern } from '../../lib/pattern-runner.ts';
 import { parseOptions } from '../../lib/options.ts';
-import { getWorkspace } from '../../lib/workspace.ts';
+import { getWorkspace, type Ui } from '../../lib/workspace.ts';
 import { upsertSuperuser } from '../../lib/pocketbase.ts';
 import { upsertEnvFile } from '../../lib/env.ts';
 import { isInteractive } from '../../lib/providers.ts';
@@ -35,7 +35,7 @@ export const backend = new Command('backend')
 	.action((rawOpts, cmd) =>
 		runCommand(async () => {
 			const options = parseOptions(optionsSchema, rawOpts);
-			const { workspaceRootDir } = await getWorkspace();
+			const { workspaceRootDir, features } = await getWorkspace();
 
 			// Asked before anything is installed or rewritten, the way `vela create`
 			// and `vela bless` ask: cancelling at a prompt leaves the project alone.
@@ -47,11 +47,7 @@ export const backend = new Command('backend')
 				{},
 				{
 					summary: 'Enabled the PocketBase backend.',
-					nextSteps: [
-						'Run `vela dev` — PocketBase starts alongside the app, with its admin interface at /admin.',
-						'Run `vela enable auth` to add user authentication on top of the backend.',
-						'Run `vela generate scaffold <model>` to scaffold your first CRUD pages.'
-					],
+					nextSteps: backendNextSteps(features.ui),
 					task: {
 						title: 'Enabling backend',
 						success: 'Enabled backend',
@@ -64,6 +60,29 @@ export const backend = new Command('backend')
 			);
 		}, 'Failed to enable backend.')
 	);
+
+/**
+ * `enable auth` and `generate scaffold` emit shadcn-svelte pages and refuse a
+ * project without it, so a project vela did not create is pointed at what works
+ * there instead of at two commands that would turn it away.
+ */
+export function backendNextSteps(ui: Ui): string[] {
+	const dev =
+		'Run `vela dev` — PocketBase starts alongside the app, with its admin interface at /admin.';
+	if (ui === 'shadcn') {
+		return [
+			dev,
+			'Run `vela enable auth` to add user authentication on top of the backend.',
+			'Run `vela generate scaffold <model>` to scaffold your first CRUD pages.'
+		];
+	}
+	return [
+		dev,
+		'Run `vela generate form <model> <fields...>` to add a collection with a form in plain HTML.',
+		'Run `vela test:server` to run the server tests that come with it.',
+		'`vela enable auth` and `vela generate scaffold` need shadcn-svelte: `npx sv add tailwindcss`, then `npx shadcn-svelte@latest init`.'
+	];
+}
 
 /**
  * Give the new database a superuser and record it in `.env`, exactly as

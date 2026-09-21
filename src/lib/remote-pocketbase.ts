@@ -13,6 +13,30 @@ export interface RemoteDatabase {
 }
 
 /**
+ * The port a deployed instance's PocketBase listens on, or a failure that says
+ * why there is none.
+ *
+ * Exported so a command can ask before it does anything else: prompting for a
+ * password, or uploading a backup, only to then find the instance never had a
+ * database is the wrong order.
+ */
+export async function requireRemoteDatabase(
+	session: SshSession,
+	instance: string
+): Promise<number> {
+	const [state] = await readInstanceStates(session, instance);
+	const pbPort = instanceHasBackend(state) ? state?.pbPort : undefined;
+	if (!pbPort) {
+		throw new Error(
+			`${instance} has no deployed database.\n\n` +
+				`The database is created by the first \`vela deploy\` of a project with a backend.\n` +
+				`If this project has none, \`vela enable backend\` adds one; then deploy again.`
+		);
+	}
+	return pbPort;
+}
+
+/**
  * Forward a port to the PocketBase of a deployed instance and hand back the
  * credentials to talk to it.
  *
@@ -24,15 +48,7 @@ export async function openRemoteDatabase(
 	session: SshSession,
 	instance: string
 ): Promise<RemoteDatabase> {
-	const [state] = await readInstanceStates(session, instance);
-	const pbPort = instanceHasBackend(state) ? state?.pbPort : undefined;
-	if (!pbPort) {
-		throw new Error(
-			`${instance} has no deployed database yet.\n\n` +
-				`Run \`vela deploy\` first — the database is created by the first deploy of a\n` +
-				`project with a backend (\`vela bless\` adds one).`
-		);
-	}
+	const pbPort = await requireRemoteDatabase(session, instance);
 
 	const env = await readRemoteEnv(session, instance);
 	const email = env.POCKETBASE_SUPERUSER_EMAIL;

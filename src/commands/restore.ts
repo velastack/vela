@@ -49,7 +49,16 @@ export const restore = addLockWaitOption(
 				{
 					remote: async (ctx) => {
 						const [state] = await readInstanceStates(ctx.session, ctx.instance);
-						if (state && state.backend === false) {
+						// Both are known before a byte moves: restore.sh refuses an
+						// instance that does not exist, but only after the archive has
+						// been uploaded to it.
+						if (!state) {
+							throw new Error(
+								`${ctx.targetName} has never been deployed, so there is nothing to restore into.\n\n` +
+									`Run \`vela deploy\` first, then restore.`
+							);
+						}
+						if (state.backend === false) {
 							throw new Error(
 								`${ctx.targetName} was deployed without a database, so there is nothing to restore.`
 							);

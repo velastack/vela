@@ -5,8 +5,10 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { getWorkspace } from './workspace.ts';
 import {
+	defaultProjectName,
 	loadDeployConfig,
 	readBinding,
+	readAppIdentity,
 	resolveAppIdentity,
 	writeBinding,
 	type TargetBinding,
@@ -76,7 +78,6 @@ export function addTargetOptions(command: Command, fallback: TargetFallback): Co
 interface BaseContext {
 	workspaceRootDir: string;
 	appName: string;
-	appId: string;
 	config: VelaAppConfig;
 }
 
@@ -89,6 +90,8 @@ export interface LocalContext extends BaseContext {
 export interface ServerContext extends BaseContext {
 	kind: 'remote';
 	session: SshSession;
+	/** Minted on first use; a local target names no instance and has none. */
+	appId: string;
 	instance: string;
 	envTag: string;
 	/** The target as the user named it, for output. */
@@ -141,19 +144,7 @@ export async function withTarget(
 		target = { kind: 'preview', branch, envTag: branchToEnvTag(branch) };
 	}
 	const config = await loadDeployConfig(workspaceRootDir);
-	// Minting the app id here rather than demanding a prior deploy is what lets
-	// `vela env import` run before the first `vela deploy`, which is the order
-	// that gets an app its secrets before it ever serves a request.
-	const app = resolveAppIdentity(workspaceRootDir, {
-		...config,
-		project: run.project ?? config.project
-	});
-	const base = {
-		workspaceRootDir,
-		appName: app.name,
-		appId: app.appId,
-		config
-	};
+	const identityConfig = { ...config, project: run.project ?? config.project };
 
 	if (target.kind === 'local') {
 		if (!handlers.local) {
@@ -161,8 +152,16 @@ export async function withTarget(
 				`${label} has no local target.` + (run.localHint ? `\n\n${run.localHint}` : '')
 			);
 		}
+		// A local target names no instance, so the app id is only read, never
+		// minted: `vela env list` in a project that has never deployed must not
+		// leave a `.vela/project.json` behind.
 		await handlers.local({
-			...base,
+			workspaceRootDir,
+			config,
+			appName:
+				readAppIdentity(workspaceRootDir, identityConfig)?.name ??
+				identityConfig.project ??
+				defaultProjectName(workspaceRootDir),
 			kind: 'local',
 			envFile: envFilePath(workspaceRootDir)
 		});
@@ -172,6 +171,11 @@ export async function withTarget(
 	if (!handlers.remote) {
 		throw new Error(`${label} only acts on ${pc.cyan('local')}.`);
 	}
+
+	// Minting the app id here rather than demanding a prior deploy is what lets
+	// `vela env import` run before the first `vela deploy`, which is the order
+	// that gets an app its secrets before it ever serves a request.
+	const app = resolveAppIdentity(workspaceRootDir, identityConfig);
 
 	const binding = await ensureBinding(workspaceRootDir, target, {
 		server: options.server,
@@ -185,9 +189,12 @@ export async function withTarget(
 		// command never runs against a script from an older version.
 		await syncServerScripts(session);
 		await handlers.remote!({
-			...base,
+			workspaceRootDir,
+			config,
+			appName: app.name,
 			kind: 'remote',
 			session,
+			appId: app.appId,
 			instance: instanceId(app.appId, target.envTag),
 			envTag: target.envTag,
 			targetName: describeTarget(target),

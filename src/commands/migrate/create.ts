@@ -1,10 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import process from 'node:process';
 import { Command } from 'commander';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
-import { runPocketbaseMigrate } from '../../lib/migrate.ts';
+import { migrateRoot, runPocketbaseMigrate } from '../../lib/migrate.ts';
 import { MIGRATIONS_DIR } from '../../lib/constants.ts';
 import { reportResult } from '../../lib/result-report.ts';
 
@@ -15,7 +14,7 @@ export const create = new Command('create')
 	.configureHelp(helpConfig)
 	.action((name: string) =>
 		runCommand(async () => {
-			const cwd = process.cwd();
+			const cwd = migrateRoot();
 			const before = listMigrationFiles(cwd);
 			await runPocketbaseMigrate(['create', name]);
 			const after = listMigrationFiles(cwd);

@@ -7,7 +7,8 @@ import { aiLoop } from './ai-loop.ts';
 import { loadExistingModels } from './ai-existing-models.ts';
 import { collectionSpecToArgv } from './ai-to-argv.ts';
 import { renderGrid } from './ai-grid.ts';
-import { getWorkspace } from './workspace.ts';
+import { DATA_DIR } from './constants.ts';
+import { getWorkspace, hasBackend } from './workspace.ts';
 
 export type AiUseCase = 'scaffold' | 'form' | 'schema';
 
@@ -98,13 +99,21 @@ export function specToArgv(spec: CollectionSpec): string[] {
 /**
  * Persist the chosen layout as a sidecar file at
  * `data/ai-form-layouts/<model>.json`. Returns the relative path.
+ *
+ * `data/` is what marks a project as having a backend, and `generate form
+ * --ai` runs without one: there the sidecar goes under `.vela/`, so writing a
+ * layout does not make every later command go looking for PocketBase.
  */
 export function writeLayoutSidecar(
 	workspaceRootDir: string,
 	modelName: string,
 	layout: FormLayout
 ): string {
-	const dir = path.join(workspaceRootDir, 'data', 'ai-form-layouts');
+	const dir = path.join(
+		workspaceRootDir,
+		hasBackend(workspaceRootDir) ? DATA_DIR : '.vela',
+		'ai-form-layouts'
+	);
 	fs.mkdirSync(dir, { recursive: true });
 	const file = path.join(dir, `${modelName}.json`);
 	fs.writeFileSync(file, JSON.stringify(layout, null, 2) + '\n');

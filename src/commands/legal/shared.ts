@@ -1,5 +1,8 @@
 import process from 'node:process';
+import fs from 'node:fs';
+import path from 'node:path';
 import * as p from '@clack/prompts';
+import { hasDependency } from '../../lib/workspace.ts';
 import { isLocalUrl, type SiteInfo } from '../../lib/site.ts';
 
 /**
@@ -361,3 +364,48 @@ export const dmcaBlock = (companyName: string, infringementEmail: string) =>
 	)}">${escapeHtml(
 		infringementEmail
 	)}</a>. To be effective under 17 U.S.C. &sect; 512(c)(3)(A), your notice must include substantially the following:</p><ul class="list-disc pl-6 space-y-1 text-base leading-7"><li><p class="text-base leading-7">A physical or electronic signature of a person authorized to act on behalf of the owner of an exclusive right that is allegedly infringed.</p></li><li><p class="text-base leading-7">Identification of the copyrighted work claimed to have been infringed, or, if multiple copyrighted works are covered by a single notification, a representative list of such works.</p></li><li><p class="text-base leading-7">Identification of the material that is claimed to be infringing or to be the subject of infringing activity, with information reasonably sufficient to permit us to locate the material (such as a URL).</p></li><li><p class="text-base leading-7">Information reasonably sufficient to permit us to contact you, such as an address, telephone number, and an email address.</p></li><li><p class="text-base leading-7">A statement that you have a good-faith belief that use of the material in the manner complained of is not authorized by the copyright owner, its agent, or the law.</p></li><li><p class="text-base leading-7">A statement that the information in the notification is accurate, and under penalty of perjury, that you are authorized to act on behalf of the owner of an exclusive right that is allegedly infringed.</p></li></ul><p class="text-base leading-7"><strong>Counter-notice.</strong> If you believe that your content was removed or disabled by mistake or misidentification, you may submit a written counter-notice to the same address. Under 17 U.S.C. &sect; 512(g)(3), the counter-notice must include your physical or electronic signature, identification of the material removed and its prior location, a statement under penalty of perjury that you have a good-faith belief that the material was removed or disabled as a result of mistake or misidentification, your name, address, telephone number, and a statement that you consent to the jurisdiction of the federal district court for your judicial district (or, if outside the United States, of any judicial district in which we may be found) and that you will accept service of process from the person who provided the original notification or an agent of such person.</p><p class="text-base leading-7"><strong>Repeat infringers.</strong> It is our policy, in appropriate circumstances and at our sole discretion, to disable or terminate the accounts of users who are repeat infringers. Submitting false or misleading notices or counter-notices may result in liability for damages under 17 U.S.C. &sect; 512(f).</p>`;
+
+/** Svelte reads `{` in markup as the start of an expression. */
+const escapeSvelteText = (value: string) =>
+	escapeHtml(value).replaceAll('{', '&#123;').replaceAll('}', '&#125;');
+
+/**
+ * Write a legal page into `dir`, fitted to what the project has, and return
+ * the files written, relative to the root.
+ *
+ * vela's templates carry Tailwind and `svelte-meta-tags`, which the markup and
+ * the `+page.ts` loader are written for. A project vela did not create may have
+ * neither: there the utility classes would be dead weight, so they are taken
+ * out and the browser's own heading and list styles apply, and the title and
+ * description go in a `<svelte:head>` instead of a loader importing a package
+ * that is not installed.
+ */
+export function writeLegalPage(
+	root: string,
+	dir: string,
+	page: { html: string; title: string; description: string }
+): string[] {
+	const tailwind = hasDependency(root, 'tailwindcss');
+	const metaTags = hasDependency(root, 'svelte-meta-tags');
+
+	let html = tailwind ? page.html : page.html.replace(/ class="[^"]*"/g, '');
+	if (!metaTags) {
+		html =
+			`<svelte:head>\n\t<title>${escapeSvelteText(page.title)}</title>\n` +
+			`\t<meta name="description" content="${escapeSvelteText(page.description)}" />\n` +
+			`</svelte:head>\n\n${html}`;
+	}
+
+	const pagePath = path.join(root, dir, '+page.svelte');
+	fs.mkdirSync(path.dirname(pagePath), { recursive: true });
+	fs.writeFileSync(pagePath, html);
+	const written = [pagePath];
+
+	if (metaTags) {
+		const loaderPath = path.join(root, dir, '+page.ts');
+		fs.writeFileSync(loaderPath, pageMetaTagsLoader(page.title, page.description));
+		written.push(loaderPath);
+	}
+
+	return written.map((file) => path.relative(root, file));
+}

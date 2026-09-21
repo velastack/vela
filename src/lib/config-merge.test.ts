@@ -97,6 +97,23 @@ export default defineConfig({
 		expect(updated).toMatch(/compilerOptions:\s*\{[\s\S]*runes/);
 	});
 
+	// ts-morph formats to four spaces by default, which rewrote every line of
+	// the tab-indented config `sv create` writes.
+	test('keeps the file in its own indentation', () => {
+		write('vite.config.ts', VITE_INLINE);
+		mergeSvelteConfig(tmp);
+		const tabbed = fs.readFileSync(path.join(tmp, 'vite.config.ts'), 'utf8');
+		expect(tabbed).toContain('\n\tplugins: [');
+		expect(tabbed).not.toMatch(/\n {2,}\S/);
+
+		write('vite.config.ts', VITE_INLINE.replaceAll('\t', '  '));
+		mergeSvelteConfig(tmp);
+		const spaced = fs.readFileSync(path.join(tmp, 'vite.config.ts'), 'utf8');
+		expect(spaced).toContain('\n  plugins: [');
+		expect(spaced).not.toContain('\t');
+		expect(spaced).not.toMatch(/\n {3}\S|\n {5}\S/);
+	});
+
 	test('creates an arg on a bare sveltekit() and injects runes', () => {
 		write('vite.config.ts', VITE_BARE);
 		const result = mergeSvelteConfig(tmp);

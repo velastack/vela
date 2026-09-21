@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import process from 'node:process';
 import { Command, Option } from 'commander';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
@@ -35,15 +36,18 @@ import {
 	syncServerScripts,
 	type InstanceState
 } from '../lib/remote.ts';
-import { collectArtifact, gitSha, runBuild } from '../lib/artifact.ts';
+import { collectArtifact, foreignLockfile, gitSha, runBuild } from '../lib/artifact.ts';
 import {
 	ADAPTER_AUTO,
 	ADAPTER_NODE,
 	AdapterError,
+	detectAdapter,
 	ensureNodeAdapter,
 	installAdapterDependencies,
-	lockfileFor
+	lockfileFor,
+	type AdapterInfo
 } from '../lib/adapter.ts';
+import { isInteractive } from '../lib/providers.ts';
 import { readRemoteEnv } from '../lib/remote-env.ts';
 
 const OptionsSchema = v.object({
@@ -97,6 +101,15 @@ export const deploy = addLockWaitOption(
 			if (options.build !== false) {
 				const { workspaceRootDir } = await getWorkspace();
 				await prepareAdapter(workspaceRootDir);
+
+				const foreign = foreignLockfile(workspaceRootDir);
+				if (foreign) {
+					p.log.warn(
+						`Dependencies are pinned by ${pc.cyan(foreign)}, but the server installs with npm, which cannot replay it.\n` +
+							`Versions there are resolved from package.json ranges and may differ from yours. Commit a\n` +
+							`${pc.cyan('package-lock.json')} (${pc.dim('npm install --package-lock-only')}) for a reproducible deploy.`
+					);
+				}
 			}
 
 			await withTarget(
@@ -377,6 +390,30 @@ async function prepareAdapter(workspaceRootDir: string): Promise<void> {
 		}
 		throw err;
 	};
+
+	// An undecided project is about to have its config and package.json
+	// rewritten. That is ordinary source someone will be asked to commit, so at
+	// a terminal it is asked for first; CI has nobody to ask and a deploy there
+	// has already been decided on.
+	let current: AdapterInfo | undefined;
+	try {
+		current = detectAdapter(workspaceRootDir);
+	} catch {
+		// Unreadable here is unreadable below, where it is reported properly.
+	}
+	if (current && (current.kind === 'auto' || current.kind === 'none') && isInteractive()) {
+		const has =
+			current.kind === 'auto' ? `is on ${ADAPTER_AUTO}` : 'has no SvelteKit adapter configured';
+		const confirmed = await p.confirm({
+			message:
+				`This project ${has}, and vela deploy runs the app as a Node server.\n` +
+				`Switch it to ${ADAPTER_NODE}? This edits ${path.basename(current.file)} and package.json.`
+		});
+		if (p.isCancel(confirmed) || !confirmed) {
+			p.cancel('Nothing was changed, and nothing was deployed.');
+			process.exit(0);
+		}
+	}
 
 	const outcome = await ensureNodeAdapter(workspaceRootDir, { install: false }).catch(rethrow);
 	if (!outcome.configFile && !outcome.packageJsonChanged) return;

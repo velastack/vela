@@ -73,10 +73,14 @@ interface VelaFile {
  * Files vela owns outright. A real project may already have some of them, so each
  * one records what would be missed by keeping the existing version.
  */
-const VELA_ONLY_FILES: VelaFile[] = [
+export const VELA_ONLY_FILES: VelaFile[] = [
 	{
 		path: 'src/hooks.server.ts',
 		adds: 'the handlePocketbase hook — the backend is not wired up without it'
+	},
+	{
+		path: 'src/lib/server/workflows.ts',
+		adds: 'the OpenWorkflow client and the worker `src/hooks.server.ts` starts — its import of $lib/server/workflows does not resolve without it'
 	},
 	{
 		path: 'src/app.css',
@@ -95,7 +99,9 @@ const VELA_ONLY_FILES: VelaFile[] = [
 		adds: 'the server test project `vela test:server` runs — without it test/setup.ts never loads'
 	}
 ];
-const VELA_ONLY_DIRS = ['src/lib/components', 'data', 'test', 'static'];
+// `src/lib/workflows` carries the README explaining the convention, and is
+// where `vela generate workflow` writes; the worker globs it for modules.
+export const VELA_ONLY_DIRS = ['src/lib/components', 'src/lib/workflows', 'data', 'test', 'static'];
 
 export const bless = new Command('bless')
 	.description('upgrade a vanilla SvelteKit project into a VelaStack project')

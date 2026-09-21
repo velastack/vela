@@ -63,16 +63,29 @@ export function findWorkspaceRoot(from: string = process.cwd()): string | null {
  * Whether the project has a PocketBase backend at all.
  *
  * The `data` directory is the marker: `vela create` writes it for backend
- * templates and `vela bless` adds it to an existing project, while the static
- * template has none. Commands that would start or talk to PocketBase have to
- * check this first — a static project has no database, and therefore no
- * credentials to ask for.
+ * templates and `vela enable backend` adds it to an existing project, while the
+ * static template has none. Commands that would start or talk to PocketBase
+ * have to check this first — a project without one has no database, and
+ * therefore no credentials to ask for.
+ *
+ * The directory alone is not enough. It is also `VELA_DATA_DIR`, where a
+ * self-hosted CMS keeps `cms.sqlite`, so a project on adapter-node with a CMS
+ * and no PocketBase grows a `data/` the first time it runs. The PocketBase
+ * client, which every backend template and `enable backend` installs, tells the
+ * two apart.
  *
  * Kept in step with `Features.backend`, which is derived from the same marker.
  */
 export function hasBackend(from: string = process.cwd()): boolean {
 	const root = findWorkspaceRoot(from);
-	return root !== null && fs.existsSync(path.join(root, DATA_DIR));
+	return root !== null && isBackendRoot(root);
+}
+
+const POCKETBASE_PACKAGES = ['pocketbase-sveltekit', '@velastack/pocketbase'];
+
+function isBackendRoot(root: string): boolean {
+	if (!fs.existsSync(path.join(root, DATA_DIR))) return false;
+	return POCKETBASE_PACKAGES.some((name) => hasDependency(root, name));
 }
 
 /**
@@ -94,6 +107,12 @@ export function hasApiRoutes(root: string): boolean {
 	const dir = path.join(root, 'src', 'routes', 'api');
 	if (!fs.existsSync(dir)) return false;
 	return fs.readdirSync(dir).some((entry) => entry !== 'README.md');
+}
+
+/** Whether `package.json` lists the package, in either dependency block. */
+export function hasDependency(root: string, name: string): boolean {
+	const pkg = readPackageJson(path.join(root, 'package.json'));
+	return Boolean(pkg.dependencies?.[name] || pkg.devDependencies?.[name]);
 }
 
 export function localDataDir(from: string = process.cwd()): string {
@@ -168,7 +187,7 @@ function detectFeatures(
 		auth: isAppMode,
 		api: hasApiRoutes(root),
 		apiKeys: has('src/routes/api/api-keys') || has('src/routes/(app)/api-keys'),
-		backend: has(DATA_DIR),
+		backend: isBackendRoot(root),
 		i18n: has('wuchale.config.js') || hasDep('wuchale'),
 		teams: has('src/routes/(app)/teams') || has('src/lib/teams'),
 		payments: isPaymentsMode,

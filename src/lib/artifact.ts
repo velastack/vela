@@ -82,7 +82,7 @@ export function collectArtifact(cwd: string, config: VelaDeployConfig = {}): Art
 	entries.push({ localPath: buildPath, remoteDir: '' });
 
 	add('package.json');
-	add('package-lock.json');
+	for (const lockfile of [NPM_LOCKFILE, ...FOREIGN_LOCKFILES]) add(lockfile);
 	add('.npmrc');
 	add(MIGRATIONS_DIR);
 	// PocketBase hooks live under `data/` locally but next to the release on the
@@ -95,8 +95,28 @@ export function collectArtifact(cwd: string, config: VelaDeployConfig = {}): Art
 	return entries;
 }
 
+const NPM_LOCKFILE = 'package-lock.json';
+
+/**
+ * Lockfiles of the other package managers. The server installs with npm, which
+ * cannot replay them, but they still ship: the dependency cache is keyed on
+ * the lockfile, so a change to one has to reach the server to mean anything,
+ * and npm does take resolution hints from a `yarn.lock`.
+ */
+const FOREIGN_LOCKFILES = ['pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb'];
+
 export function hasLockfile(cwd: string): boolean {
-	return fs.existsSync(path.join(cwd, 'package-lock.json'));
+	return fs.existsSync(path.join(cwd, NPM_LOCKFILE));
+}
+
+/**
+ * The lockfile of a project that pins its dependencies with something other
+ * than npm, or undefined when `npm ci` on the server will reproduce the tree
+ * (or there is no lockfile at all).
+ */
+export function foreignLockfile(cwd: string): string | undefined {
+	if (hasLockfile(cwd)) return undefined;
+	return FOREIGN_LOCKFILES.find((name) => fs.existsSync(path.join(cwd, name)));
 }
 
 /** Best-effort git metadata, recorded on the release for traceability. */

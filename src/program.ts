@@ -6,7 +6,6 @@ import dotenv from 'dotenv';
 import pc from 'picocolors';
 import pkg from '../package.json' with { type: 'json' };
 import { helpConfig } from './lib/help.ts';
-import { isStub } from './lib/stub.ts';
 import { findWorkspaceRoot, hasBackend } from './lib/workspace.ts';
 import { bless } from './commands/bless.ts';
 import { create } from './commands/create.ts';
@@ -41,8 +40,6 @@ import { targets } from './commands/targets.ts';
 import { testServer } from './commands/test.ts';
 import { routes } from './commands/routes.ts';
 import { i18n } from './commands/i18n.ts';
-import { oauth } from './commands/oauth.ts';
-import { schemas } from './commands/schemas.ts';
 import { cms } from './commands/cms.ts';
 import { workflows } from './commands/workflows.ts';
 
@@ -125,8 +122,6 @@ export const program = new Command()
 	.configureHelp(helpConfig);
 
 program.hook('preAction', (_thisCommand, actionCommand) => {
-	if (isStub(actionCommand)) return;
-
 	// Resolved from the workspace root rather than the cwd: dotenv's default
 	// would miss `.env` for anything run from a subdirectory, which `-t local`
 	// makes visible the moment a command reads or writes it.
@@ -138,16 +133,18 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 	const top = path.split(' ', 1)[0];
 	if (NO_BACKEND_COMMMANDS.has(top)) return;
 
-	// A static project has no PocketBase, so there are no credentials to ask for.
-	// Frontend commands carry on; anything that needs the database says so plainly
-	// rather than sending the user off to look for a .env that would not help.
+	// Without PocketBase there are no credentials to ask for. Frontend commands
+	// carry on; anything that needs the database says so plainly rather than
+	// sending the user off to look for a .env that would not help. The project
+	// may be vela's static template or one vela did not create, so the message
+	// names neither, and points at the command that adds only the backend.
 	if (!hasBackend()) {
 		if (BACKEND_OPTIONAL_COMMANDS.has(top)) return;
 
 		p.log.error(
 			`${pc.cyan(`vela ${path}`)} needs a backend, and this project does not have one.\n\n` +
-				`Static projects have no database to talk to.\n\n` +
-				`To add a backend to this project, run ${pc.cyan('vela bless')}.`
+				`There is no PocketBase database here for it to talk to.\n\n` +
+				`To add one, run ${pc.cyan('vela enable backend')}.`
 		);
 		p.log.message();
 		p.cancel('Operation failed.');
@@ -213,8 +210,6 @@ for (const command of [
 	testServer,
 	routes,
 	i18n,
-	oauth,
-	schemas,
 	cms,
 	workflows
 ]) {

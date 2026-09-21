@@ -47,7 +47,7 @@ describe('resolveFormInput', () => {
 
 	test('--ui shadcn is refused where shadcn-svelte is not set up', () => {
 		writePackageJson({});
-		expect(() => resolveFormInput(tmp, 'plain', 'shadcn')).toThrow('vela bless');
+		expect(() => resolveFormInput(tmp, 'plain', 'shadcn')).toThrow('shadcn-svelte@latest init');
 	});
 
 	test('rejects an unknown value', () => {

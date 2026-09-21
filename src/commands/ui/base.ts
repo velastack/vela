@@ -4,6 +4,7 @@ import { applyBaseColor } from '@velastack/patterns';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
+import { assertShadcn } from '../../lib/require-ui.ts';
 import { reportResult } from '../../lib/result-report.ts';
 import { BASE_COLORS } from '../../lib/ui-add.ts';
 
@@ -14,6 +15,7 @@ export const base = new Command('base')
 	.action((color: string) =>
 		runCommand(async () => {
 			const { workspaceRootDir } = await getWorkspace();
+			assertShadcn('vela ui base', workspaceRootDir);
 
 			// The palette is what `shadcn-svelte apply --only theme` produces for
 			// the project's own style, so the tokens never need hand-maintenance.

@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { ObjectLiteralExpression } from 'ts-morph';
 import {
 	createSveltekitArg,
+	formatLikeSource,
 	getOrCreateObjectLiteralProperty,
 	inspectViteSveltekit,
 	probeFirstExisting,
@@ -74,7 +75,7 @@ function mergeRunesIntoViteArg(vite: ViteSveltekit, arg: ObjectLiteralExpression
 		return { applied: false, reason: 'runes already configured', file };
 	}
 	compilerOptions.addPropertyAssignment({ name: 'runes', initializer: RUNES_VALUE });
-	vite.sourceFile.formatText();
+	formatLikeSource(vite.sourceFile);
 	vite.sourceFile.saveSync();
 	return { applied: true, reason: 'added runes compilerOption', file };
 }

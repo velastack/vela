@@ -119,6 +119,10 @@ export const testServer = new Command('test:server')
 		const extraArgs: string[] = (cmd.parent?.args ?? []).slice(1);
 		let filter = extraArgs.find((arg: string) => !arg.startsWith('-'));
 		const passthrough = filter ? extraArgs.filter((a: string) => a !== filter) : extraArgs;
+		// With no filter of the user's, an empty suite is a project that has not
+		// written a server test yet (straight after `vela enable backend`), not a
+		// failure. A filter that matches nothing is more likely a typo, and fails.
+		const defaulted = !filter;
 		if (!filter) filter = 'server';
 
 		try {
@@ -128,6 +132,7 @@ export const testServer = new Command('test:server')
 				'run',
 				filter,
 				'--reporter=dot',
+				...(defaulted ? ['--passWithNoTests'] : []),
 				...passthrough
 			])!;
 			const resolvedArgs = resolved.args.slice();

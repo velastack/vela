@@ -114,14 +114,22 @@ export function readPackageJson(path: string): PkgJson {
  * template for velastack.dev's instant deploys, so a template author only ever
  * writes them once.
  *
- * `~APP_NAME~`, `~SITE_URL~` and `~CMS_ENDPOINT~` are escaped for a
- * single-quoted JS string, which is the only place a template uses them.
+ * `~APP_NAME~`, `~SITE_URL~` and `~CMS_ENDPOINT~` stand inside a single-quoted
+ * JS string, which is the only place a template uses them. Those quotes are
+ * replaced along with the placeholder so the value decides them: an app name
+ * holding an apostrophe becomes `"Nathan's App"` rather than an escaped
+ * `'Nathan\'s App'`, which prettier rewrites — a fresh project would fail its
+ * own `npm run lint`. A placeholder standing outside quotes is still filled,
+ * escaped for the single-quoted string it is assumed to sit in.
  */
 const PACKAGE_NAME_PLACEHOLDER = /~TODO~/g;
 const APP_NAME_PLACEHOLDER = /~APP_NAME~/g;
 const CLI_VERSION_PLACEHOLDER = /~VELA_VERSION~/g;
 const SITE_URL_PLACEHOLDER = /~SITE_URL~/g;
 const CMS_ENDPOINT_PLACEHOLDER = /~CMS_ENDPOINT~/g;
+const QUOTED_APP_NAME_PLACEHOLDER = /'~APP_NAME~'/g;
+const QUOTED_SITE_URL_PLACEHOLDER = /'~SITE_URL~'/g;
+const QUOTED_CMS_ENDPOINT_PLACEHOLDER = /'~CMS_ENDPOINT~'/g;
 
 /** Where a freshly created site is served until it is deployed. */
 export const LOCAL_SITE_URL = 'http://localhost:5173';
@@ -144,6 +152,9 @@ export function fillTemplatePlaceholders(raw: string, values: TemplateValues): s
 	// Function replacements: `$&` and friends in an app name are literal text.
 	return raw
 		.replace(PACKAGE_NAME_PLACEHOLDER, () => packageName)
+		.replace(QUOTED_APP_NAME_PLACEHOLDER, () => jsString(values.appName))
+		.replace(QUOTED_SITE_URL_PLACEHOLDER, () => jsString(values.siteUrl ?? LOCAL_SITE_URL))
+		.replace(QUOTED_CMS_ENDPOINT_PLACEHOLDER, () => jsString(values.cmsEndpoint ?? ''))
 		.replace(APP_NAME_PLACEHOLDER, () => appName)
 		.replace(CLI_VERSION_PLACEHOLDER, () => values.cliVersion)
 		.replace(SITE_URL_PLACEHOLDER, () => siteUrl)
@@ -151,7 +162,27 @@ export function fillTemplatePlaceholders(raw: string, values: TemplateValues): s
 }
 
 function escapeSingleQuoted(value: string): string {
-	return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+	return escapeFor("'", value);
+}
+
+function escapeFor(quote: '"' | "'", value: string): string {
+	return value
+		.replace(/\\/g, '\\\\')
+		.split(quote)
+		.join(`\\${quote}`)
+		.replace(/\n/g, '\\n')
+		.replace(/\r/g, '\\r');
+}
+
+/**
+ * `value` as a JS string literal quoted the way prettier would leave it under
+ * the templates' `singleQuote: true`: single quotes, unless the value holds
+ * more of them than double quotes and double quoting means less escaping.
+ */
+export function jsString(value: string): string {
+	const count = (quote: string) => value.split(quote).length - 1;
+	const quote = count("'") > count('"') ? '"' : "'";
+	return `${quote}${escapeFor(quote, value)}${quote}`;
 }
 
 export function readTemplatePackageJson(path: string, values: TemplateValues): PkgJson {

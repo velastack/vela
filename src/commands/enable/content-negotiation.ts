@@ -1,7 +1,9 @@
+import process from 'node:process';
 import { Command } from 'commander';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { runPattern } from '../../lib/pattern-runner.ts';
+import { findWorkspaceRoot, hasDependency } from '../../lib/workspace.ts';
 
 export const contentNegotiation = new Command('content-negotiation')
 	.description('enable content negotiation (sveltekit-negotiate)')
@@ -14,7 +16,9 @@ export const contentNegotiation = new Command('content-negotiation')
 				runPattern(
 					'enable-content-negotiation',
 					cmd.args,
-					{},
+					// The demo page's loader imports `svelte-meta-tags`, which vela's
+					// templates carry and a project vela did not create may not.
+					{ metaTags: hasDependency(findWorkspaceRoot() ?? process.cwd(), 'svelte-meta-tags') },
 					{
 						summary: 'Enabled content negotiation.',
 						nextSteps: [

@@ -3,6 +3,7 @@ import { helpConfig } from '../lib/help.ts';
 import { runCommand } from '../lib/run.ts';
 import { addTargetOptions, withTarget } from '../lib/server-command.ts';
 import { remotePaths } from '../lib/remote.ts';
+import { requireRemoteDatabase } from '../lib/remote-pocketbase.ts';
 
 export const logs = addTargetOptions(
 	new Command('logs').description('tail the logs of a deployed app').configureHelp(helpConfig),
@@ -18,6 +19,9 @@ export const logs = addTargetOptions(
 				raw,
 				{
 					remote: async (ctx) => {
+						// An instance deployed without a backend has no PocketBase unit;
+						// journalctl would print "No entries" and leave it at that.
+						if (options.pocketbase) await requireRemoteDatabase(ctx.session, ctx.instance);
 						const unit = options.pocketbase
 							? remotePaths.pbUnit(ctx.instance)
 							: remotePaths.webUnit(ctx.instance);

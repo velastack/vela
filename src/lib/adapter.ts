@@ -11,6 +11,7 @@ import {
 import { detect, type AgentName } from 'package-manager-detector';
 import {
 	createSveltekitArg,
+	formatLikeSource,
 	getOrCreateObjectLiteralProperty,
 	inspectViteSveltekit,
 	probeFirstExisting,
@@ -378,7 +379,7 @@ function addAdapter(target: KitTarget): void {
 
 /** Write the file only if the edit changed it; format only when an argument was created from nothing. */
 function saveTarget(target: KitTarget): void {
-	if (target.created) target.sourceFile.formatText();
+	if (target.created) formatLikeSource(target.sourceFile);
 	if (target.sourceFile.getFullText() === target.originalText) return;
 	target.sourceFile.saveSync();
 }

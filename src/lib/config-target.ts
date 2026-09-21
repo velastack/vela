@@ -23,6 +23,30 @@ export const SVELTE_CONFIG_CANDIDATES = [
 	'svelte.config.cjs'
 ];
 
+/**
+ * `formatText()` in the file's own indentation: a tab, or the narrowest run of
+ * spaces a line starts with. ts-morph's default is four spaces, which rewrites
+ * every line of the tab-indented config `sv create` writes to change one of
+ * them, and a project without prettier has nothing to put that back. Mirrors
+ * `formatLikeSource` in @velastack/patterns.
+ */
+export function formatLikeSource(sourceFile: SourceFile): void {
+	let spaces = 0;
+	let tabs = false;
+	for (const line of sourceFile.getFullText().split('\n')) {
+		if (line.startsWith('\t')) {
+			tabs = true;
+			break;
+		}
+		const width = line.match(/^ +(?=\S)/)?.[0].length ?? 0;
+		// A lone leading space is a comment continuation, not an indent.
+		if (width >= 2 && (spaces === 0 || width < spaces)) spaces = width;
+	}
+	const useTabs = tabs || spaces === 0;
+	const size = useTabs ? 4 : spaces;
+	sourceFile.formatText({ convertTabsToSpaces: !useTabs, indentSize: size, tabSize: size });
+}
+
 /** First candidate that exists under `root`, or null. */
 export function probeFirstExisting(root: string, candidates: string[]): string | null {
 	for (const rel of candidates) {

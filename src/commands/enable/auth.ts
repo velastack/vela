@@ -20,7 +20,7 @@ export const auth = new Command('auth')
 						nextSteps: [
 							'Run `vela dev` and visit /login to try the new sign-in flow.',
 							'Customize sign-in copy and providers in src/routes/(public)/(auth)/.',
-							'Add OAuth providers via `vela oauth` (coming soon) or in the PocketBase admin UI.'
+							'Add OAuth providers in the PocketBase admin UI.'
 						],
 						task: {
 							title: 'Enabling auth',

@@ -190,10 +190,53 @@ describe('fillTemplatePlaceholders', () => {
 	test('escapes a display name that would break out of its string literal', () => {
 		expect(
 			fillTemplatePlaceholders("name: '~APP_NAME~'", {
-				appName: "Nathan's C:\\ App",
+				appName: 'Nathan C:\\ App',
 				cliVersion: '0.9.0'
 			})
-		).toBe("name: 'Nathan\\'s C:\\\\ App'");
+		).toBe("name: 'Nathan C:\\\\ App'");
+	});
+
+	// Escaping the apostrophe in place would leave `'Nathan\'s App'`, which
+	// prettier rewrites to double quotes — failing the new project's own lint.
+	test('double-quotes a display name holding an apostrophe', () => {
+		expect(
+			fillTemplatePlaceholders("name: '~APP_NAME~'", {
+				appName: "Nathan's App",
+				cliVersion: '0.9.0'
+			})
+		).toBe('name: "Nathan\'s App"');
+	});
+
+	test('keeps single quotes when the name holds double quotes too', () => {
+		expect(
+			fillTemplatePlaceholders("name: '~APP_NAME~'", {
+				appName: 'The "Best" App',
+				cliVersion: '0.9.0'
+			})
+		).toBe('name: \'The "Best" App\'');
+		// A tie goes to the single quote the templates otherwise use.
+		expect(
+			fillTemplatePlaceholders("name: '~APP_NAME~'", {
+				appName: 'Nathan\'s "Best" App\'s',
+				cliVersion: '0.9.0'
+			})
+		).toBe("name: 'Nathan\\'s \"Best\" App\\'s'");
+		// More apostrophes than double quotes: double quoting escapes less.
+		expect(
+			fillTemplatePlaceholders("name: '~APP_NAME~'", {
+				appName: "It's Nathan's App's \"X\"",
+				cliVersion: '0.9.0'
+			})
+		).toBe('name: "It\'s Nathan\'s App\'s \\"X\\""');
+	});
+
+	test('a placeholder outside quotes is still escaped in place', () => {
+		expect(
+			fillTemplatePlaceholders('name: `~APP_NAME~`', {
+				appName: "Nathan's App",
+				cliVersion: '0.9.0'
+			})
+		).toBe("name: `Nathan\\'s App`");
 	});
 
 	// A `$&` in an app name is text, not a replacement pattern.
@@ -248,6 +291,31 @@ describe('shipped templates', () => {
 			const filled = fillTemplatePlaceholders(raw, { appName: 'My App', cliVersion: '9.9.9' });
 			expect(filled).toContain("name: 'My App'");
 			expect(filled).toContain("url: 'http://localhost:5173'");
+		});
+
+		// The bug this guards: `Nathan's App` landed as `'Nathan\'s App'`, which
+		// prettier rewrites, so a project failed its own `npm run lint` the
+		// moment it was created. Checked against real prettier with the options
+		// the template ships, rather than restating the quoting rule here.
+		describe(`${name} site.ts is prettier-clean`, () => {
+			const NAMES = [
+				'My App',
+				"Nathan's App",
+				'The "Best" App',
+				"It's Nathan's App's \"X\"",
+				'Backslash C:\\ App',
+				"L'Étoile — café & co."
+			];
+
+			test.each(NAMES)('%s', async (appName) => {
+				const prettier = await import('prettier');
+				const site = path.join(dir, 'src', 'lib', 'site.ts');
+				const raw = fs.readFileSync(path.join(dir, 'src', 'lib', 'site.template.ts'), 'utf8');
+				const filled = fillTemplatePlaceholders(raw, { appName, cliVersion: '9.9.9' });
+				const options = await prettier.resolveConfig(site);
+
+				expect(await prettier.format(filled, { ...options, parser: 'typescript' })).toBe(filled);
+			});
 		});
 	}
 });
