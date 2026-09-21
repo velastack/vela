@@ -77,6 +77,35 @@ else
 fi
 expect_ok "runtime.env: missing file is not an error" set_runtime_release "$SCRATCH/etc/apps/none" 20260910T120000Z
 
+# ------------------------------------------------------------ request origin
+#
+# One served host pins ORIGIN. Several direct hosts cannot share one, so the
+# origin is taken from the request instead.
+
+expect_lines() {
+	local name=$1 want=$2; shift 2
+	local got; got=$("$@" 2>&1)
+	if [ "$got" = "$want" ]; then ok "$name"; else bad "$name" "got '$got'"; fi
+}
+expect_lines "origin: one direct host is pinned" 'ORIGIN=https://velastack.dev' \
+	runtime_origin_lines 'velastack.dev' 'https://velastack.dev'
+expect_lines "origin: no direct host pins the primary url" 'ORIGIN=https://app.velastack.app' \
+	runtime_origin_lines '' 'https://app.velastack.app'
+expect_lines "origin: no host at all pins loopback" 'ORIGIN=http://127.0.0.1:4101' \
+	runtime_origin_lines '' 'http://127.0.0.1:4101'
+expect_lines "origin: two direct hosts come from the request" 'PROTOCOL_HEADER=x-forwarded-proto' \
+	runtime_origin_lines 'velastack.dev, velabase.dev' 'https://velastack.dev'
+expect_lines "origin: a trailing comma is not a second host" 'ORIGIN=https://velastack.dev' \
+	runtime_origin_lines 'velastack.dev, ' 'https://velastack.dev'
+
+mkdir -p "$(dirname "$(state_file hosted)")"
+printf '{"url":"https://velastack.dev"}' > "$(state_file hosted)"
+mkdir -p "$(dirname "$(state_file bare)")"
+printf '{"url":"http://127.0.0.1:4100"}' > "$(state_file bare)"
+expect_lines "health host: taken from the recorded url" 'velastack.dev' state_primary_host hosted
+expect_lines "health host: none for a loopback url" '' state_primary_host bare
+expect_lines "health host: none for an unknown instance" '' state_primary_host nothere
+
 # ------------------------------------------------------------ backend flag
 #
 # Absent state, or state written before the flag existed, counts as having a

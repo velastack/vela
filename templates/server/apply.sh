@@ -157,9 +157,9 @@ PB_PORT=$(printf '%s' "$PORTS" | jq -r .pb)
 PRIMARY_DOMAIN=$(printf '%s' "$DOMAIN" | cut -d, -f1 | tr -d ' ')
 [ -n "$PRIMARY_DOMAIN" ] || PRIMARY_DOMAIN=$(printf '%s' "$MANAGED" | cut -d, -f1 | tr -d ' ')
 if [ -n "$PRIMARY_DOMAIN" ]; then
-	ORIGIN="https://$PRIMARY_DOMAIN"
+	PRIMARY_URL="https://$PRIMARY_DOMAIN"
 else
-	ORIGIN="http://127.0.0.1:$WEB_PORT"
+	PRIMARY_URL="http://127.0.0.1:$WEB_PORT"
 fi
 
 # Production secrets live in $ETC/env and are managed only by `vela env`.
@@ -172,7 +172,7 @@ runtime_tmp=$(mktemp "$ETC/.runtime.XXXXXX")
 	printf 'NODE_ENV=production\n'
 	printf 'HOST=127.0.0.1\n'
 	printf 'PORT=%s\n' "$WEB_PORT"
-	printf 'ORIGIN=%s\n' "$ORIGIN"
+	runtime_origin_lines "$DOMAIN" "$PRIMARY_URL"
 	# Only an instance with a PocketBase gets pointed at one: a URL to a port
 	# nothing listens on is not a setting, it is a trap. Kept for one more
 	# deploy when the backend is being removed, so that a failed deploy can put
@@ -412,7 +412,7 @@ fi
 log "starting app on 127.0.0.1:$WEB_PORT"
 systemctl enable "$WEB_UNIT" >/dev/null 2>&1 || true
 systemctl restart "$WEB_UNIT"
-wait_for_http "http://127.0.0.1:$WEB_PORT$HEALTH_PATH" 60 0.5 \
+wait_for_http "http://127.0.0.1:$WEB_PORT$HEALTH_PATH" 60 0.5 "$PRIMARY_DOMAIN" \
 	|| die "app did not become healthy at $HEALTH_PATH - journalctl -u $WEB_UNIT"
 
 ACTIVATED=1
@@ -431,7 +431,7 @@ fi
 state_merge "$INSTANCE" "$(jq -c -n \
 	--arg app "$APP_ID" --arg name "$APP_NAME" --arg env "$ENV_TAG" \
 	--arg instance "$INSTANCE" --arg release "$RELEASE" --arg previous "$PREVIOUS" \
-	--arg domain "$DOMAIN" --arg managed "$MANAGED" --arg url "$ORIGIN" \
+	--arg domain "$DOMAIN" --arg managed "$MANAGED" --arg url "$PRIMARY_URL" \
 	--arg health "$HEALTH_PATH" --arg pb "$PB_VERSION" \
 	--arg sha "$GIT_SHA" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 	--argjson web "$WEB_PORT" --argjson pbport "$PB_PORT" --argjson backend "$BACKEND" \
@@ -530,6 +530,6 @@ fi
 
 emit_result \
 	--arg instance "$INSTANCE" --arg release "$RELEASE" --arg domain "$DOMAIN" --arg managed "$MANAGED" \
-	--arg url "$ORIGIN" --argjson web "$WEB_PORT" --argjson pb "$PB_PORT" --argjson su "$SU_CREATED" \
+	--arg url "$PRIMARY_URL" --argjson web "$WEB_PORT" --argjson pb "$PB_PORT" --argjson su "$SU_CREATED" \
 	'{instance: $instance, release: $release, domain: $domain, managed: $managed, url: $url,
 	  webPort: $web, pbPort: $pb, superuserCreated: ($su == 1)}'

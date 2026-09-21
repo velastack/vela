@@ -171,11 +171,17 @@ unit_active() { systemctl is-active --quiet "$1"; }
 # a health path behind auth). A 404 is not that: it is what a wrong
 # --health-path or a route that never mounted looks like, and it used to pass.
 # No `-f`: curl has to report the status of an error response, not fail on it.
+#
+# A fourth argument is the public host to ask as, the way Caddy would. An app
+# serving several hosts has no pinned ORIGIN and tells its sites apart by
+# `Host`; asked as 127.0.0.1 it may rightly answer that it serves no such site.
 wait_for_http() {
-	local url=$1 attempts=${2:-60} delay=${3:-0.5} code
+	local url=$1 attempts=${2:-60} delay=${3:-0.5} host=${4:-} code
 	local i=0
+	local -a as=()
+	[ -z "$host" ] || as=(-H "Host: $host" -H 'X-Forwarded-Proto: https')
 	while [ "$i" -lt "$attempts" ]; do
-		code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$url" 2>/dev/null || echo 000)
+		code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 ${as[@]+"${as[@]}"} "$url" 2>/dev/null || echo 000)
 		case "$code" in
 			2*|3*|401|403) return 0 ;;
 		esac
@@ -183,6 +189,43 @@ wait_for_http() {
 		sleep "$delay"
 	done
 	return 1
+}
+
+# The public host an instance's health check should ask as: the host of the
+# `url` its last deploy recorded, or nothing for an instance no domain points
+# at (whose url is its own loopback address).
+#
+# usage: state_primary_host <instance>
+state_primary_host() {
+	local url
+	url=$(state_get "$1" url 2>/dev/null) || return 0
+	case "$url" in
+		https://*) url=${url#https://}; printf '%s' "${url%%/*}" ;;
+	esac
+}
+
+# The lines of runtime.env that tell adapter-node what origin a request has.
+#
+# One served host: pin it with ORIGIN, so nothing a client sends can change
+# what the app believes its own address is. Several hosts served directly
+# (velastack.dev and velabase.dev from one app) cannot share an ORIGIN - the
+# second host would render as the first and have its form posts refused as
+# cross-site - so the origin comes from the request instead: `Host`, which
+# Caddy passes through and only ever for the names in this instance's site
+# block, and the scheme from the X-Forwarded-Proto Caddy sets itself.
+#
+# Managed velastack.app names do not count: beside a direct host they redirect
+# at the edge rather than being served.
+#
+# usage: runtime_origin_lines <direct_hosts_csv> <primary_url>
+runtime_origin_lines() {
+	local direct=$1 primary_url=$2 count
+	count=$(printf '%s' "$direct" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -c -v '^$' || true)
+	if [ "$count" -gt 1 ]; then
+		printf 'PROTOCOL_HEADER=x-forwarded-proto\n'
+	else
+		printf 'ORIGIN=%s\n' "$primary_url"
+	fi
 }
 
 # How many migrations the current release has that the target release does not.

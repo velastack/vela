@@ -220,7 +220,7 @@ assert_superuser_auth "$PB_PORT" "$SU_EMAIL" "$SU_PASSWORD" \
 
 log "starting app on 127.0.0.1:$WEB_PORT"
 systemctl start "$WEB_UNIT"
-wait_for_http "http://127.0.0.1:$WEB_PORT$HEALTH_PATH" 60 0.5 \
+wait_for_http "http://127.0.0.1:$WEB_PORT$HEALTH_PATH" 60 0.5 "$(state_primary_host "$INSTANCE")" \
 	|| die "app did not become healthy at $HEALTH_PATH - journalctl -u $WEB_UNIT"
 
 RESTORED=1

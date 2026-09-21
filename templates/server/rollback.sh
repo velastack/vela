@@ -74,7 +74,7 @@ if [ "$BACKEND" = "true" ]; then
 		|| die "PocketBase did not become healthy after rollback"
 fi
 systemctl restart "$WEB_UNIT"
-wait_for_http "http://127.0.0.1:$WEB_PORT$HEALTH_PATH" 60 0.5 \
+wait_for_http "http://127.0.0.1:$WEB_PORT$HEALTH_PATH" 60 0.5 "$(state_primary_host "$INSTANCE")" \
 	|| die "app did not become healthy after rollback"
 
 state_merge "$INSTANCE" "$(jq -c -n --arg t "$TARGET" --arg c "$CURRENT" \
