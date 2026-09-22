@@ -18,7 +18,7 @@ import {
 	SVELTE_CONFIG_CANDIDATES
 } from './config-target.ts';
 import { readPackageJson, sortKeys, writePackageJson, type PkgJson } from './package-json.ts';
-import { getUserAgent, installDependencies } from './package-manager.ts';
+import { getUserAgent, installDependencies, isInstalled } from './package-manager.ts';
 
 /**
  * The SvelteKit adapter a server deploy needs, and how to get a project onto it.
@@ -315,6 +315,13 @@ export async function ensureNodeAdapter(
  */
 export async function installAdapterDependencies(root: string): Promise<AgentName> {
 	const agent = await packageManager(root);
+	if (!isInstalled(agent)) {
+		throw new AdapterError(
+			`${agent} is not installed, so ${ADAPTER_NODE} couldn't be installed.\n\n` +
+				`The config and package.json are already updated: install ${agent}, run \`${agent} install\`, then deploy again.`,
+			''
+		);
+	}
 	const ok = await installDependencies(agent, root, { exitOnFailure: false });
 	if (!ok) {
 		throw new AdapterError(

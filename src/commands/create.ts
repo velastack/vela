@@ -127,7 +127,7 @@ export const create = new Command('create')
 		return runCommand(async () => {
 			const listing = await listAllTemplates();
 			const options = parseOptions(optionsSchema(listing), rawOpts);
-			const { directory, packageManager, name, template, link } = await createProject(
+			const { directory, packageManager, installed, name, template, link } = await createProject(
 				projectPath,
 				options,
 				listing
@@ -142,7 +142,7 @@ export const create = new Command('create')
 				const hasSpaces = relative.includes(' ');
 				nextSteps.push(`\`cd ${hasSpaces ? `"${relative}"` : relative}\``);
 			}
-			if (!packageManager) {
+			if (!installed) {
 				const resolved = resolveCommand(pm, 'install', []);
 				if (resolved) {
 					nextSteps.push(
@@ -261,6 +261,7 @@ async function createProject(
 	p.log.success('Project created');
 
 	let packageManager: ReturnType<typeof getUserAgent> | undefined;
+	let installed = false;
 	if (options.install !== false) {
 		const pm =
 			typeof options.install === 'string'
@@ -270,7 +271,7 @@ async function createProject(
 		if (pm) {
 			const builds = template.backend ? ['esbuild', 'pocketbase-server'] : ['esbuild'];
 			addPnpmBuildDependencies(projectPath, pm, builds);
-			await installDependencies(pm, projectPath);
+			installed = await installDependencies(pm, projectPath);
 			packageManager = pm;
 		}
 	}
@@ -305,7 +306,7 @@ async function createProject(
 		p.log.success('PocketBase initialized');
 	}
 
-	return { directory: projectPath, packageManager, name, template, link };
+	return { directory: projectPath, packageManager, installed, name, template, link };
 }
 
 /**

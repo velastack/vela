@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { exec } from 'tinyexec';
+import { exec, execSync } from 'tinyexec';
 import { Option } from 'commander';
 import * as p from '@clack/prompts';
 import {
@@ -36,11 +36,11 @@ export async function packageManagerPrompt(cwd: string): Promise<AgentName | und
 
 	const options: Array<{ value: AgentName | undefined; label: AgentName | 'None' }> = [
 		{ label: 'None', value: undefined },
-		...AGENT_NAMES.map((pm) => ({ value: pm, label: pm }))
+		...AGENT_NAMES.filter(isInstalled).map((pm) => ({ value: pm, label: pm }))
 	];
 
 	const pm = await p.select({
-		message: 'Which package manager do you want to install dependencies with?',
+		message: 'Detected package managers. Which one should we use to install dependencies?',
 		options,
 		initialValue: agent
 	});
@@ -51,6 +51,23 @@ export async function packageManagerPrompt(cwd: string): Promise<AgentName | und
 	return pm;
 }
 
+const installedCache = new Map<AgentName, boolean>();
+
+/** Whether `agent` is on the PATH, checked once per process by running `<agent> --version`. */
+export function isInstalled(agent: AgentName): boolean {
+	let installed = installedCache.get(agent);
+	if (installed === undefined) {
+		try {
+			execSync(agent, ['--version'], { nodeOptions: { stdio: 'ignore' } });
+			installed = true;
+		} catch {
+			installed = false;
+		}
+		installedCache.set(agent, installed);
+	}
+	return installed;
+}
+
 /**
  * Run the package manager's install in `cwd`.
  *
@@ -58,12 +75,20 @@ export async function packageManagerPrompt(cwd: string): Promise<AgentName | und
  * default this ends the process. A command that can still say something useful
  * - `vela deploy` has already changed the project and can name what to run -
  * passes `exitOnFailure: false` and gets `false` back instead.
+ *
+ * A package manager that isn't installed is skipped with a warning rather than
+ * failed: this returns `false` and the caller leaves the install to the user.
  */
 export async function installDependencies(
 	agent: AgentName,
 	cwd: string,
 	{ exitOnFailure = true }: { exitOnFailure?: boolean } = {}
 ): Promise<boolean> {
+	if (!isInstalled(agent)) {
+		p.log.warn(`${agent} is not installed, skipping dependency installation.`);
+		return false;
+	}
+
 	const task = p.taskLog({
 		title: `Installing dependencies with ${agent}...`,
 		limit: Math.ceil(process.stdout.rows / 2),
