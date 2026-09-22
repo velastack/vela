@@ -4,6 +4,8 @@ import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { runPattern } from '../../lib/pattern-runner.ts';
 import { assertShadcn } from '../../lib/require-ui.ts';
+import { resolveFormInput } from '../../lib/form-ui.ts';
+import { getWorkspace } from '../../lib/workspace.ts';
 import {
 	runSchemaStage,
 	runLayoutStage,
@@ -21,6 +23,10 @@ export const scaffold = new Command('scaffold')
 		'place the scaffold at a custom route (e.g. "(app)/[team_id]/projects"). Defaults to the pluralized model name under the (app) or (public) group, or src/routes when it has neither.'
 	)
 	.option(
+		'--ui <ui>',
+		'markup to generate: "shadcn" components or "plain" HTML. Defaults to shadcn when the project has shadcn-svelte, plain otherwise. --remote needs shadcn.'
+	)
+	.option(
 		'--ai <description>',
 		'design the scaffold with AI from a natural-language description (two stages: schema → layout)'
 	)
@@ -31,12 +37,18 @@ export const scaffold = new Command('scaffold')
 		(
 			model: string | undefined,
 			fields: string[],
-			options: { remote?: boolean; route?: string; ai?: string }
+			options: { remote?: boolean; route?: string; ui?: string; ai?: string }
 		) =>
 			runCommand(async () => {
-				// The pattern is refused the same way, but only after the AI stages
-				// have been paid for and the layout sidecar written.
-				assertShadcn('vela generate scaffold');
+				// The remote scaffold has no plain variant. The pattern is refused the
+				// same way, but only after the AI stages have been paid for and the
+				// layout sidecar written.
+				if (options.remote) {
+					if (options.ui === 'plain') {
+						throw new Error('--remote has no plain variant; drop --ui plain or --remote.');
+					}
+					assertShadcn('vela generate scaffold --remote');
+				}
 
 				let argv: string[];
 				let modelName: string;
@@ -67,6 +79,12 @@ export const scaffold = new Command('scaffold')
 					modelName = model;
 				}
 
+				const { workspaceRootDir, features } = await getWorkspace();
+				const formInput = resolveFormInput(workspaceRootDir, features.ui, options.ui);
+				if (features.ui === 'plain' && !options.ui) {
+					p.log.info('shadcn-svelte not detected: generating plain HTML pages.');
+				}
+
 				const slug = options.remote ? 'generate-scaffold-remote' : 'generate-scaffold';
 				const nextSteps: string[] = [
 					`Run \`vela fixtures generate\` to create 10 ${modelName} records for development.`,
@@ -82,7 +100,7 @@ export const scaffold = new Command('scaffold')
 				await runPattern(
 					slug,
 					argv,
-					{ route: options.route },
+					{ route: options.route, ...formInput },
 					{
 						summary: `Created ${modelName} scaffold.`,
 						nextSteps,

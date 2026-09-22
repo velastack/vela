@@ -110,12 +110,13 @@ keeps deploying to the same instance, now with a database.
 Much of `vela` needs neither. In a plain `npx sv create` project, with no setup:
 
 - `vela generate schema` and `vela generate form`, the form in plain HTML
+- `vela generate scaffold` once there is a backend: a plain HTML table, detail page and forms
 - `vela enable i18n`, `ai`, `analytics`, `content-negotiation` and `cms`
 - `vela legal` and `vela routes`
 - `vela deploy`, `env`, `status`, `logs` and `rollback`
 
 `vela ui`, `vela enable blog`, `vela enable auth` and what builds on it, and
-`vela generate scaffold` write shadcn-svelte markup. Without it they refuse before
+`vela generate scaffold --remote` write shadcn-svelte markup. Without it they refuse before
 changing anything and name the setup: `npx sv add tailwindcss`, then
 `npx shadcn-svelte@latest init`.
 

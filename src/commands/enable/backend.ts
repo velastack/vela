@@ -62,9 +62,9 @@ export const backend = new Command('backend')
 	);
 
 /**
- * `enable auth` and `generate scaffold` emit shadcn-svelte pages and refuse a
- * project without it, so a project vela did not create is pointed at what works
- * there instead of at two commands that would turn it away.
+ * `enable auth` emits shadcn-svelte pages and refuses a project without it, so a
+ * project vela did not create is pointed at what works there instead: a
+ * scaffold, which falls back to plain HTML, and the server tests it writes.
  */
 export function backendNextSteps(ui: Ui): string[] {
 	const dev =
@@ -78,9 +78,9 @@ export function backendNextSteps(ui: Ui): string[] {
 	}
 	return [
 		dev,
-		'Run `vela generate form <model> <fields...>` to add a collection with a form in plain HTML.',
+		'Run `vela generate scaffold <model> <fields...>` to add a collection with CRUD pages in plain HTML.',
 		'Run `vela test:server` to run the server tests that come with it.',
-		'`vela enable auth` and `vela generate scaffold` need shadcn-svelte: `npx sv add tailwindcss`, then `npx shadcn-svelte@latest init`.'
+		'`vela enable auth` needs shadcn-svelte: `npx sv add tailwindcss`, then `npx shadcn-svelte@latest init`.'
 	];
 }
 
