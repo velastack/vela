@@ -1,4 +1,5 @@
 import { API_URL } from './constants.ts';
+import type { SiteSeedOutcome } from './velastack-api.ts';
 
 /**
  * Whether `vela create` links the new project to velastack.dev, and how.
@@ -87,8 +88,13 @@ export interface LinkedProject {
 	dashboardUrl: string;
 }
 
+/** How seeding the linked project's CMS went; `failed` never fails `create`. */
+export type SeedReport = SiteSeedOutcome | { status: 'failed'; error: string };
+
 export interface CreateLinkOutcome {
 	linked?: LinkedProject;
+	/** Set when `create` asked velastack.dev to seed the linked project's CMS. */
+	seed?: SeedReport;
 	/** What went into `site.cmsEndpoint`; empty when nothing did. */
 	cmsEndpoint: string;
 	/** Where the endpoint came from. */
@@ -101,14 +107,27 @@ export interface CreateLinkOutcome {
 /** What `vela create` tells the user to do next about the link and the CMS. */
 export function linkNextSteps(outcome: CreateLinkOutcome): string[] {
 	const steps: string[] = [];
-	const { linked, cmsEndpoint, cmsSource, templateCms, loggedIn, interactive } = outcome;
+	const { linked, cmsEndpoint, cmsSource, templateCms, loggedIn, interactive, seed } = outcome;
 
 	if (templateCms && linked && cmsSource === 'linked') {
+		if (seed?.status === 'seeded' || seed?.status === 'already-seeded') {
+			steps.push(
+				`The site's content is already in its CMS, ready to edit: navigation, hours, contact details and every page.`
+			);
+		} else if (seed?.status === 'failed') {
+			steps.push(
+				`Loading the template's content into the CMS failed (${seed.error}). Retry with "Load template content" at ${linked.dashboardUrl}/cms/settings; until then the site shows the copy built into its components.`
+			);
+		}
 		steps.push(
 			`Add an editor at ${linked.dashboardUrl}/cms/editors, then open any page with \`?edit\` and sign in from the admin bar.`
 		);
 	} else if (cmsEndpoint) {
-		steps.push('Open any page with `?edit` and sign in from the admin bar.');
+		steps.push(
+			templateCms
+				? 'Open any page with `?edit` and sign in from the admin bar. The site shows its fallback copy until content is published to that CMS.'
+				: 'Open any page with `?edit` and sign in from the admin bar.'
+		);
 	} else if (templateCms) {
 		steps.push(
 			`When you have a CMS, set \`cmsEndpoint\` in \`src/lib/site.ts\`. ${FREE_CMS_HINT}.`

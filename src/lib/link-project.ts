@@ -1,9 +1,10 @@
 import process from 'node:process';
 import * as p from '@clack/prompts';
 import { API_URL } from './constants.ts';
-import type { LinkedProject } from './link-on-create.ts';
+import type { LinkedProject, SeedReport } from './link-on-create.ts';
 import {
 	createProject,
+	seedSite,
 	getCurrentUser,
 	listProjects,
 	listTeams,
@@ -99,4 +100,24 @@ export function toLinked(project: ProjectRecord, team: Team | undefined): Linked
 		projectName: project.name,
 		dashboardUrl: dashboardUrl(team?.slug, project.slug)
 	};
+}
+
+/**
+ * Seed the linked project's CMS with the template's content. Never throws: a
+ * failed seed leaves a working site (the tarball's components carry the same
+ * default-locale copy) and `vela create` says where to retry from.
+ */
+export async function seedLinkedProject(
+	apiKey: string,
+	projectId: string,
+	template: { name: string; version?: string }
+): Promise<SeedReport> {
+	try {
+		return await seedSite(apiKey, projectId, {
+			template: template.name,
+			...(template.version ? { version: template.version } : {})
+		});
+	} catch (error) {
+		return { status: 'failed', error: error instanceof Error ? error.message : String(error) };
+	}
 }
