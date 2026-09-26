@@ -215,6 +215,32 @@ export async function startSiteDeploy(apiKey: string, projectId: string): Promis
 	});
 }
 
+/**
+ * What `POST /v1/projects/:id/site/seed` did: the template's published
+ * content went into the project's CMS, the template published none (its
+ * components carry the copy inline), or the project already had content.
+ */
+export type SiteSeedOutcome =
+	| { status: 'seeded'; locales: string[]; layouts: number; pages: number; site: boolean }
+	| { status: 'no-content' }
+	| { status: 'already-seeded' };
+
+/**
+ * Fill a linked project's hosted CMS from its template's content manifest,
+ * at the registry version `vela create` unpacked. Every language the template
+ * ships is enabled; the owner can drop one from the admin bar.
+ */
+export async function seedSite(
+	apiKey: string,
+	projectId: string,
+	input: { template: string; version?: string }
+): Promise<SiteSeedOutcome> {
+	return apiFetch<SiteSeedOutcome>(apiKey, `/v1/projects/${projectId}/site/seed`, {
+		method: 'POST',
+		body: JSON.stringify(input)
+	});
+}
+
 export async function destroyEnvironment(
 	apiKey: string,
 	projectId: string,

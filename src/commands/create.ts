@@ -15,6 +15,7 @@ import {
 	listAllTemplates,
 	resolveTemplate,
 	templateChoicesMessage,
+	type RemoteTemplate,
 	type TemplateInfo,
 	type TemplateListing
 } from '../lib/templates.ts';
@@ -44,9 +45,10 @@ import {
 	normalizeCmsUrl,
 	type CreateLinkOutcome,
 	type LinkDecision,
-	type LinkedProject
+	type LinkedProject,
+	type SeedReport
 } from '../lib/link-on-create.ts';
-import { linkExistingProject, linkNewProject } from '../lib/link-project.ts';
+import { linkExistingProject, linkNewProject, seedLinkedProject } from '../lib/link-project.ts';
 import { writeProjectConfig } from '../lib/project-config.ts';
 import { loginInteractively } from './login.ts';
 
@@ -389,10 +391,35 @@ async function linkOnCreate(
 			outcome.cmsEndpoint = cmsEndpointFor(linked.projectId);
 			outcome.cmsSource = 'linked';
 			p.log.success(`CMS: ${outcome.cmsEndpoint}`);
+			outcome.seed = await seedCms(apiKey ?? requireApiKey(), linked, template);
 		}
 	}
 
 	return outcome;
+}
+
+/**
+ * Fill the linked project's CMS from the template's published content, so the
+ * site opens with real copy in the admin bar. A registry template only: its
+ * entry names the version whose copy the tarball carries inline. A failure is
+ * reported and `create` carries on.
+ */
+async function seedCms(
+	apiKey: string,
+	linked: LinkedProject,
+	template: TemplateInfo
+): Promise<SeedReport | undefined> {
+	if (template.source !== 'remote') return undefined;
+	const version = (template as RemoteTemplate).entry.version;
+	const seed = await seedLinkedProject(apiKey, linked.projectId, { name: template.name, version });
+	if (seed.status === 'seeded') {
+		p.log.success(`CMS content loaded (${seed.locales.join(', ')})`);
+	} else if (seed.status === 'already-seeded') {
+		p.log.info('The CMS already has content; left as it is.');
+	} else if (seed.status === 'failed') {
+		p.log.warn(`Could not load the template's content into the CMS: ${seed.error}`);
+	}
+	return seed;
 }
 
 type CmsPromptChoice = { kind: 'login' } | { kind: 'url'; url: string } | { kind: 'skip' };
