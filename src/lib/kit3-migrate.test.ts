@@ -39,6 +39,71 @@ function fakeSv(results: Array<{ code: number; output: string }> = []) {
 	return { calls, runner };
 }
 
+/**
+ * An sv that does to the project what sv 1.0.1 did to velastack.dev: writes
+ * these files (null deletes one), then succeeds.
+ */
+function svThatWrites(dir: string, files: Record<string, string | null>): SvRunner {
+	return async () => {
+		for (const [rel, content] of Object.entries(files)) {
+			const file = path.join(dir, rel);
+			if (content === null) fs.rmSync(file, { force: true });
+			else {
+				fs.mkdirSync(path.dirname(file), { recursive: true });
+				fs.writeFileSync(file, content);
+			}
+		}
+		return { code: 0, output: '' };
+	};
+}
+
+/** velastack.dev's svelte.config at 24c9a86 (its last SvelteKit 2 commit), trimmed. */
+const VELASTACK_SVELTE_CONFIG = `import adapter from '@sveltejs/adapter-node';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+
+/** @type {import('@sveltejs/kit').Config} */
+const config = {
+	extensions: ['.svelte', '.svx'],
+	preprocess: [vitePreprocess()],
+
+	kit: {
+		alias: {
+			$locales: 'src/locales'
+		},
+		adapter: adapter(),
+		csrf: { trustedOrigins: ['*'] },
+		// Prerendering has no request to take an origin from, so without this the
+		// canonical, og:url and hreflang links on every prerendered page are built
+		// from SvelteKit's placeholder host. \`vela build\` sets it from the domain
+		// this target is deployed on; unset, SvelteKit's default stands.
+		...(process.env.VELA_ORIGIN ? { prerender: { origin: process.env.VELA_ORIGIN } } : {})
+	}
+};
+
+export default config;
+`;
+
+/** What sv 1.0.1 made of it: the config inline, the spread gone. */
+const VELASTACK_VITE_AFTER_SV = `import adapter from '@sveltejs/adapter-node';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+import { defineConfig } from 'vite';
+import tailwindcss from '@tailwindcss/vite';
+import { sveltekit } from '@sveltejs/kit/vite';
+
+export default defineConfig({
+	plugins: [
+		tailwindcss(),
+		sveltekit({
+			extensions: ['.svelte', '.svx'],
+			preprocess: [vitePreprocess()],
+			alias: { $locales: 'src/locales' },
+			adapter: adapter(),
+			csrf: { trustedOrigins: ['*'] }
+		})
+	]
+});
+`;
+
 const base: Kit3MigrationOptions = {
 	install: false,
 	log: silent,
@@ -264,6 +329,56 @@ describe('sv parser failure', () => {
 		await expect(
 			runKit3Migration(dir, { ...base, gitCheck: false, runSv: sv.runner })
 		).rejects.toThrow(/sv migrate sveltekit-3 failed/);
+	});
+});
+
+describe('svelte.config spreads', () => {
+	test('velastack.dev: the origin sv dropped is restored as paths.origin, other spreads are follow-ups', async () => {
+		const dir = fixture('minimal', { git: true });
+		fs.writeFileSync(
+			path.join(dir, 'svelte.config.js'),
+			VELASTACK_SVELTE_CONFIG.replace(
+				'\t\tcsrf:',
+				'\t\t...(process.env.CSP ? { csp: { mode: "auto" } } : {}),\n\t\tcsrf:'
+			)
+		);
+		commitAll(dir, 'svelte.config');
+		const runSv = svThatWrites(dir, {
+			'svelte.config.js': null,
+			'vite.config.ts': VELASTACK_VITE_AFTER_SV
+		});
+		const first = await runKit3Migration(dir, { ...base, runSv });
+
+		const vite = fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8');
+		expect(vite).toContain(
+			[
+				"\t\t\tcsrf: { trustedOrigins: ['*'] },",
+				'\t\t\t// The public origin, which SvelteKit checks form posts against and uses',
+				'\t\t\t// for prerendered pages. `vela deploy` sets VELA_ORIGIN, and the value is',
+				'\t\t\t// baked in at build time. It is left unset for a deploy that serves more',
+				"\t\t\t// than one host, where each request's own origin is used instead.",
+				'\t\t\t...(process.env.VELA_ORIGIN ? { paths: { origin: process.env.VELA_ORIGIN } } : {})'
+			].join('\n')
+		);
+		expect(vite).not.toContain('prerender:');
+		expect(first.fixups.find((f) => f.name === 'origin')!.details[0]).toMatch(
+			/restored the origin sv dropped from svelte\.config\.js/
+		);
+		expect(first.sv.dropped).toEqual([
+			{ file: 'svelte.config.js', text: '...(process.env.CSP ? { csp: { mode: "auto" } } : {})' }
+		]);
+		const dropped = first.followUps.filter((item) => item.includes('sv dropped'));
+		expect(dropped).toEqual([
+			'`svelte.config.js`: sv dropped `...(process.env.CSP ? { csp: { mode: "auto" } } : {})` when it moved the config into `sveltekit({...})` (it skips spread properties). Add it back there if it is still needed.'
+		]);
+
+		// The second run cannot see svelte.config any more, and keeps the item.
+		commitAll(dir, 'migrated');
+		const before = snapshot(dir);
+		const again = await runKit3Migration(dir, { ...base, runSv });
+		expect(again.mode).toBe('repair');
+		expect(again.followUps).toEqual(expect.arrayContaining(dropped));
+		expect(snapshot(dir)).toEqual(before);
 	});
 });
 

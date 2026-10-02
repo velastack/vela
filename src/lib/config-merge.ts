@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
 	Node,
+	Project,
 	SyntaxKind,
 	ts,
 	type ObjectLiteralExpression,
@@ -105,6 +106,8 @@ interface OriginSource {
 	value: string;
 	/** The top-level spread or `prerender` property it lives in, for placing its replacement. */
 	anchor: Node;
+	/** The element that sets the origin itself, whose comments describe it. */
+	node: Node;
 	remove: () => void;
 }
 
@@ -124,20 +127,40 @@ interface OriginSource {
  * the stale `prerender.origin` is removed, and the reason says which was kept.
  * Running it again changes nothing.
  */
-export function mergeOriginConfig(root: string): MergeOutcome {
+export function mergeOriginConfig(root: string, options: OriginMergeOptions = {}): MergeOutcome {
 	const svelteConfig = findSvelteConfig(root);
 	if (svelteConfig) return svelteConfigOutcome(svelteConfig);
 
 	const vite = inspectViteSveltekit(root);
-	if (!vite?.inlineArg) {
+	const carry = options.carry;
+	let arg = vite?.inlineArg ?? null;
+	if (vite && !arg && carry && !vite.nonObjectArg) arg = createSveltekitArg(vite);
+	if (!vite || !arg) {
 		return {
 			applied: false,
 			reason: 'no sveltekit({...}) config, so no prerender.origin to move',
-			file: vite ? path.basename(vite.filePath) : undefined
+			file: vite ? path.basename(vite.filePath) : undefined,
+			...(carry ? { snippet: carry.text } : {})
 		};
 	}
 	const file = path.basename(vite.filePath);
-	const arg = vite.inlineArg;
+
+	// sv dropped it from svelte.config: put it back where sv put the rest, then
+	// move it like any other. Only when nothing in the config sets an origin
+	// now; sv moves a literal `prerender.origin` itself.
+	let carried = false;
+	if (carry && !configSetsOrigin(arg)) {
+		if (carry.isPrerenderProperty && arg.getProperty('prerender')) {
+			return {
+				applied: false,
+				reason: `sv dropped the origin from ${carry.from}, and the config already has a \`prerender\` object to merge it into; add it to paths.origin by hand`,
+				snippet: carry.text,
+				file
+			};
+		}
+		arg.addProperty(carry.text);
+		carried = true;
+	}
 
 	const sources = findPrerenderOrigins(arg);
 	const pathsProp = arg.getProperty('paths');
@@ -183,6 +206,16 @@ export function mergeOriginConfig(root: string): MergeOutcome {
 		? `...(${source!.condition} ? { paths: { origin: ${source!.value} } } : {})`
 		: `paths: { origin: ${source!.value} }`;
 	const index = arg.getProperties().indexOf(source!.anchor as never);
+	// A comment above the old origin that explains it in prerender's terms
+	// goes with it; the new one says what paths.origin does.
+	const staleComment = sources.some((s) => mentionsPrerender(s.node));
+	// ts-morph removes a node but not the comments above it, which would be
+	// left describing nothing. The spread swapped in place keeps its own.
+	const inPlace =
+		!hasPathsOrigin && !paths && Node.isSpreadAssignment(source!.anchor) ? source : undefined;
+	const orphaned = sources
+		.filter((s) => s !== inPlace)
+		.flatMap((s) => s.node.getLeadingCommentRanges().map((c) => c.getText()));
 
 	if (hasPathsOrigin) {
 		for (const s of sources) s.remove();
@@ -216,14 +249,190 @@ export function mergeOriginConfig(root: string): MergeOutcome {
 		}
 	}
 
+	// Not above a `paths` object the origin went into: that comment is the project's.
+	if (staleComment && !hasPathsOrigin && !paths) {
+		const target = arg.getProperties().find((p) => isOriginElement(p));
+		if (target) setOriginComment(target);
+	}
+	if (orphaned.length > 0) {
+		let text = vite.sourceFile.getFullText();
+		for (const comment of orphaned) {
+			text = text.replace(new RegExp(String.raw`\n[\t ]*${escapeRegExp(comment)}[\t ]*(?=\n)`), '');
+		}
+		vite.sourceFile.replaceWithText(text);
+	}
+
 	vite.sourceFile.saveSync();
+	const moved = hasPathsOrigin
+		? 'removed prerender.origin, which SvelteKit 3 no longer accepts; kept the existing paths.origin'
+		: 'moved prerender.origin to paths.origin';
 	return {
 		applied: true,
-		reason: hasPathsOrigin
-			? 'removed prerender.origin, which SvelteKit 3 no longer accepts; kept the existing paths.origin'
-			: 'moved prerender.origin to paths.origin',
+		reason: carried ? `restored the origin sv dropped from ${carry!.from}, and ${moved}` : moved,
 		file
 	};
+}
+
+export interface OriginMergeOptions {
+	/** An origin sv dropped from svelte.config, to restore before the move. */
+	carry?: CarriedOrigin;
+}
+
+export interface CarriedOrigin {
+	/** svelte.config's basename. */
+	from: string;
+	/** The `kit` property or spread that set it, with its leading comments. */
+	text: string;
+	/** It is a whole `prerender: {...}` property rather than a spread. */
+	isPrerenderProperty: boolean;
+}
+
+/** Whether anything in the inline config sets `paths.origin` or `prerender.origin`. */
+function configSetsOrigin(arg: ObjectLiteralExpression): boolean {
+	const prerender = findPrerenderOrigins(arg);
+	if (prerender === 'unsupported' || prerender.length > 0) return true;
+	return arg.getProperties().some((p) => {
+		if (Node.isPropertyAssignment(p) && p.getName() === 'paths') {
+			const paths = p.getInitializerIfKind(SyntaxKind.ObjectLiteralExpression);
+			return paths !== undefined && hasOrigin(paths);
+		}
+		const spread = conditionalSpreadOf(p, 'paths');
+		return spread !== undefined && hasOrigin(spread.object);
+	});
+}
+
+/** The `paths` property or `...(cond ? { paths: {...} } : {})` spread that sets the origin. */
+function isOriginElement(element: Node): boolean {
+	if (Node.isPropertyAssignment(element) && element.getName() === 'paths') return true;
+	return conditionalSpreadOf(element, 'paths') !== undefined;
+}
+
+/**
+ * What the templates say above `paths.origin`. It replaces a comment written
+ * for `prerender.origin`, which described only half of what the option now does.
+ */
+export const ORIGIN_COMMENT = [
+	'The public origin, which SvelteKit checks form posts against and uses',
+	'for prerendered pages. `vela deploy` sets VELA_ORIGIN, and the value is',
+	'baked in at build time. It is left unset for a deploy that serves more',
+	"than one host, where each request's own origin is used instead."
+];
+
+function escapeRegExp(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function mentionsPrerender(node: Node): boolean {
+	return node.getLeadingCommentRanges().some((c) => /prerender/i.test(c.getText()));
+}
+
+/** Replace the comments right above `node` with ORIGIN_COMMENT, or add it. */
+function setOriginComment(node: Node): void {
+	const sourceFile = node.getSourceFile();
+	const full = sourceFile.getFullText();
+	const start = node.getStart();
+	const lineStart = full.lastIndexOf('\n', start - 1) + 1;
+	const indent = full.slice(lineStart, start).match(/^[\t ]*/)![0];
+	const comment = ORIGIN_COMMENT.map((line) => `// ${line}`).join(`\n${indent}`);
+	const ranges = node.getLeadingCommentRanges();
+	if (ranges.length > 0) {
+		sourceFile.replaceText([ranges[0]!.getPos(), ranges.at(-1)!.getEnd()], comment);
+	} else {
+		sourceFile.insertText(start, `${comment}\n${indent}`);
+	}
+}
+
+/**
+ * What `sv migrate` loses from a svelte.config: the spread properties at its
+ * top level and in `kit` (sv copies every other property into
+ * `sveltekit({...})`, but skips spreads there without a word), among them
+ * vela's `...(process.env.VELA_ORIGIN ? { prerender: { origin } } : {})`.
+ */
+export interface SvelteConfigCapture {
+	/** svelte.config's basename. */
+	file: string;
+	/** Where the config sets `prerender.origin`, for mergeOriginConfig to restore. */
+	origin?: CarriedOrigin;
+	/** Every spread sv drops, verbatim, the origin's among them. */
+	spreads: string[];
+}
+
+/** Read what sv will drop from the project's svelte.config, or null without one. */
+export function captureSvelteConfig(root: string): SvelteConfigCapture | null {
+	const filePath = findSvelteConfig(root);
+	if (!filePath) return null;
+	const file = path.basename(filePath);
+	const capture: SvelteConfigCapture = { file, spreads: [] };
+	let config: ObjectLiteralExpression | undefined;
+	try {
+		const project = new Project({ compilerOptions: { allowJs: true } });
+		config = configObject(project.addSourceFileAtPath(filePath));
+	} catch {
+		return capture;
+	}
+	if (!config) return capture;
+
+	const kitProp = config.getProperty('kit');
+	const kit = Node.isPropertyAssignment(kitProp)
+		? kitProp.getInitializerIfKind(SyntaxKind.ObjectLiteralExpression)
+		: undefined;
+	for (const object of [config, kit]) {
+		for (const element of object?.getProperties() ?? []) {
+			if (Node.isSpreadAssignment(element)) capture.spreads.push(element.getText());
+		}
+	}
+	if (!kit) return capture;
+
+	for (const element of kit.getProperties()) {
+		const spread = conditionalSpreadOf(element, 'prerender');
+		const isPrerender = Node.isPropertyAssignment(element) && element.getName() === 'prerender';
+		if (!(spread && hasOrigin(spread.object)) && !isPrerender) continue;
+		if (isPrerender) {
+			const prerender = element.getInitializerIfKind(SyntaxKind.ObjectLiteralExpression);
+			if (!prerender || !hasOrigin(prerender)) continue;
+		}
+		capture.origin = { from: file, text: withComments(element), isPrerenderProperty: isPrerender };
+		break;
+	}
+	return capture;
+}
+
+/** `node`'s text with the comments right above it, each line's indentation removed. */
+function withComments(node: Node): string {
+	const ranges = node.getLeadingCommentRanges();
+	const start = ranges[0]?.getPos() ?? node.getStart();
+	return node
+		.getSourceFile()
+		.getFullText()
+		.slice(start, node.getEnd())
+		.split('\n')
+		.map((line) => line.trim())
+		.join('\n');
+}
+
+/** The object a config file exports by default: `export default config`, `{...}` or `defineConfig({...})`. */
+function configObject(
+	sourceFile: import('ts-morph').SourceFile
+): ObjectLiteralExpression | undefined {
+	const exported = sourceFile.getExportAssignment((e) => !e.isExportEquals())?.getExpression();
+	let node: Node | undefined = exported;
+	for (let depth = 0; node && depth < 5; depth++) {
+		if (Node.isObjectLiteralExpression(node)) return node;
+		if (
+			Node.isParenthesizedExpression(node) ||
+			Node.isSatisfiesExpression(node) ||
+			Node.isAsExpression(node)
+		) {
+			node = node.getExpression();
+		} else if (Node.isCallExpression(node)) {
+			node = node.getArguments()[0];
+		} else if (Node.isIdentifier(node)) {
+			node = sourceFile.getVariableDeclaration(node.getText())?.getInitializer();
+		} else {
+			return undefined;
+		}
+	}
+	return undefined;
 }
 
 function unwrap(node: Node): Node {
@@ -294,6 +503,7 @@ function findPrerenderOrigins(arg: ObjectLiteralExpression): OriginSource[] | 'u
 				condition: spread.condition,
 				value,
 				anchor: element,
+				node: element,
 				remove: () => element.remove()
 			});
 			continue;
@@ -316,6 +526,7 @@ function findPrerenderOrigins(arg: ObjectLiteralExpression): OriginSource[] | 'u
 					condition: conditional.condition,
 					value,
 					anchor: element,
+					node: inner,
 					remove: removeFromPrerender(inner as SpreadAssignment)
 				});
 				continue;
@@ -330,6 +541,7 @@ function findPrerenderOrigins(arg: ObjectLiteralExpression): OriginSource[] | 'u
 				sources.push({
 					value,
 					anchor: element,
+					node: inner,
 					remove: removeFromPrerender(inner as PropertyAssignment)
 				});
 			}

@@ -3,8 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import {
+	captureSvelteConfig,
 	mergeGitignore,
 	mergeOriginConfig,
+	ORIGIN_COMMENT,
 	mergeSvelteConfig,
 	mergeTsconfig,
 	mergeViteConfig
@@ -335,6 +337,96 @@ describe('mergeOriginConfig', () => {
 		expect(read('vite.config.ts')).toBe(viteWith('{ adapter: adapter() }'));
 	});
 
+	test('a comment written for prerender.origin is replaced with the paths.origin one', () => {
+		const velabase = KIT2_MINIMAL_VITE.replace(
+			'\t\t\t...(process.env.VELA_ORIGIN',
+			[
+				'\t\t\t// Prerendering has no request to take an origin from, so without this the',
+				"\t\t\t// canonical links are built from SvelteKit's placeholder host.",
+				'\t\t\t...(process.env.VELA_ORIGIN'
+			].join('\n')
+		);
+		write('vite.config.ts', velabase);
+		const { after } = mergeOriginTwice();
+		expect(after).not.toContain('Prerendering has no request');
+		expect(after).toContain(
+			`\t\t\t${ORIGIN_COMMENT.map((l) => `// ${l}`).join('\n\t\t\t')}\n\t\t\t${ORIGIN_SPREAD}\n`
+		);
+	});
+
+	test('a comment about something else stays', () => {
+		const commented = KIT2_MINIMAL_VITE.replace(
+			'\t\t\t...(process.env.VELA_ORIGIN',
+			'\t\t\t// Set by vela build.\n\t\t\t...(process.env.VELA_ORIGIN'
+		);
+		write('vite.config.ts', commented);
+		const { after } = mergeOriginTwice();
+		expect(after).toContain(`\t\t\t// Set by vela build.\n\t\t\t${ORIGIN_SPREAD}\n`);
+	});
+
+	test('the static template: a prerender comment on the inner spread does not stay behind', () => {
+		write(
+			'vite.config.ts',
+			KIT2_STATIC_VITE.replace(
+				'\t\t\t\t...(process.env.VELA_ORIGIN',
+				'\t\t\t\t// The origin prerendered pages are built for.\n\t\t\t\t...(process.env.VELA_ORIGIN'
+			)
+		);
+		const { after } = mergeOriginTwice();
+		expect(after).not.toContain('The origin prerendered pages are built for');
+		expect(after).toContain(`// ${ORIGIN_COMMENT[0]}`);
+		expect(after).toContain('handleHttpError');
+	});
+
+	test('restores an origin sv dropped from svelte.config', () => {
+		write(
+			'vite.config.ts',
+			viteWith('{\n\tadapter: adapter(),\n\tcsrf: { trustedOrigins: [] }\n}')
+		);
+		const carry = {
+			from: 'svelte.config.js',
+			text: '// Prerendering has no request to take an origin from.\n...(process.env.VELA_ORIGIN ? { prerender: { origin: process.env.VELA_ORIGIN } } : {})',
+			isPrerenderProperty: false
+		};
+		const first = mergeOriginConfig(tmp, { carry });
+		expect(first).toMatchObject({ applied: true, file: 'vite.config.ts' });
+		expect(first.reason).toMatch(/restored the origin sv dropped from svelte\.config\.js/);
+		const after = read('vite.config.ts');
+		expect(after).toContain(`\t// ${ORIGIN_COMMENT[0]}`);
+		expect(after).toContain(`\t${ORIGIN_SPREAD}\n}`);
+		expect(after).not.toContain('Prerendering has no request');
+		expect(after).not.toContain('prerender:');
+		// Once there, it is not added again.
+		expect(mergeOriginConfig(tmp, { carry }).applied).toBe(false);
+		expect(read('vite.config.ts')).toBe(after);
+	});
+
+	test('does not restore an origin sv already moved', () => {
+		const vite = viteWith(`{\n\tpaths: { origin: 'https://example.com' }\n}`);
+		write('vite.config.ts', vite);
+		const carry = {
+			from: 'svelte.config.js',
+			text: `prerender: { origin: 'https://example.com' }`,
+			isPrerenderProperty: true
+		};
+		expect(mergeOriginConfig(tmp, { carry }).applied).toBe(false);
+		expect(read('vite.config.ts')).toBe(vite);
+	});
+
+	test('restores into a bare sveltekit() call', () => {
+		write(
+			'vite.config.ts',
+			`import { sveltekit } from '@sveltejs/kit/vite';\nexport default { plugins: [sveltekit()] };\n`
+		);
+		const carry = {
+			from: 'svelte.config.js',
+			text: '...(process.env.VELA_ORIGIN ? { prerender: { origin: process.env.VELA_ORIGIN } } : {})',
+			isPrerenderProperty: false
+		};
+		expect(mergeOriginConfig(tmp, { carry }).applied).toBe(true);
+		expect(read('vite.config.ts')).toContain(ORIGIN_SPREAD);
+	});
+
 	test('a svelte.config gets the migrate command, not an edit', () => {
 		write('vite.config.ts', KIT2_MINIMAL_VITE);
 		write('svelte.config.js', `export default {};\n`);
@@ -514,5 +606,99 @@ describe('mergeGitignore', () => {
 		const result = mergeGitignore(filePath);
 		expect(result.applied).toBe(false);
 		expect(fs.readFileSync(filePath, 'utf8')).toBe(before);
+	});
+});
+
+/** velastack.dev's svelte.config before its SvelteKit 3 migration, trimmed of mdsvex. */
+const VELASTACK_SVELTE_CONFIG = `import adapter from '@sveltejs/adapter-node';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+
+/** @type {import('@sveltejs/kit').Config} */
+const config = {
+	extensions: ['.svelte', '.svx'],
+	preprocess: [vitePreprocess()],
+
+	kit: {
+		alias: {
+			$locales: 'src/locales'
+		},
+		adapter: adapter(),
+		csrf: { trustedOrigins: ['*'] },
+		// Prerendering has no request to take an origin from, so without this the
+		// canonical, og:url and hreflang links on every prerendered page are built
+		// from SvelteKit's placeholder host.
+		...(process.env.VELA_ORIGIN ? { prerender: { origin: process.env.VELA_ORIGIN } } : {})
+	}
+};
+
+export default config;
+`;
+
+describe('captureSvelteConfig', () => {
+	test("velastack.dev's config: the origin spread and its comment", () => {
+		write('svelte.config.js', VELASTACK_SVELTE_CONFIG);
+		const capture = captureSvelteConfig(tmp)!;
+		expect(capture.file).toBe('svelte.config.js');
+		expect(capture.spreads).toEqual([
+			'...(process.env.VELA_ORIGIN ? { prerender: { origin: process.env.VELA_ORIGIN } } : {})'
+		]);
+		expect(capture.origin).toEqual({
+			from: 'svelte.config.js',
+			isPrerenderProperty: false,
+			text: [
+				'// Prerendering has no request to take an origin from, so without this the',
+				'// canonical, og:url and hreflang links on every prerendered page are built',
+				"// from SvelteKit's placeholder host.",
+				'...(process.env.VELA_ORIGIN ? { prerender: { origin: process.env.VELA_ORIGIN } } : {})'
+			].join('\n')
+		});
+	});
+
+	test('then restored after sv into the inline config sv wrote', () => {
+		write('svelte.config.js', VELASTACK_SVELTE_CONFIG);
+		const capture = captureSvelteConfig(tmp)!;
+		fs.rmSync(path.join(tmp, 'svelte.config.js'));
+		// What sv 1.0.1 writes for it: everything but the spread.
+		write(
+			'vite.config.ts',
+			viteWith(
+				`{\n\textensions: ['.svelte', '.svx'],\n\tpreprocess: [vitePreprocess()],\n\talias: { $locales: 'src/locales' },\n\tadapter: adapter(),\n\tcsrf: { trustedOrigins: ['*'] }\n}`
+			)
+		);
+		expect(mergeOriginConfig(tmp, { carry: capture.origin }).applied).toBe(true);
+		const after = read('vite.config.ts');
+		expect(after).toContain(`\tcsrf: { trustedOrigins: ['*'] },\n\t// ${ORIGIN_COMMENT[0]}`);
+		expect(after).toContain(ORIGIN_SPREAD);
+	});
+
+	test('top-level and kit spreads, a literal origin, defineConfig and satisfies', () => {
+		write(
+			'svelte.config.ts',
+			`import type { Config } from '@sveltejs/kit';
+const extra = {};
+export default {
+	...extra,
+	kit: {
+		paths: { ...(process.env.X ? { relative: false } : {}) },
+		prerender: { origin: 'https://example.com', entries: ['*'] },
+		...(process.env.CSP ? { csp: {} } : {})
+	}
+} satisfies Config;
+`
+		);
+		const capture = captureSvelteConfig(tmp)!;
+		// Nested spreads survive sv, so only these two are lost.
+		expect(capture.spreads).toEqual(['...extra', '...(process.env.CSP ? { csp: {} } : {})']);
+		expect(capture.origin).toEqual({
+			from: 'svelte.config.ts',
+			isPrerenderProperty: true,
+			text: `prerender: { origin: 'https://example.com', entries: ['*'] }`
+		});
+	});
+
+	test('no svelte.config is null; one that is not an object literal captures nothing', () => {
+		expect(captureSvelteConfig(tmp)).toBeNull();
+		write('svelte.config.js', `import config from './shared.js';\nexport default make(config);\n`);
+		expect(captureSvelteConfig(tmp)).toEqual({ file: 'svelte.config.js', spreads: [] });
 	});
 });

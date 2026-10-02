@@ -16,7 +16,12 @@ import {
 	VELASTACK_KIT,
 	VELASTACK_POCKETBASE
 } from '@velastack/patterns';
-import { mergeOriginConfig, mergeTsconfig } from './config-merge.ts';
+import {
+	captureSvelteConfig,
+	mergeOriginConfig,
+	mergeTsconfig,
+	type SvelteConfigCapture
+} from './config-merge.ts';
 import { inspectViteSveltekit } from './config-target.ts';
 import { kitStatus } from './kit-version.ts';
 import {
@@ -58,7 +63,9 @@ import pkg from '../../package.json' with { type: 'json' };
  * - it only flags `goto` `noScroll`/`keepFocus` and `invalidateAll`, and
  *   misses `vi.doMock('$app/environment')` (kit3-rewrites.ts);
  * - it drops spread properties from svelte.config, vela's origin among them,
- *   and never touches an inline `prerender.origin` (mergeOriginConfig);
+ *   so the origin is read before sv runs and restored after (every other
+ *   dropped spread is a follow-up), and it never touches an inline
+ *   `prerender.origin` (mergeOriginConfig);
  * - it rewrites `$lib` under `src/` only (lib-rewrite.ts);
  * - it leaves a Kit 2 lockfile that makes the next install fail ERESOLVE.
  *
@@ -150,6 +157,8 @@ export interface SvSummary {
 	excluded: string[];
 	/** Output directories removed before sv ran. */
 	cleared: string[];
+	/** Spread properties sv dropped from svelte.config (and vela did not restore), verbatim. */
+	dropped: Array<{ file: string; text: string }>;
 }
 
 export interface Fixup {
@@ -199,7 +208,8 @@ export async function runKit3Migration(
 	// Files already changed are the user's; the formatting pass leaves them alone.
 	const dirtyBefore = new Set(gitDirty(root) ?? []);
 
-	const sv: SvSummary = { ran: false, failures: [], excluded: [], cleared: [] };
+	const sv: SvSummary = { ran: false, failures: [], excluded: [], cleared: [], dropped: [] };
+	let svelteConfig: SvelteConfigCapture | null = null;
 	if (mode === 'repair') {
 		sv.skipped = 'SvelteKit 3 already, with no svelte.config: running only the vela steps';
 		log.info('Already on SvelteKit 3: skipping sv and re-checking the vela steps.');
@@ -209,6 +219,8 @@ export async function runKit3Migration(
 	} else {
 		log.step('Running sv migrate sveltekit-3...');
 		sv.cleared = clearOutputDirs(root, log);
+		// What sv is about to drop without a word, read while it is still there.
+		svelteConfig = captureSvelteConfig(root);
 		await runSv(root, options.runSv ?? defaultSvRunner, quiet, sv, log);
 		sv.ran = true;
 	}
@@ -216,7 +228,7 @@ export async function runKit3Migration(
 	log.step('Applying the vela steps...');
 	const cliVersion = options.cliVersion ?? pkg.version;
 	const fixups: Fixup[] = [
-		originFixup(root),
+		originFixup(root, svelteConfig, sv),
 		await envFixup(root),
 		libFixup(root, sv.excluded),
 		codeFixup(root),
@@ -552,14 +564,25 @@ function fixup(name: string): Fixup {
 	return { name, changed: false, details: [], warnings: [] };
 }
 
-function originFixup(root: string): Fixup {
+/**
+ * `prerender.origin` → `paths.origin`. sv skips spread properties when it
+ * moves svelte.config into vite.config, vela's origin spread among them, so
+ * that one is restored first; every other spread it dropped is a follow-up.
+ */
+function originFixup(root: string, capture: SvelteConfigCapture | null, sv: SvSummary): Fixup {
 	const f = fixup('origin');
-	const outcome = mergeOriginConfig(root);
+	const carry = capture?.origin;
+	const outcome = mergeOriginConfig(root, { carry });
 	if (outcome.applied) {
 		f.changed = true;
 		f.details.push(`${outcome.file}: ${outcome.reason}`);
 	} else if (outcome.snippet) {
 		f.warnings.push(`${outcome.file ?? 'vite.config'}: ${outcome.reason}\n${outcome.snippet}`);
+	}
+	const lost = Boolean(carry && !outcome.applied && outcome.snippet);
+	for (const text of capture?.spreads ?? []) {
+		if (carry && !lost && carry.text.endsWith(text)) continue;
+		sv.dropped.push({ file: capture!.file, text });
 	}
 	return f;
 }
@@ -823,6 +846,12 @@ function collectFollowUps(root: string, sv: SvSummary): string[] {
 	const items: string[] = [];
 	const files = [...sourceFiles(path.join(root, 'src')), ...sourceFiles(path.join(root, 'test'))];
 
+	for (const spread of sv.dropped) {
+		items.push(
+			`${code(spread.file)}: sv dropped ${code(spread.text)} when it moved the config into \`sveltekit({...})\` (it skips spread properties). Add it back there if it is still needed.`
+		);
+	}
+
 	for (const failure of sv.failures) {
 		if (failure.file) {
 			items.push(
@@ -891,9 +920,9 @@ function collectFollowUps(root: string, sv: SvSummary): string[] {
 	return items;
 }
 
-const SV_FAILURE_ITEM = /sv's `[^`]+` task (could not parse it|failed)/;
+const SV_FAILURE_ITEM = /sv's `[^`]+` task (could not parse it|failed)|: sv dropped `/;
 
-/** Items about sv's own failures from the follow-ups an earlier run wrote. */
+/** Items about what sv failed at or dropped, from the follow-ups an earlier run wrote. */
 function previousSvFollowUps(root: string): string[] {
 	const file = path.join(root, MIGRATION_TASKS_FILE);
 	if (!fs.existsSync(file)) return [];
