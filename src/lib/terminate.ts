@@ -28,3 +28,23 @@ export function onTerminate(cleanup: () => void, proc: ProcessLike = process): v
 		});
 	}
 }
+
+interface ChildLike {
+	readonly pid?: number;
+	readonly exitCode: number | null;
+	readonly signalCode: NodeJS.Signals | null;
+	kill(signal?: NodeJS.Signals): boolean;
+}
+
+/**
+ * Stop a child process that is still running. One that never started, or has
+ * already exited, is left alone.
+ *
+ * A supervisor's SIGTERM reaches the vela process only, not the children it
+ * spawned (a terminal's Ctrl-C signals the whole process group, which is why
+ * this goes unnoticed there). A child not stopped here outlives vela: `vite
+ * preview` kept its port after `vela preview` was stopped.
+ */
+export function stopChild(child: ChildLike | undefined): void {
+	if (child?.pid && child.exitCode === null && child.signalCode === null) child.kill();
+}

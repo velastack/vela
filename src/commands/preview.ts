@@ -9,7 +9,7 @@ import { x } from 'tinyexec';
 import { detect } from 'package-manager-detector';
 import { resolveCommand } from 'package-manager-detector/commands';
 import { helpConfig } from '../lib/help.ts';
-import { onTerminate } from '../lib/terminate.ts';
+import { onTerminate, stopChild } from '../lib/terminate.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { startPocketbaseServe } from '../lib/pocketbase.ts';
 import { findWorkspaceRoot, hasBackend, localDataDir } from '../lib/workspace.ts';
@@ -37,9 +37,14 @@ export const preview = new Command('preview')
 		// A static project has no PocketBase to start, and no `data` dir to start it from.
 		const needsStart = hasBackend(cwd) && !process.env.POCKETBASE_URL;
 
+		let viteProc: ChildProcess | undefined;
 		const cleanup = () => {
-			if (pbProc?.pid) pbProc.kill();
+			stopChild(pbProc);
+			stopChild(viteProc);
 		};
+		// Whether or not PocketBase starts: `vite preview` is a child too, and a
+		// SIGTERM sent to vela alone would otherwise leave it running.
+		onTerminate(cleanup);
 
 		if (needsStart) {
 			const dataDir = path.join(cwd, DATA_DIR);
@@ -51,8 +56,6 @@ export const preview = new Command('preview')
 			});
 			pbProc = started.proc;
 			process.env.POCKETBASE_URL = started.url;
-
-			onTerminate(cleanup);
 		}
 
 		try {
@@ -60,10 +63,12 @@ export const preview = new Command('preview')
 			const resolved = resolveCommand(pm, 'execute', ['vite', 'preview'])!;
 			const args = resolved.args.slice();
 			if (pm === 'npm') args.unshift('--yes');
-			await x(resolved.command, args, {
+			const vite = x(resolved.command, args, {
 				nodeOptions: { cwd, stdio: 'inherit' },
 				throwOnError: true
 			});
+			viteProc = vite.process;
+			await vite;
 		} finally {
 			cleanup();
 		}

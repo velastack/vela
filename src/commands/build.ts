@@ -17,7 +17,7 @@ import { loadDeployConfig } from '../lib/deploy-config.ts';
 import { bindingKey, parseTarget, PRODUCTION_TARGET } from '../lib/target.ts';
 import { resolveOrigin } from '../lib/origin.ts';
 import { warnIfKit2 } from '../lib/kit-version.ts';
-import { onTerminate } from '../lib/terminate.ts';
+import { onTerminate, stopChild } from '../lib/terminate.ts';
 
 /** Where SvelteKit leaves the pages it rendered at build time. */
 const PRERENDERED_DIR = path.join('.svelte-kit', 'output', 'prerendered');
@@ -41,9 +41,14 @@ export const build = new Command('build')
 		// A static project has no PocketBase to start, and no `data` dir to start it from.
 		const needsStart = hasBackend(cwd) && !process.env.POCKETBASE_URL;
 
+		let viteProc: ChildProcess | undefined;
 		const cleanup = () => {
-			if (pbProc?.pid) pbProc.kill();
+			stopChild(pbProc);
+			stopChild(viteProc);
 		};
+		// Whether or not PocketBase starts: `vite build` is a child too, and a
+		// SIGTERM sent to vela alone would otherwise leave it running.
+		onTerminate(cleanup);
 
 		if (needsStart) {
 			await ensureSuperuser(cwd);
@@ -56,8 +61,6 @@ export const build = new Command('build')
 			});
 			pbProc = started.proc;
 			process.env.POCKETBASE_URL = started.url;
-
-			onTerminate(cleanup);
 		}
 
 		try {
@@ -65,10 +68,12 @@ export const build = new Command('build')
 			const resolved = resolveCommand(pm, 'execute', ['vite', 'build'])!;
 			const args = resolved.args.slice();
 			if (pm === 'npm') args.unshift('--yes');
-			await x(resolved.command, args, {
+			const vite = x(resolved.command, args, {
 				nodeOptions: { cwd, stdio: 'inherit' },
 				throwOnError: true
 			});
+			viteProc = vite.process;
+			await vite;
 		} finally {
 			cleanup();
 		}
