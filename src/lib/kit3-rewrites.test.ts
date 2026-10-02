@@ -2,7 +2,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import { rewriteGotoOptions, rewriteKit3Code, rewriteKit3Source } from './kit3-rewrites.ts';
+import {
+	rewriteGotoOptions,
+	rewriteKit3Code,
+	rewriteKit3Source,
+	rewriteVelaEnvDefaults,
+	rewriteVelaEnvDefaultsSource
+} from './kit3-rewrites.ts';
 
 describe('rewriteGotoOptions', () => {
 	test.each([
@@ -177,5 +183,85 @@ describe('rewriteKit3Code', () => {
 		const first = rewriteKit3Code(dir);
 		expect(first.map((r) => r.file).sort()).toEqual(['src/routes/+page.svelte', 'test/setup.ts']);
 		expect(rewriteKit3Code(dir)).toEqual([]);
+	});
+});
+
+describe('rewriteVelaEnvDefaultsSource', () => {
+	test("vela variables from $app/env/*: ?? <default> → || <default>, ?? '' left alone", () => {
+		const source = [
+			"import { WORKFLOWS_CONCURRENCY, POCKETBASE_URL, TEST as IS_TEST } from '$app/env/private';",
+			"import { STRIPE_SECRET_KEY } from '$app/env/private';",
+			"const url = POCKETBASE_URL ?? '';",
+			'const n = Number(WORKFLOWS_CONCURRENCY ?? 5);',
+			"const testing = (IS_TEST ?? 'false') === 'true';",
+			"const key = STRIPE_SECRET_KEY ?? 'sk_test';",
+			'// WORKFLOWS_CONCURRENCY ?? 5 in a comment',
+			"const sum = 1 + WORKFLOWS_CONCURRENCY ?? '2';",
+			'const chained = WORKFLOWS_CONCURRENCY ?? fallback ?? 5;',
+			''
+		].join('\n');
+		const { code, changes } = rewriteVelaEnvDefaultsSource(source);
+		expect(code).toBe(
+			source
+				.replace('WORKFLOWS_CONCURRENCY ?? 5)', 'WORKFLOWS_CONCURRENCY || 5)')
+				.replace("IS_TEST ?? 'false'", "IS_TEST || 'false'")
+		);
+		expect(changes).toEqual([
+			'line 4: WORKFLOWS_CONCURRENCY ?? 5 → WORKFLOWS_CONCURRENCY || 5',
+			"line 5: IS_TEST ?? 'false' → IS_TEST || 'false'"
+		]);
+		expect(rewriteVelaEnvDefaultsSource(code).code).toBe(code);
+	});
+
+	test('the $env/* aliases and other variables are not touched', () => {
+		const source = [
+			"import { env } from '$env/dynamic/private';",
+			"import { WORKFLOWS_CONCURRENCY } from '$env/static/private';",
+			"import { PUBLIC_CMS_URL } from '$app/env/public';",
+			'const a = Number(env.WORKFLOWS_CONCURRENCY ?? 5);',
+			'const b = Number(WORKFLOWS_CONCURRENCY ?? 5);',
+			"const c = PUBLIC_CMS_URL ?? 'https://cms.test';",
+			''
+		].join('\n');
+		expect(rewriteVelaEnvDefaultsSource(source)).toEqual({ code: source, changes: [] });
+	});
+
+	test('svelte markup and a public import', () => {
+		const source = [
+			'<script lang="ts">',
+			"\timport { TEST } from '$app/env/public';",
+			'</script>',
+			'',
+			"<p>{TEST ?? 'no'}</p>",
+			''
+		].join('\n');
+		expect(rewriteVelaEnvDefaultsSource(source).code).toContain("{TEST || 'no'}");
+	});
+});
+
+describe('rewriteVelaEnvDefaults', () => {
+	let dir: string;
+	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+	test('src only; a second run changes nothing', () => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-env-defaults-'));
+		fs.mkdirSync(path.join(dir, 'src/lib/server'), { recursive: true });
+		fs.mkdirSync(path.join(dir, 'test'), { recursive: true });
+		const source =
+			"import { WORKFLOWS_CONCURRENCY } from '$app/env/private';\nexport const n = Number(WORKFLOWS_CONCURRENCY ?? 5);\n";
+		fs.writeFileSync(path.join(dir, 'src/lib/server/workflows.ts'), source);
+		fs.writeFileSync(path.join(dir, 'test/setup.ts'), source);
+		expect(rewriteVelaEnvDefaults(dir)).toEqual([
+			{
+				file: path.join('src', 'lib', 'server', 'workflows.ts'),
+				changes: ['line 2: WORKFLOWS_CONCURRENCY ?? 5 → WORKFLOWS_CONCURRENCY || 5'],
+				tasks: []
+			}
+		]);
+		expect(fs.readFileSync(path.join(dir, 'src/lib/server/workflows.ts'), 'utf8')).toContain(
+			'Number(WORKFLOWS_CONCURRENCY || 5)'
+		);
+		expect(fs.readFileSync(path.join(dir, 'test/setup.ts'), 'utf8')).toBe(source);
+		expect(rewriteVelaEnvDefaults(dir)).toEqual([]);
 	});
 });

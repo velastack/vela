@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { sourceFiles } from './vela-env.ts';
+import { sourceFiles, VELA_ENV_VARS } from './vela-env.ts';
 
 /**
  * Code changes SvelteKit 3 needs that `sv migrate sveltekit-3` only flags (in
@@ -480,6 +480,83 @@ export function rewriteKit3Code(root: string): CodeRewrite[] {
 		if (code === source) continue;
 		fs.writeFileSync(file, code);
 		results.push({ file: rel, changes, tasks });
+	}
+	return results;
+}
+
+const APP_ENV_IMPORT = /import\s*\{([^}]*)\}\s*from\s*['"]\$app\/env\/(?:private|public)['"]/g;
+const VELA_ENV_NAMES = new Set(VELA_ENV_VARS.map((spec) => spec.name));
+
+/**
+ * Local names a file binds to vela's own variables through `$app/env/private`
+ * or `$app/env/public`. Type-only imports bind no value and are skipped.
+ */
+function velaEnvBindings(source: string): string[] {
+	const locals: string[] = [];
+	for (const match of source.matchAll(APP_ENV_IMPORT)) {
+		if (/^import\s+type\b/.test(match[0])) continue;
+		for (const raw of match[1]!.split(',')) {
+			const spec = raw.trim();
+			if (!spec || spec.startsWith('type ')) continue;
+			const [name, local = name] = spec.split(/\s+as\s+/).map((s) => s.trim()) as [string, string?];
+			if (VELA_ENV_NAMES.has(name)) locals.push(local!);
+		}
+	}
+	return locals;
+}
+
+/**
+ * `X ?? <default>` → `X || <default>` for vela's own variables (POCKETBASE_*,
+ * WORKFLOWS_*, TEST). Their schema, `(value) => value ?? ''`, turns a missing
+ * value into `''` where Kit 2 gave `undefined`, so `??` never applies:
+ * `Number(WORKFLOWS_CONCURRENCY ?? 5)` would start no workers at all. `||`
+ * treats `''` as missing, which is exactly what Kit 2 did with `??`.
+ *
+ * Only where the variable is the whole left operand (so the rewrite changes
+ * nothing else), never `?? ''` (already what the schema does), and never when
+ * the default holds another `??` (mixing `??` and `||` is a syntax error).
+ * Anything skipped is still listed under the follow-ups. Every other
+ * variable's `??` is left to the project.
+ */
+export function rewriteVelaEnvDefaultsSource(source: string): { code: string; changes: string[] } {
+	const locals = velaEnvBindings(source);
+	const changes: string[] = [];
+	if (locals.length === 0) return { code: source, changes };
+	const pattern = new RegExp(
+		String.raw`(?<![\w$.])(${locals.map(escapeRegExp).join('|')})(\s*)\?\?(?!=)(?!\s*(?:''|""|\`\`))`,
+		'g'
+	);
+	const edits: Edit[] = [];
+	for (const match of source.matchAll(pattern)) {
+		const start = match.index!;
+		if (inComment(source, start)) continue;
+		// The variable has to be the whole left operand: `a + X ?? 5` is `(a + X) ?? 5`.
+		const before = source.slice(0, start).trimEnd();
+		if (!/(?:^|[(,:[{?;]|(?<![=!<>])=|=>|\breturn|\$\{)$/.test(before)) continue;
+		const end = start + match[0].length;
+		const rest = source.slice(end).match(/^[^,;)}\]\n]*/)![0];
+		if (rest.includes('??')) continue;
+		edits.push({ start: end - 2, end, text: '||' });
+		changes.push(
+			`line ${lineOf(source, start)}: ${match[1]} ?? ${rest.trim()} → ${match[1]} || ${rest.trim()}`
+		);
+	}
+	return { code: applyEdits(source, edits), changes };
+}
+
+/**
+ * Run `rewriteVelaEnvDefaultsSource` over `src/**`, the code vela's variables
+ * are imported into. Running it twice changes nothing.
+ */
+export function rewriteVelaEnvDefaults(root: string): CodeRewrite[] {
+	const results: CodeRewrite[] = [];
+	for (const file of sourceFiles(path.join(root, 'src'))) {
+		const source = fs.readFileSync(file, 'utf8');
+		if (!source.includes('$app/env/') || !source.includes('??')) continue;
+		const { code, changes } = rewriteVelaEnvDefaultsSource(source);
+		if (code === source) continue;
+		fs.writeFileSync(file, code);
+		results.push({ file: path.relative(root, file), changes, tasks: [] });
 	}
 	return results;
 }

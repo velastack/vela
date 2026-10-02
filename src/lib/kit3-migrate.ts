@@ -40,7 +40,7 @@ import {
 	rewriteLibOutsideSrc,
 	rewriteLibSpecifiers
 } from './lib-rewrite.ts';
-import { MIGRATION_TASK_MARKER, rewriteKit3Code } from './kit3-rewrites.ts';
+import { MIGRATION_TASK_MARKER, rewriteKit3Code, rewriteVelaEnvDefaults } from './kit3-rewrites.ts';
 import pkg from '../../package.json' with { type: 'json' };
 
 /**
@@ -627,6 +627,10 @@ function codeFixup(root: string): Fixup {
 		for (const change of r.changes) f.details.push(`${r.file} ${change}`);
 		for (const task of r.tasks)
 			f.warnings.push(`${r.file} ${task} (left as an ${MIGRATION_TASK_MARKER} comment)`);
+	}
+	for (const r of rewriteVelaEnvDefaults(root)) {
+		f.changed = true;
+		for (const change of r.changes) f.details.push(`${r.file} ${change}`);
 	}
 	return f;
 }

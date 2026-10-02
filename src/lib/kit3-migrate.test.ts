@@ -374,14 +374,48 @@ describe('vela steps', () => {
 		expect(result.fixups.find((f) => f.name === 'package-lock.json')?.changed).toBe(false);
 	});
 
+	test('vela variables: ?? → || in src, reported once; a second run changes nothing', async () => {
+		const dir = fixture('minimal');
+		setPkg(dir, (pkg) => (pkg.devDependencies['@sveltejs/kit'] = '^3.0.0'));
+		// What sv's environment task leaves: named imports from $app/env/private.
+		const workflows = path.join(dir, 'src', 'lib', 'server', 'workflows.ts');
+		fs.writeFileSync(
+			workflows,
+			fs
+				.readFileSync(workflows, 'utf8')
+				.replace(
+					/import \{ env \} from '\$env\/dynamic\/private';/,
+					"import { POCKETBASE_URL, POCKETBASE_SUPERUSER_EMAIL, POCKETBASE_SUPERUSER_PASSWORD, WORKFLOWS_ENABLED, WORKFLOWS_CONCURRENCY, TEST } from '$app/env/private';"
+				)
+				.replace(/\benv\.([A-Z_]+)/g, '$1')
+		);
+		const first = await runKit3Migration(dir, { ...base, gitCheck: false });
+		const source = fs.readFileSync(workflows, 'utf8');
+		expect(source).toContain('Number(WORKFLOWS_CONCURRENCY || 5)');
+		expect(source).toContain("const url = POCKETBASE_URL ?? '';");
+		const code = first.fixups.find((f) => f.name === 'code')!;
+		expect(code.details).toContainEqual(
+			expect.stringMatching(
+				/^src\/lib\/server\/workflows\.ts line \d+: WORKFLOWS_CONCURRENCY \?\? 5 → WORKFLOWS_CONCURRENCY \|\| 5$/
+			)
+		);
+		expect(first.followUps.join('\n')).not.toContain('WORKFLOWS_CONCURRENCY');
+
+		const before = snapshot(dir);
+		const second = await runKit3Migration(dir, { ...base, gitCheck: false });
+		expect(second.fixups.filter((f) => f.changed)).toEqual([]);
+		expect(snapshot(dir)).toEqual(before);
+	});
+
 	test('follow-ups: ?? on env imports, ORIGIN, literal paths.origin; replaced, not appended', async () => {
 		const dir = fixture('minimal');
 		setPkg(dir, (pkg) => (pkg.devDependencies['@sveltejs/kit'] = '^3.0.0'));
 		fs.writeFileSync(
 			path.join(dir, 'src', 'lib', 'server', 'config.ts'),
 			[
-				"import { WORKFLOWS_CONCURRENCY, POCKETBASE_URL, ORIGIN } from '$app/env/private';",
+				"import { WORKFLOWS_CONCURRENCY, POCKETBASE_URL, ORIGIN, STRIPE_SECRET_KEY } from '$app/env/private';",
 				'export const concurrency = Number(WORKFLOWS_CONCURRENCY ?? 5);',
+				"export const stripe = STRIPE_SECRET_KEY ?? 'sk_test';",
 				"export const url = POCKETBASE_URL ?? '';",
 				'export const origin = ORIGIN;',
 				''
@@ -401,7 +435,9 @@ describe('vela steps', () => {
 
 		const first = await runKit3Migration(dir, { ...base, gitCheck: false });
 		const joined = first.followUps.join('\n');
-		expect(joined).toContain('`WORKFLOWS_CONCURRENCY ?? 5`');
+		// vela's own variable is rewritten; any other is only reported.
+		expect(joined).not.toContain('WORKFLOWS_CONCURRENCY ??');
+		expect(joined).toContain("`STRIPE_SECRET_KEY ?? 'sk_test'`");
 		expect(joined).not.toContain("POCKETBASE_URL ?? ''");
 		expect(joined).toContain('`export const origin = ORIGIN;`');
 		expect(joined).toContain('`paths.origin` is a literal');
@@ -452,7 +488,10 @@ describe.skipIf(!process.env.VELA_E2E)('e2e: real sv on the Kit 2 fixture', () =
 		expect(sources).not.toMatch(/\$lib|\$env\/|\$app\/environment/);
 		expect(fs.existsSync(path.join(dir, 'src', 'env.ts'))).toBe(true);
 		expect(fs.readFileSync(path.join(dir, 'vite.config.ts'), 'utf8')).toContain('paths: { origin');
-		expect(result.followUps.join('\n')).toContain('WORKFLOWS_CONCURRENCY ?? 5');
+		expect(fs.readFileSync(path.join(dir, 'src/lib/server/workflows.ts'), 'utf8')).toContain(
+			'Number(WORKFLOWS_CONCURRENCY || 5)'
+		);
+		expect(result.followUps.join('\n')).not.toContain('WORKFLOWS_CONCURRENCY');
 
 		commitAll(dir, 'migrated');
 		const before = snapshot(dir);
