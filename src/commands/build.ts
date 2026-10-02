@@ -17,6 +17,7 @@ import { loadDeployConfig } from '../lib/deploy-config.ts';
 import { bindingKey, parseTarget, PRODUCTION_TARGET } from '../lib/target.ts';
 import { resolveOrigin } from '../lib/origin.ts';
 import { warnIfKit2 } from '../lib/kit-version.ts';
+import { onTerminate } from '../lib/terminate.ts';
 
 /** Where SvelteKit leaves the pages it rendered at build time. */
 const PRERENDERED_DIR = path.join('.svelte-kit', 'output', 'prerendered');
@@ -56,11 +57,7 @@ export const build = new Command('build')
 			pbProc = started.proc;
 			process.env.POCKETBASE_URL = started.url;
 
-			process.on('exit', cleanup);
-			process.on('SIGINT', () => {
-				cleanup();
-				process.exit(0);
-			});
+			onTerminate(cleanup);
 		}
 
 		try {

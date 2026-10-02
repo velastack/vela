@@ -77,10 +77,17 @@ export const testServer = new Command('test:server')
 			process.exit(1);
 		};
 		process.on('exit', cleanupSync);
-		process.on('SIGINT', () => {
-			cleanupSync();
-			process.exit(130);
-		});
+		// Not onTerminate: a test run stopped by a signal must not exit 0.
+		for (const [signal, code] of [
+			['SIGINT', 130],
+			['SIGTERM', 143],
+			['SIGHUP', 129]
+		] as const) {
+			process.on(signal, () => {
+				cleanupSync();
+				process.exit(code);
+			});
+		}
 
 		const pb = new PocketBase(url);
 		try {
