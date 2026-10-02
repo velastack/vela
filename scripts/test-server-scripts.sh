@@ -79,24 +79,57 @@ expect_ok "runtime.env: missing file is not an error" set_runtime_release "$SCRA
 
 # ------------------------------------------------------------ request origin
 #
-# One served host pins ORIGIN. Several direct hosts cannot share one, so the
-# origin is taken from the request instead.
+# PROTOCOL_HEADER always, for a SvelteKit 3 release built with no origin. One
+# served host also pins ORIGIN, which only a SvelteKit 2 release (a rollback)
+# reads. Several direct hosts cannot share one, so the origin is taken from
+# the request instead.
 
 expect_lines() {
 	local name=$1 want=$2; shift 2
 	local got; got=$("$@" 2>&1)
 	if [ "$got" = "$want" ]; then ok "$name"; else bad "$name" "got '$got'"; fi
 }
-expect_lines "origin: one direct host is pinned" 'ORIGIN=https://velastack.dev' \
+expect_lines "origin: one direct host is pinned" \
+	$'PROTOCOL_HEADER=x-forwarded-proto\nORIGIN=https://velastack.dev' \
 	runtime_origin_lines 'velastack.dev' 'https://velastack.dev'
-expect_lines "origin: no direct host pins the primary url" 'ORIGIN=https://app.velastack.app' \
+expect_lines "origin: no direct host pins the primary url" \
+	$'PROTOCOL_HEADER=x-forwarded-proto\nORIGIN=https://app.velastack.app' \
 	runtime_origin_lines '' 'https://app.velastack.app'
-expect_lines "origin: no host at all pins loopback" 'ORIGIN=http://127.0.0.1:4101' \
+expect_lines "origin: no host at all pins loopback" \
+	$'PROTOCOL_HEADER=x-forwarded-proto\nORIGIN=http://127.0.0.1:4101' \
 	runtime_origin_lines '' 'http://127.0.0.1:4101'
-expect_lines "origin: two direct hosts come from the request" 'PROTOCOL_HEADER=x-forwarded-proto' \
+expect_lines "origin: two direct hosts come from the request" \
+	'PROTOCOL_HEADER=x-forwarded-proto' \
 	runtime_origin_lines 'velastack.dev, velabase.dev' 'https://velastack.dev'
-expect_lines "origin: a trailing comma is not a second host" 'ORIGIN=https://velastack.dev' \
+expect_lines "origin: a trailing comma is not a second host" \
+	$'PROTOCOL_HEADER=x-forwarded-proto\nORIGIN=https://velastack.dev' \
 	runtime_origin_lines 'velastack.dev, ' 'https://velastack.dev'
+
+# ------------------------------------------------------------- node floor
+#
+# A stand-in `node` that reports whatever version the case needs, first on
+# PATH, so node_at_least is checked through the same `node -v` it runs on a
+# server.
+
+fake_node_dir="$SCRATCH/fake-node"
+mkdir -p "$fake_node_dir"
+printf '#!/bin/sh\nprintf "%%s\\n" "$FAKE_NODE_VERSION"\n' > "$fake_node_dir/node"
+chmod +x "$fake_node_dir/node"
+with_node() {
+	local version=$1; shift
+	FAKE_NODE_VERSION=$version PATH="$fake_node_dir:$PATH" "$@"
+}
+expect_die "node floor: 22.16 is too old" with_node v22.16.0 node_at_least 22 17
+expect_ok "node floor: 22.17 is enough" with_node v22.17.0 node_at_least 22 17
+expect_ok "node floor: a later minor is enough" with_node v22.20.1 node_at_least 22 17
+expect_ok "node floor: 23.0 is enough" with_node v23.0.0 node_at_least 22 17
+expect_ok "node floor: 24 is enough" with_node v24.1.0 node_at_least 22 17
+expect_die "node floor: 20 is too old whatever its minor" with_node v20.19.5 node_at_least 22 17
+expect_die "node floor: an unreadable version is not enough" with_node garbage node_at_least 22 17
+# An empty PATH directory and nothing else: no node to find.
+mkdir -p "$SCRATCH/empty-path"
+expect_die "node floor: no node at all is not enough" env PATH="$SCRATCH/empty-path" "$BASH" -c \
+	". '$ROOT/templates/server/lib.sh' && node_at_least 22 17"
 
 mkdir -p "$(dirname "$(state_file hosted)")"
 printf '{"url":"https://velastack.dev"}' > "$(state_file hosted)"

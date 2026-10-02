@@ -21,6 +21,13 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 require_provisioned
 [ "$(id -u)" -eq 0 ] || die "apply must run as root"
 
+# SvelteKit 3 and adapter-node 6 need Node 22.17. A server provisioned before
+# them can be older, and a release started on it fails as a crash loop the
+# health check reports as "did not become healthy". Refused here instead,
+# before anything is touched; `vela provision` upgrades Node in place.
+node_at_least 22 17 \
+	|| die "this server runs Node $(node -v 2>/dev/null || echo '(none)'), and vela apps need 22.17 or later - run 'vela provision' to upgrade it"
+
 INSTANCE=${1:-}; shift || true
 RELEASE=${1:-}; shift || true
 [ -n "$INSTANCE" ] && [ -n "$RELEASE" ] || die "usage: apply.sh <instance> <release> [options]"

@@ -173,7 +173,7 @@ unit_active() { systemctl is-active --quiet "$1"; }
 # No `-f`: curl has to report the status of an error response, not fail on it.
 #
 # A fourth argument is the public host to ask as, the way Caddy would. An app
-# serving several hosts has no pinned ORIGIN and tells its sites apart by
+# serving several hosts has no pinned origin and tells its sites apart by
 # `Host`; asked as 127.0.0.1 it may rightly answer that it serves no such site.
 wait_for_http() {
 	local url=$1 attempts=${2:-60} delay=${3:-0.5} host=${4:-} code
@@ -206,26 +206,54 @@ state_primary_host() {
 
 # The lines of runtime.env that tell adapter-node what origin a request has.
 #
-# One served host: pin it with ORIGIN, so nothing a client sends can change
-# what the app believes its own address is. Several hosts served directly
-# (velastack.dev and velabase.dev from one app) cannot share an ORIGIN - the
-# second host would render as the first and have its form posts refused as
-# cross-site - so the origin comes from the request instead: `Host`, which
-# Caddy passes through and only ever for the names in this instance's site
-# block, and the scheme from the X-Forwarded-Proto Caddy sets itself.
+# SvelteKit 3's adapter-node has no ORIGIN variable. A release built for one
+# host has that host baked in as `paths.origin` (the CLI passes it to the build
+# as VELA_ORIGIN), so nothing a client sends can change what the app believes
+# its own address is. A release built for several hosts has none - one origin
+# would make the second host render as the first and have its form posts
+# refused as cross-site - so each request brings its own: `Host`, which Caddy
+# passes through and only ever for the names in this instance's site block,
+# and the scheme from the X-Forwarded-Proto Caddy sets itself. That is what
+# PROTOCOL_HEADER names, and it is emitted either way: it is only consulted
+# when no origin was baked in.
+#
+# ORIGIN stays for a single host, where it is inert under SvelteKit 3 (the
+# adapter only rejects unknown variables when given an envPrefix, and vela
+# sets none) but is what a SvelteKit 2 release pins itself with: `vela
+# rollback` to one rewrites only VELA_RELEASE, so this line has to be here
+# already. A SvelteKit 2 release given ORIGIN ignores PROTOCOL_HEADER.
 #
 # Managed velastack.app names do not count: beside a direct host they redirect
-# at the edge rather than being served.
+# at the edge rather than being served. The CLI counts the same way when it
+# decides whether to bake an origin in (`buildOrigin`).
 #
 # usage: runtime_origin_lines <direct_hosts_csv> <primary_url>
 runtime_origin_lines() {
 	local direct=$1 primary_url=$2 count
 	count=$(printf '%s' "$direct" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -c -v '^$' || true)
-	if [ "$count" -gt 1 ]; then
-		printf 'PROTOCOL_HEADER=x-forwarded-proto\n'
-	else
+	printf 'PROTOCOL_HEADER=x-forwarded-proto\n'
+	if [ "$count" -le 1 ]; then
 		printf 'ORIGIN=%s\n' "$primary_url"
 	fi
+}
+
+# Whether the server's Node is at least <major>.<minor>. SvelteKit 3 and
+# adapter-node 6 need 22.17, which a server provisioned for SvelteKit 2 may
+# not have; `vela provision` upgrades it. No Node at all, or a version that
+# cannot be read, is not enough.
+#
+# usage: node_at_least <major> <minor>
+node_at_least() {
+	local want_major=$1 want_minor=$2 version major minor
+	command -v node >/dev/null 2>&1 || return 1
+	version=$(node -v 2>/dev/null) || return 1
+	version=${version#v}
+	major=${version%%.*}
+	minor=${version#*.}
+	minor=${minor%%.*}
+	[[ $major =~ ^[0-9]+$ && $minor =~ ^[0-9]+$ ]] || return 1
+	[ "$major" -gt "$want_major" ] && return 0
+	[ "$major" -eq "$want_major" ] && [ "$minor" -ge "$want_minor" ]
 }
 
 # How many migrations the current release has that the target release does not.

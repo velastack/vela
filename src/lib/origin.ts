@@ -9,22 +9,50 @@ import { readBinding, type VelaAppConfig } from './deploy-config.ts';
  * and `hreflang` baked into a prerendered page points at a host that does not
  * exist. The domain the app is actually served on is already known here — it is
  * the one Caddy is configured with — so the build is told about it and
- * `kit.prerender.origin` takes over.
+ * `paths.origin` takes over.
  *
  * Null rather than a guess: an origin invented from a default would be wrong in
  * a way that is invisible until someone reads the shipped HTML, which is exactly
- * the failure this exists to end.
+ * the failure this exists to end. Null too for a domain naming several hosts,
+ * for the reason `buildOrigin` gives.
  */
 export function resolveOrigin(
 	workspaceRootDir: string,
 	envTag: string,
 	config: VelaAppConfig = {}
 ): string | null {
-	return normalizeOrigin(
-		process.env.VELA_ORIGIN ??
-			readBinding(workspaceRootDir, envTag)?.domain ??
-			config.deploy?.domain
-	);
+	// The binding records exactly the hosts Caddy serves directly — what
+	// `vela deploy` passed as `--domain` — so it answers "how many" as well as
+	// "which".
+	const domain = readBinding(workspaceRootDir, envTag)?.domain ?? config.deploy?.domain;
+	return buildOrigin(splitHosts(domain), domain, process.env.VELA_ORIGIN);
+}
+
+/**
+ * The origin to bake into a build as `paths.origin`, or null for none.
+ *
+ * Under SvelteKit 3 `paths.origin` is not just what prerendered pages render
+ * against: it is `url.origin` for every request, and what the CSRF check
+ * compares a form post's `Origin` with. One app served directly on several
+ * hosts (velastack.dev and velabase.dev) cannot have one — the second host
+ * would render as the first and have its form posts refused — so it gets none,
+ * and each request takes its origin from `Host` and the `PROTOCOL_HEADER`
+ * runtime.env sets. `directHosts` are the hosts Caddy serves itself, the same
+ * set `runtime_origin_lines` counts on the server; managed velastack.app names
+ * redirect to a direct host at the edge and do not count.
+ *
+ * An explicit override wins either way, and an empty one is an explicit "none":
+ * `vela deploy` hands its decision to `vela build` as `VELA_ORIGIN=`, which must
+ * not fall through to the binding's first host.
+ */
+export function buildOrigin(
+	directHosts: readonly string[],
+	primaryUrl: string | null | undefined,
+	envOverride: string | undefined
+): string | null {
+	if (envOverride !== undefined) return normalizeOrigin(envOverride);
+	if (directHosts.length > 1) return null;
+	return normalizeOrigin(primaryUrl);
 }
 
 /**

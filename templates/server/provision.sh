@@ -12,7 +12,9 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$SCRIPT_DIR/lib.sh"
 
 PB_VERSION=""
-NODE_MAJOR=22
+# The Node line a server with none (or one older than 22) gets. One already on
+# 22 or later is upgraded within its own line instead; see install_node.
+NODE_MAJOR=24
 CLI_VERSION="unknown"
 LAYOUT_VERSION=1
 
@@ -96,21 +98,36 @@ ensure_packages ca-certificates curl gnupg rsync unzip tar sqlite3 jq git
 # prebuild is unavailable, so the toolchain has to be here.
 ensure_packages build-essential python3
 
+# SvelteKit 3 and adapter-node 6 need Node 22.17, so that - not the major
+# alone - is what decides whether anything is installed. A server already on 22
+# or later but short of it (22.16 and earlier) is upgraded within its own line:
+# the apps it hosts were built and tested against that major, and the floor is
+# the only reason to move. Anything older, or no Node at all, gets NODE_MAJOR.
 install_node() {
-	local current=0
-	if command -v node >/dev/null 2>&1; then
-		current=$(node -p 'process.versions.node.split(".")[0]')
-	fi
-	if [ "$current" -ge 20 ] 2>/dev/null; then
+	local current=0 line=$NODE_MAJOR
+	if node_at_least 22 17; then
 		log "node $(node -v) already installed"
 		return 0
 	fi
-	log "installing Node.js $NODE_MAJOR"
-	curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o /tmp/nodesource_setup.sh
+	if command -v node >/dev/null 2>&1; then
+		current=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+		if [ "$current" -ge 22 ] 2>/dev/null; then line=$current; fi
+		log "upgrading Node.js $(node -v) to the latest $line.x - vela apps need 22.17 or later"
+	else
+		log "installing Node.js $line"
+	fi
+	curl -fsSL "https://deb.nodesource.com/setup_${line}.x" -o /tmp/nodesource_setup.sh
 	wait_for_apt
 	bash /tmp/nodesource_setup.sh >/dev/null
 	rm -f /tmp/nodesource_setup.sh
+	# `install` upgrades a nodejs that is already there to the candidate the
+	# setup script just made available.
 	apt_get install -y -qq nodejs >/dev/null
+	# A held package or another repository pinned above nodesource can leave the
+	# old version in place with apt reporting success. Caught here, it names the
+	# problem; caught by the next deploy, it would only name the symptom.
+	node_at_least 22 17 \
+		|| die "Node.js is $(node -v 2>/dev/null || echo 'missing') after installing $line.x - vela apps need 22.17 or later"
 }
 install_node
 

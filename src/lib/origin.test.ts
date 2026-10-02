@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { normalizeOrigin, resolveOrigin } from './origin.ts';
+import { buildOrigin, normalizeOrigin, resolveOrigin } from './origin.ts';
 
 let root: string;
 
@@ -47,6 +47,42 @@ describe('normalizeOrigin', () => {
 		expect(normalizeOrigin('   ')).toBeNull();
 		expect(normalizeOrigin(',')).toBeNull();
 		expect(normalizeOrigin('https://')).toBeNull();
+	});
+});
+
+describe('buildOrigin', () => {
+	test('a single direct host is the origin', () => {
+		expect(buildOrigin(['velastack.dev'], 'https://velastack.dev', undefined)).toBe(
+			'https://velastack.dev'
+		);
+	});
+
+	test('no direct host falls back to the primary url, a managed name or loopback', () => {
+		expect(buildOrigin([], 'https://app.velastack.app', undefined)).toBe(
+			'https://app.velastack.app'
+		);
+		expect(buildOrigin([], '', undefined)).toBeNull();
+		expect(buildOrigin([], null, undefined)).toBeNull();
+	});
+
+	test('several direct hosts have no origin, so each request brings its own', () => {
+		expect(
+			buildOrigin(['velastack.dev', 'velabase.dev'], 'https://velastack.dev', undefined)
+		).toBeNull();
+	});
+
+	test('an override wins over the hosts', () => {
+		expect(
+			buildOrigin(['velastack.dev', 'velabase.dev'], 'https://velastack.dev', 'velabase.dev')
+		).toBe('https://velabase.dev');
+		expect(buildOrigin(['velastack.dev'], 'https://velastack.dev', 'http://127.0.0.1:4100')).toBe(
+			'http://127.0.0.1:4100'
+		);
+	});
+
+	test('an empty override is an explicit none, not a fall-through', () => {
+		expect(buildOrigin(['velastack.dev'], 'https://velastack.dev', '')).toBeNull();
+		expect(buildOrigin([], 'https://app.velastack.app', '')).toBeNull();
 	});
 });
 
@@ -101,5 +137,24 @@ describe('resolveOrigin', () => {
 
 		expect(resolveOrigin(root, 'prod')).toBeNull();
 		expect(resolveOrigin(root, 'prod', {})).toBeNull();
+	});
+
+	test('a binding serving several hosts bakes in no origin', () => {
+		writeProject({
+			appId: 'zdyly4bg3wuwr5x',
+			targets: { prod: { server: 'root@1.2.3.4', domain: 'velastack.dev,velabase.dev' } }
+		});
+
+		expect(resolveOrigin(root, 'prod')).toBeNull();
+	});
+
+	test('an empty VELA_ORIGIN does not fall through to the binding', () => {
+		writeProject({
+			appId: 'zdyly4bg3wuwr5x',
+			targets: { prod: { server: 'root@1.2.3.4', domain: 'velastack.dev' } }
+		});
+		process.env.VELA_ORIGIN = '';
+
+		expect(resolveOrigin(root, 'prod')).toBeNull();
 	});
 });

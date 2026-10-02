@@ -23,7 +23,7 @@ import {
 import { instanceId, normalizeEnvTag, releaseId } from '../lib/instance.ts';
 import { ensureSuperuser, findFreePort, pocketbaseVersion } from '../lib/pocketbase.ts';
 import { copiedMeta, readLocalMeta, syncRemoteMeta } from '../lib/pocketbase-settings.ts';
-import { normalizeOrigin, splitHosts } from '../lib/origin.ts';
+import { buildOrigin, normalizeOrigin, splitHosts } from '../lib/origin.ts';
 import { isLocalUrl, readSite, SITE_FILE } from '../lib/site.ts';
 import { createDeployReporter } from '../lib/deploy-report.ts';
 import {
@@ -121,6 +121,10 @@ export const deploy = addLockWaitOption(
 							`${pc.cyan(ctx.appName)} ${pc.dim('→')} ${pc.cyan(ctx.targetName)} ${pc.dim(`(${ctx.server})`)}`
 						);
 
+						// Before anything is announced or built: a server that cannot run
+						// the release is not worth a failed deploy on the dashboard.
+						await requireServerNode(session, ctx.server);
+
 						const [existing] = await readInstanceStates(session, instance);
 						// Stamped from the server's clock, so a laptop and a CI runner
 						// deploying the same instance agree on which release is newer;
@@ -208,11 +212,14 @@ export const deploy = addLockWaitOption(
 							if (options.build !== false) {
 								// Prerendering has no request to take an origin from, and the
 								// binding is not written until further down, so a first deploy
-								// learns its domain from here or not at all.
-								const origin = normalizeOrigin(process.env.VELA_ORIGIN ?? primaryUrl);
-								let buildEnv: Record<string, string | undefined> = origin
-									? { VELA_ORIGIN: origin }
-									: {};
+								// learns its domain from here or not at all. Several direct hosts
+								// get none (see `buildOrigin`), and that goes to the build as an
+								// empty VELA_ORIGIN rather than none at all: unset, `vela build`
+								// would read the binding and bake a host in after all.
+								const origin = buildOrigin(directHosts, primaryUrl, process.env.VELA_ORIGIN);
+								let buildEnv: Record<string, string | undefined> = {
+									VELA_ORIGIN: origin ?? ''
+								};
 								let tunnel: Tunnel | null = null;
 
 								if (backend && remoteDb) {
@@ -709,6 +716,39 @@ async function reportEmptyEnvironment(
 		`This app has no production environment variables yet.\n\n` +
 			`Local ${pc.cyan('.env')} values are not uploaded by a deploy. Set them with\n` +
 			`${pc.cyan('vela env set KEY')}, or copy a file across with ${pc.cyan('vela env import .env.production')}.`
+	);
+}
+
+/**
+ * The oldest Node a release can run on: SvelteKit 3 and adapter-node 6 need
+ * 22.17. `apply.sh` refuses below it too, but only after the build and upload.
+ */
+const SERVER_NODE_FLOOR = { major: 22, minor: 17 };
+
+/** Whether a `node -v` string is at least `major.minor`. Unreadable is not. */
+export function nodeVersionAtLeast(version: string, major: number, minor: number): boolean {
+	const match = /^v?(\d+)\.(\d+)/.exec(version.trim());
+	if (!match) return false;
+	const have = Number(match[1]);
+	const haveMinor = Number(match[2]);
+	return have > major || (have === major && haveMinor >= minor);
+}
+
+/**
+ * Refuse a server whose Node is too old to run the release.
+ *
+ * Servers provisioned before SvelteKit 3 have Node 20 or an early 22, which
+ * `vela provision` upgrades in place. Asked over the connection that is already
+ * open, so the answer comes before a build rather than after an upload.
+ */
+async function requireServerNode(session: SshSession, server: string): Promise<void> {
+	const { major, minor } = SERVER_NODE_FLOOR;
+	const result = await session.script('node -v 2>/dev/null || true', { check: false });
+	const version = result.stdout.trim();
+	if (nodeVersionAtLeast(version, major, minor)) return;
+	throw new Error(
+		`${server} ${version ? `runs Node ${version}` : 'has no Node'}, and this app needs ${major}.${minor} or later.\n\n` +
+			`Run ${pc.cyan(`vela provision ${server}`)} to upgrade it, then deploy again.`
 	);
 }
 

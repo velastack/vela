@@ -116,6 +116,22 @@ function warnIfPrerendered(cwd: string): void {
 	const dir = path.join(cwd, PRERENDERED_DIR);
 	if (!fs.existsSync(dir) || fs.readdirSync(dir).length === 0) return;
 
+	// Empty rather than unset is a decision, not an omission: `vela deploy`
+	// passes it for an app served directly on several hosts, which cannot share
+	// one origin (or for one with no host yet). Pointing at `--domain` would
+	// suggest undoing it.
+	if (process.env.VELA_ORIGIN === '') {
+		p.log.warn(
+			`Prerendered pages were built with no origin, on purpose: this app is served on\n` +
+				`several hosts (or on none yet), and baking one in would make the others render\n` +
+				`as it and refuse their form posts. Each host takes its origin from the request\n` +
+				`instead, and a page prerendered at build time has none, so anything it takes\n` +
+				`from the request's origin points at SvelteKit's placeholder host. Build such links\n` +
+				`from ${pc.cyan('src/lib/site.ts')}, as the templates' canonical links are.`
+		);
+		return;
+	}
+
 	p.log.warn(
 		`Prerendered pages were built with no domain configured, so anything they take\n` +
 			`from the request's origin points at SvelteKit's placeholder host rather than at\n` +
