@@ -992,6 +992,19 @@ async function install(root: string): Promise<boolean> {
 }
 
 /**
+ * The whole project through its own prettier, for a project vela just
+ * created from a migrated template: every file is the template's. Best
+ * effort, like sv's own formatting step.
+ */
+export async function formatProject(root: string): Promise<void> {
+	const bin = path.join(root, 'node_modules', '.bin', 'prettier');
+	if (!fs.existsSync(bin)) return;
+	await x(bin, ['--write', '--ignore-unknown', '.'], {
+		nodeOptions: { cwd: root, stdio: 'ignore' }
+	});
+}
+
+/**
  * Run the project's prettier over the files this migration changed (by git,
  * minus those already changed before it ran). Best effort: no git, no
  * prettier, or prettier failing leaves the files as they are.

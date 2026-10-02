@@ -49,6 +49,8 @@ import {
 import { linkExistingProject, linkNewProject } from '../lib/link-project.ts';
 import { writeProjectConfig } from '../lib/project-config.ts';
 import { loginInteractively } from './login.ts';
+import { kitStatus } from '../lib/kit-version.ts';
+import { formatProject, MIGRATION_TASKS_FILE, runKit3Migration } from '../lib/kit3-migrate.ts';
 
 /**
  * Built per run rather than at module load: the accepted templates come from the
@@ -258,6 +260,8 @@ async function createProject(
 		writeProjectConfig(projectPath, { projectId, teamId, projectName });
 	}
 
+	const migrated = await migrateKit2Template(projectPath, template.name);
+
 	p.log.success('Project created');
 
 	let packageManager: ReturnType<typeof getUserAgent> | undefined;
@@ -272,6 +276,8 @@ async function createProject(
 			const builds = template.backend ? ['esbuild', 'pocketbase-server'] : ['esbuild'];
 			addPnpmBuildDependencies(projectPath, pm, builds);
 			installed = await installDependencies(pm, projectPath);
+			// sv could not format what it rewrote before prettier was installed.
+			if (migrated && installed) await formatProject(projectPath);
 			packageManager = pm;
 		}
 	}
@@ -307,6 +313,46 @@ async function createProject(
 	}
 
 	return { directory: projectPath, packageManager, installed, name, template, link };
+}
+
+/**
+ * A registry template still written for SvelteKit 2 is migrated as it lands,
+ * before anything is installed, so the project vela hands over is a Kit 3 one
+ * like every other it creates. A failure stops here, loudly: the project is
+ * on disk, half a template, and the user is told how to finish it.
+ */
+async function migrateKit2Template(projectPath: string, templateName: string): Promise<boolean> {
+	const status = kitStatus(projectPath);
+	if (!((status.declaredMajor !== null && status.declaredMajor < 3) || status.svelteConfig)) {
+		return false;
+	}
+
+	p.log.step(`Template ${templateName} is written for SvelteKit 2; migrating it to SvelteKit 3...`);
+	let result;
+	try {
+		result = await runKit3Migration(projectPath, { gitCheck: false, install: false, quiet: true });
+	} catch (e) {
+		const relative = path.relative(process.cwd(), projectPath) || '.';
+		throw new Error(
+			`Could not migrate template ${templateName} to SvelteKit 3: ${(e as Error).message}\n\n` +
+				`The project is in ${projectPath}. Finish the migration by hand with\n\n` +
+				`  cd ${relative} && npx vela@^0.15 migrate sveltekit-3 --force\n`
+		);
+	}
+
+	const tasks = result.tasks;
+	const tasksFile = path.join(projectPath, MIGRATION_TASKS_FILE);
+	if (fs.existsSync(tasksFile) && !tasks?.filesToReview && result.followUps.length === 0) {
+		fs.rmSync(tasksFile);
+	}
+	const left = fs.existsSync(tasksFile);
+	p.log.success(
+		`Migrated to SvelteKit 3${left ? `; ${MIGRATION_TASKS_FILE} lists what to check by hand` : ''}.`
+	);
+	if (result.followUps.length > 0) {
+		p.log.warn(result.followUps.map((item) => `- ${item}`).join('\n'));
+	}
+	return true;
 }
 
 /**
