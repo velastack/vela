@@ -13,6 +13,7 @@ describe('uiAddReport', () => {
 		expect(report.packagesInstalled).toEqual(['@tanstack/table-core@^8.21.3']);
 		expect(report.sections).toBeUndefined();
 		expect(report.nextSteps?.some((s) => s.includes('--overwrite'))).toBe(false);
+		expect(report.nextSteps?.[0]).toContain(`from '#lib/components/ui/button/index.js'`);
 	});
 
 	test('keeps skipped components out of "added" and explains how to replace them', () => {

@@ -25,7 +25,7 @@ const ctx = await context({
 	outfile: resolve(root, 'dist/bin.js'),
 	bundle: true,
 	platform: 'node',
-	target: 'node20',
+	target: 'node22',
 	format: 'esm',
 	sourcemap: true,
 	banner: { js: '#!/usr/bin/env node' },

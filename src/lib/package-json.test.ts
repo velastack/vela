@@ -3,10 +3,14 @@ import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
 	dropTemplateAdapters,
+	ensureLibImports,
 	fillTemplatePlaceholders,
 	mergePackageJson,
+	minVersion,
+	raiseFloor,
 	readTemplatePackageJson,
-	toValidPackageName
+	toValidPackageName,
+	type PkgJson
 } from './package-json.ts';
 import { listProjectTemplates } from './templates.ts';
 
@@ -130,6 +134,119 @@ describe('mergePackageJson', () => {
 		const user = { devDependencies: { vite: '^5.0.0' } };
 		mergePackageJson(user, { devDependencies: { svelte: '^5.0.0' } });
 		expect(user.devDependencies).toEqual({ vite: '^5.0.0' });
+	});
+});
+
+describe('ensureLibImports', () => {
+	test('adds the #lib entries sv create writes, after what is there, once', () => {
+		const pkg: PkgJson = { name: 'app', imports: { '#locales/*': './src/locales/*' } };
+		expect(ensureLibImports(pkg)).toBe(true);
+		expect(pkg.imports).toEqual({
+			'#locales/*': './src/locales/*',
+			'#lib': './src/lib/index.js',
+			'#lib/*': './src/lib/*'
+		});
+		expect(ensureLibImports(pkg)).toBe(false);
+	});
+
+	test('creates imports when there are none', () => {
+		const pkg: PkgJson = { name: 'app' };
+		expect(ensureLibImports(pkg)).toBe(true);
+		expect(Object.keys(pkg)).toEqual(['name', 'imports']);
+	});
+
+	test('never overwrites an entry the project already has', () => {
+		const pkg: PkgJson = { imports: { '#lib': './lib/index.js' } };
+		expect(ensureLibImports(pkg)).toBe(true);
+		expect(pkg.imports).toEqual({ '#lib': './lib/index.js', '#lib/*': './src/lib/*' });
+	});
+
+	test('leaves an imports field that is not an object alone', () => {
+		const pkg: PkgJson = { imports: 'nope' };
+		expect(ensureLibImports(pkg)).toBe(false);
+		expect(pkg.imports).toBe('nope');
+	});
+});
+
+describe('minVersion', () => {
+	test.each([
+		['^5.5.7', '5.5.7'],
+		['~6.1.0', '6.1.0'],
+		['>=2', '2.0.0'],
+		['>2', '3.0.0'],
+		['>2.1.3', '2.1.4'],
+		['6', '6.0.0'],
+		['6.x', '6.0.0'],
+		['^3.0.0-next.1', '3.0.0-next.1'],
+		['^7 || ^6.2', '6.2.0'],
+		['<3', '0.0.0']
+	])('%s admits %s at the lowest', (range, expected) => {
+		const v = minVersion(range)!;
+		const text = `${v.major}.${v.minor}.${v.patch}${v.prerelease.length ? `-${v.prerelease.join('.')}` : ''}`;
+		expect(text).toBe(expected);
+	});
+
+	test.each(['latest', '*', 'x', '', 'file:../kit'])('%j has no floor', (range) => {
+		expect(minVersion(range)).toBeNull();
+	});
+});
+
+describe('raiseFloor', () => {
+	test('raises a range that admits older versions, in whichever bucket it is', () => {
+		const pkg: PkgJson = {
+			dependencies: { svelte: '^5.0.0' },
+			devDependencies: { '@sveltejs/adapter-node': '^5.5.7' }
+		};
+		expect(raiseFloor(pkg, '@sveltejs/adapter-node', '^6.0.0')).toBe(true);
+		expect(raiseFloor(pkg, 'svelte', '^5.57.1')).toBe(true);
+		expect(pkg).toEqual({
+			dependencies: { svelte: '^5.57.1' },
+			devDependencies: { '@sveltejs/adapter-node': '^6.0.0' }
+		});
+		expect(raiseFloor(pkg, 'svelte', '^5.57.1')).toBe(false);
+	});
+
+	test('never adds a dependency the project does not have', () => {
+		const pkg: PkgJson = { devDependencies: { vite: '^8.0.12' } };
+		expect(raiseFloor(pkg, 'shadcn-svelte', '^1.7.0')).toBe(false);
+		expect(pkg).toEqual({ devDependencies: { vite: '^8.0.12' } });
+	});
+
+	test('never lowers, and an equal floor in another notation stays', () => {
+		const pkg: PkgJson = { devDependencies: { vite: '^8.3.0', 'svelte-check': '~4.7.6' } };
+		expect(raiseFloor(pkg, 'vite', '^8.0.12')).toBe(false);
+		expect(raiseFloor(pkg, 'svelte-check', '^4.7.6')).toBe(false);
+		expect(pkg.devDependencies).toEqual({ vite: '^8.3.0', 'svelte-check': '~4.7.6' });
+	});
+
+	test('orders prereleases by semver precedence', () => {
+		const pkg: PkgJson = { dependencies: { 'sveltekit-superforms': '^3.0.0-next.0' } };
+		expect(raiseFloor(pkg, 'sveltekit-superforms', '3.0.0-next.1')).toBe(true);
+		expect(pkg.dependencies!['sveltekit-superforms']).toBe('3.0.0-next.1');
+		// A release outranks its prereleases.
+		pkg.dependencies!['sveltekit-superforms'] = '^3.0.0';
+		expect(raiseFloor(pkg, 'sveltekit-superforms', '3.0.0-next.1')).toBe(false);
+		// And a 2.x stable is below a 3.0 prerelease.
+		pkg.dependencies!['sveltekit-superforms'] = '^2.28.1';
+		expect(raiseFloor(pkg, 'sveltekit-superforms', '3.0.0-next.1')).toBe(true);
+	});
+
+	test('leaves ranges it cannot read to the project', () => {
+		const pkg: PkgJson = {
+			devDependencies: {
+				'@sveltejs/kit': 'workspace:*',
+				svelte: 'latest',
+				vite: 'npm:rolldown-vite@7'
+			}
+		};
+		expect(raiseFloor(pkg, '@sveltejs/kit', '^3.0.0')).toBe(false);
+		expect(raiseFloor(pkg, 'svelte', '^5.57.1')).toBe(false);
+		expect(raiseFloor(pkg, 'vite', '^8.0.12')).toBe(false);
+		expect(pkg.devDependencies).toEqual({
+			'@sveltejs/kit': 'workspace:*',
+			svelte: 'latest',
+			vite: 'npm:rolldown-vite@7'
+		});
 	});
 });
 

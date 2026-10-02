@@ -25,10 +25,10 @@ export function viteVersionError(version: string): string | null {
 	return [
 		`This project has vite ${version}, but vela needs vite ${REQUIRED_VITE_MAJOR} or newer.`,
 		'',
-		'  npm install -D vite@^8 @sveltejs/vite-plugin-svelte@^7',
+		'  npm install -D vite@^8.0.12 @sveltejs/vite-plugin-svelte@^7',
 		'',
 		'Both move together: @sveltejs/vite-plugin-svelte 7 requires vite 8, and',
-		'version 6 is the last that supports vite 7.'
+		'version 6 is the last that supports vite 7. SvelteKit 3 needs vite 8.0.12 or newer.'
 	].join('\n');
 }
 

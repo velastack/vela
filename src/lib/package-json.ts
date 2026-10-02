@@ -203,6 +203,164 @@ export function toValidPackageName(name: string): string {
 		.replace(/[^a-z0-9~.-]+/g, '-');
 }
 
+/**
+ * The subpath imports SvelteKit 3 resolves `#lib` through, now that `$lib` is
+ * gone. The same two entries `sv create` writes.
+ */
+export const LIB_IMPORTS: Record<string, string> = {
+	'#lib': './src/lib/index.js',
+	'#lib/*': './src/lib/*'
+};
+
+/**
+ * Add the `#lib` subpath imports to package.json where they are missing. An
+ * entry already there is the project's, whatever it points at, and is never
+ * overwritten; an `imports` field that is not an object is not ours to
+ * restructure. Mutates `pkg`; returns whether it changed.
+ */
+export function ensureLibImports(pkg: PkgJson): boolean {
+	const current = pkg.imports;
+	if (current !== undefined && (typeof current !== 'object' || current === null)) return false;
+	if (Array.isArray(current)) return false;
+	const imports = { ...(current as Record<string, unknown> | undefined) };
+	let changed = false;
+	for (const [key, value] of Object.entries(LIB_IMPORTS)) {
+		if (key in imports) continue;
+		imports[key] = value;
+		changed = true;
+	}
+	if (changed) pkg.imports = imports;
+	return changed;
+}
+
+/**
+ * Raise the range `name` is declared with to `range`, if what it declares now
+ * admits anything older. Never adds a dependency the project does not have and
+ * never lowers one: only the lowest version each range admits is compared, so
+ * `~6.1.0` already satisfies a floor of `^6.0.0`. A range we cannot read
+ * (`workspace:*`, `latest`, a git URL) is the project's decision and is left
+ * alone. Mutates `pkg`; returns whether it changed.
+ */
+export function raiseFloor(pkg: PkgJson, name: string, range: string): boolean {
+	const floor = minVersion(range);
+	if (!floor) throw new Error(`raiseFloor: cannot read the range ${range}`);
+	let changed = false;
+	for (const kind of DEP_KINDS) {
+		const current = pkg[kind]?.[name];
+		if (current === undefined || current.includes(':')) continue;
+		const min = minVersion(current);
+		if (!min || compareVersions(min, floor) >= 0) continue;
+		pkg[kind]![name] = range;
+		changed = true;
+	}
+	return changed;
+}
+
+export interface Version {
+	major: number;
+	minor: number;
+	patch: number;
+	/** Dot-separated prerelease identifiers; empty for a release. */
+	prerelease: string[];
+}
+
+const VERSION_PART =
+	/^v?(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/**
+ * The lowest version an npm range admits, or null when it is not a semver
+ * range at all (`latest`, `workspace:*`, a URL) or admits everything (`*`).
+ * A small subset of node-semver's `minVersion`, enough for the ranges package
+ * managers and humans write: `^`, `~`, comparators, x-ranges, hyphen ranges and
+ * `||` (the lowest alternative wins). A range bounded only from above
+ * (`<3`) admits 0.0.0.
+ */
+export function minVersion(range: string): Version | null {
+	const alternatives = range.split('||').map((alt) => alt.trim());
+	let lowest: Version | null = null;
+	for (const alt of alternatives) {
+		const min = minOfComparatorSet(alt);
+		if (!min) return null;
+		if (!lowest || compareVersions(min, lowest) < 0) lowest = min;
+	}
+	return lowest;
+}
+
+function minOfComparatorSet(set: string): Version | null {
+	// `1.2.3 - 2.0.0`: the left side is the floor.
+	const hyphen = set.match(/^(\S+)\s+-\s+\S+$/);
+	const parts = hyphen ? [hyphen[1]!] : set.replace(/([<>=~^]+)\s+/g, '$1').split(/\s+/);
+	if (parts.every((part) => part === '')) return null;
+	let floor: Version | null = null;
+	let upperOnly = true;
+	for (const part of parts) {
+		if (part === '') continue;
+		const match = part.match(/^(<=|>=|<|>|=|\^|~>?)?(.*)$/)!;
+		const op = match[1] ?? '';
+		if (op === '<' || op === '<=') continue;
+		upperOnly = false;
+		const parsed = parseVersionPart(match[2]!);
+		if (!parsed) return null;
+		let min = parsed.version;
+		// `>1.2.3` admits 1.2.4 and up; `>1.2` admits 1.3.0. Close enough for a floor.
+		if (op === '>') {
+			min = parsed.wildcard
+				? bump(min, parsed.wildcard)
+				: { ...min, patch: min.patch + 1, prerelease: [] };
+		}
+		if (!floor || compareVersions(min, floor) > 0) floor = min;
+	}
+	if (upperOnly) return { major: 0, minor: 0, patch: 0, prerelease: [] };
+	return floor;
+}
+
+function parseVersionPart(
+	text: string
+): { version: Version; wildcard?: 'major' | 'minor' | 'patch' } | null {
+	if (text === '' || text === '*' || text === 'x' || text === 'X') return null;
+	const match = text.match(VERSION_PART);
+	if (!match) return null;
+	const nums = [match[1], match[2], match[3]];
+	const firstWild = nums.findIndex((n) => n === undefined || /^[xX*]$/.test(n));
+	if (firstWild === 0) return null;
+	const [major, minor, patch] = nums.map((n, i) =>
+		firstWild !== -1 && i >= firstWild ? 0 : Number(n)
+	) as [number, number, number];
+	return {
+		version: { major, minor, patch, prerelease: match[4]?.split('.') ?? [] },
+		wildcard: firstWild === 1 ? 'major' : firstWild === 2 ? 'minor' : undefined
+	};
+}
+
+function bump(version: Version, part: 'major' | 'minor' | 'patch'): Version {
+	if (part === 'major') return { major: version.major + 1, minor: 0, patch: 0, prerelease: [] };
+	if (part === 'minor') return { ...version, minor: version.minor + 1, patch: 0, prerelease: [] };
+	return { ...version, patch: version.patch + 1, prerelease: [] };
+}
+
+/** Semver precedence: a release outranks its prereleases, identifiers compare numerically where they can. */
+export function compareVersions(a: Version, b: Version): number {
+	for (const key of ['major', 'minor', 'patch'] as const) {
+		if (a[key] !== b[key]) return a[key] - b[key];
+	}
+	if (a.prerelease.length === 0 || b.prerelease.length === 0) {
+		return b.prerelease.length - a.prerelease.length;
+	}
+	for (let i = 0; i < Math.max(a.prerelease.length, b.prerelease.length); i++) {
+		const x = a.prerelease[i];
+		const y = b.prerelease[i];
+		if (x === undefined) return -1;
+		if (y === undefined) return 1;
+		if (x === y) continue;
+		const xn = /^\d+$/.test(x);
+		const yn = /^\d+$/.test(y);
+		if (xn && yn) return Number(x) - Number(y);
+		if (xn !== yn) return xn ? -1 : 1;
+		return x < y ? -1 : 1;
+	}
+	return 0;
+}
+
 export function sortKeys<T extends Record<string, string>>(obj: T): T {
 	const sorted: Record<string, string> = {};
 	for (const key of Object.keys(obj).sort()) sorted[key] = obj[key]!;

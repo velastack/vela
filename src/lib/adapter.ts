@@ -1,8 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-	Project,
-	QuoteKind,
 	SyntaxKind,
 	type ImportDeclaration,
 	type ObjectLiteralExpression,
@@ -11,12 +9,11 @@ import {
 import { detect, type AgentName } from 'package-manager-detector';
 import {
 	createSveltekitArg,
+	findSvelteConfig,
 	formatLikeSource,
-	getOrCreateObjectLiteralProperty,
-	inspectViteSveltekit,
-	probeFirstExisting,
-	SVELTE_CONFIG_CANDIDATES
+	inspectViteSveltekit
 } from './config-target.ts';
+import { KIT3_MIGRATE_COMMAND } from './kit-version.ts';
 import { readPackageJson, sortKeys, writePackageJson, type PkgJson } from './package-json.ts';
 import { getUserAgent, installDependencies, isInstalled } from './package-manager.ts';
 
@@ -37,16 +34,14 @@ export const ADAPTER_NODE = '@sveltejs/adapter-node';
 export const ADAPTER_AUTO = '@sveltejs/adapter-auto';
 export const ADAPTER_STATIC = '@sveltejs/adapter-static';
 /** The range written into a project that had no adapter-node before. */
-export const ADAPTER_NODE_RANGE = '^5.5.7';
+export const ADAPTER_NODE_RANGE = '^6.0.0';
 
 export type AdapterKind = 'node' | 'auto' | 'static' | 'other' | 'none';
-export type ConfigContainer = 'vite-inline' | 'svelte-config';
 
 export interface AdapterInfo {
 	kind: AdapterKind;
-	/** The file SvelteKit reads its config from. */
+	/** The vite config whose `sveltekit({...})` call SvelteKit reads its config from. */
 	file: string;
-	container: ConfigContainer;
 	/** Module specifier of the adapter import, when the property points at one. */
 	specifier?: string;
 }
@@ -70,78 +65,38 @@ export class AdapterError extends Error {
 interface KitTarget {
 	sourceFile: SourceFile;
 	filePath: string;
-	container: ConfigContainer;
-	/** The object kit-namespaced settings live in: `kit` in svelte.config, the inline arg itself in vite.config. */
+	/** The inline `sveltekit({...})` argument, where SvelteKit 3 keeps `adapter`. */
 	kit: ObjectLiteralExpression;
 	/** A `{}` argument was created on a bare `sveltekit()` - the one case the file is reformatted. */
 	created: boolean;
 	originalText: string;
 }
 
-function newProject(): Project {
-	return new Project({
-		compilerOptions: { allowJs: true },
-		manipulationSettings: { quoteKind: QuoteKind.Single }
-	});
-}
-
 /**
- * The default-exported config object of a svelte.config file: either
- * `export default { ... }` or `const config = { ... }; export default config`.
- */
-function getDefaultExportObject(sourceFile: SourceFile): ObjectLiteralExpression | null {
-	const exported = sourceFile.getExportAssignment((ea) => !ea.isExportEquals())?.getExpression();
-	if (exported?.getKind() === SyntaxKind.ObjectLiteralExpression) {
-		return exported as ObjectLiteralExpression;
-	}
-	if (exported?.getKind() === SyntaxKind.Identifier) {
-		const init = sourceFile.getVariableDeclaration(exported.getText())?.getInitializer();
-		if (init?.getKind() === SyntaxKind.ObjectLiteralExpression) {
-			return init as ObjectLiteralExpression;
-		}
-	}
-	return null;
-}
-
-/**
- * Where SvelteKit reads its config from, in Kit's own order of precedence: an
- * inline `sveltekit({...})` argument in vite.config wins and makes Kit ignore
- * any svelte.config; otherwise svelte.config; otherwise a bare `sveltekit()`
- * gets an argument created. The last never happens while a svelte.config
- * exists - that would silently switch the project off the file it configures.
+ * The inline `sveltekit({...})` argument in vite.config, the only place
+ * SvelteKit 3 reads its config from; a bare `sveltekit()` gets an argument
+ * created. A leftover svelte.config means a SvelteKit 2 project: Kit 3 refuses
+ * to start with one, and switching its adapter would not make it deployable.
  */
 function resolveKitTarget(root: string): KitTarget {
+	const svelteConfig = findSvelteConfig(root);
+	if (svelteConfig) {
+		throw new AdapterError(
+			`${path.basename(svelteConfig)} found: this looks like a SvelteKit 2 project, and\n` +
+				`SvelteKit 3 reads its config only from sveltekit({...}) in vite.config.\n\n` +
+				`Migrate it first:`,
+			KIT3_MIGRATE_COMMAND
+		);
+	}
+
 	const vite = inspectViteSveltekit(root);
 	if (vite?.inlineArg) {
 		return {
 			sourceFile: vite.sourceFile,
 			filePath: vite.filePath,
-			container: 'vite-inline',
 			kit: vite.inlineArg,
 			created: false,
 			originalText: vite.sourceFile.getFullText()
-		};
-	}
-
-	const sveltePath = probeFirstExisting(root, SVELTE_CONFIG_CANDIDATES);
-	if (sveltePath) {
-		const name = path.basename(sveltePath);
-		if (sveltePath.endsWith('.cjs')) {
-			throw new AdapterError(`${name} is CommonJS, which vela does not edit.`);
-		}
-		const sourceFile = newProject().addSourceFileAtPath(sveltePath);
-		const config = getDefaultExportObject(sourceFile);
-		const kit = config && getOrCreateObjectLiteralProperty(config, 'kit', '{}');
-		if (!kit) {
-			throw new AdapterError(`${name} has a shape vela does not understand.`);
-		}
-		return {
-			sourceFile,
-			filePath: sveltePath,
-			container: 'svelte-config',
-			kit,
-			created: false,
-			originalText: sourceFile.getFullText()
 		};
 	}
 
@@ -157,16 +112,13 @@ function resolveKitTarget(root: string): KitTarget {
 		return {
 			sourceFile: vite.sourceFile,
 			filePath: vite.filePath,
-			container: 'vite-inline',
 			kit,
 			created: true,
 			originalText
 		};
 	}
 
-	throw new AdapterError(
-		`No svelte.config or vite.config with a sveltekit() plugin found in ${root}.`
-	);
+	throw new AdapterError(`No vite.config with a sveltekit() plugin found in ${root}.`);
 }
 
 function classify(specifier: string): AdapterKind {
@@ -189,14 +141,14 @@ interface AdapterProperty {
 }
 
 /**
- * Classify the `adapter` property of the kit container by the module its call
+ * Classify the `adapter` property of the sveltekit() argument by the module its call
  * resolves to. The local name proves nothing - `import adapter from
  * '@sveltejs/adapter-vercel'` is the norm - so only the specifier counts, and
  * anything that is not a plain `<import>()` call is `other`: a conditional or
  * a value from elsewhere is a decision vela cannot see, so it does not touch it.
  */
 function inspectAdapter(target: KitTarget): AdapterProperty {
-	const base = { file: target.filePath, container: target.container };
+	const base = { file: target.filePath };
 	const prop = target.kit.getProperty('adapter');
 	if (!prop) return { info: { ...base, kind: 'none' } };
 
@@ -368,7 +320,7 @@ function dropAdapterAutoComments(target: KitTarget): void {
 	target.sourceFile.replaceText([fullStart, start], `\n${indent}`);
 }
 
-/** No adapter configured: import adapter-node and set it, in the container Kit reads. */
+/** No adapter configured: import adapter-node and set it in the sveltekit() argument. */
 function addAdapter(target: KitTarget): void {
 	const taken =
 		importOf(target.sourceFile, 'adapter') ?? target.sourceFile.getVariableDeclaration('adapter');

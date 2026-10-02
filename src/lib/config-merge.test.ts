@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import {
 	mergeGitignore,
+	mergeOriginConfig,
 	mergeSvelteConfig,
 	mergeTsconfig,
 	mergeViteConfig
@@ -25,50 +26,32 @@ function write(name: string, content: string): string {
 	return p;
 }
 
-describe('mergeSvelteConfig', () => {
-	test('injects runes block into a vanilla config', () => {
-		const filePath = write(
-			'svelte.config.js',
-			`import adapter from '@sveltejs/adapter-auto';
+function read(name: string): string {
+	return fs.readFileSync(path.join(tmp, name), 'utf8');
+}
 
-/** @type {import('@sveltejs/kit').Config} */
-const config = {
-\tkit: {
-\t\tadapter: adapter()
-\t}
-};
-
-export default config;
-`
+describe('mergeSvelteConfig — svelte.config', () => {
+	test('a svelte.config is a SvelteKit 2 project: the outcome is the migrate command', () => {
+		write(
+			'vite.config.ts',
+			`import { sveltekit } from '@sveltejs/kit/vite';\nexport default { plugins: [sveltekit({})] };\n`
 		);
-		const result = mergeSvelteConfig(tmp);
-		expect(result.applied).toBe(true);
-		const updated = fs.readFileSync(filePath, 'utf8');
-		expect(updated).toMatch(/compilerOptions:\s*\{[\s\S]*runes/);
-		expect(updated).toMatch(/kit: \{/);
-	});
-
-	test('skips when runes already configured', () => {
-		const filePath = write(
+		const sveltePath = write(
 			'svelte.config.js',
-			`const config = {\n\tcompilerOptions: { runes: true }\n};`
+			`const config = {\n\tkit: {}\n};\nexport default config;\n`
 		);
-		const before = fs.readFileSync(filePath, 'utf8');
+		const viteBefore = read('vite.config.ts');
 		const result = mergeSvelteConfig(tmp);
-		expect(result.applied).toBe(false);
-		expect(fs.readFileSync(filePath, 'utf8')).toBe(before);
-	});
-
-	test('bails when compilerOptions already present without runes', () => {
-		const filePath = write(
-			'svelte.config.js',
-			`const config = {\n\tcompilerOptions: { warningFilter: () => false }\n};`
+		expect(result).toMatchObject({
+			applied: false,
+			file: 'svelte.config.js',
+			snippet: 'npx vela@^0.15 migrate sveltekit-3'
+		});
+		expect(result.reason).toMatch(/SvelteKit 3/);
+		expect(fs.readFileSync(sveltePath, 'utf8')).toBe(
+			`const config = {\n\tkit: {}\n};\nexport default config;\n`
 		);
-		const before = fs.readFileSync(filePath, 'utf8');
-		const result = mergeSvelteConfig(tmp);
-		expect(result.applied).toBe(false);
-		expect(result.snippet).toBeDefined();
-		expect(fs.readFileSync(filePath, 'utf8')).toBe(before);
+		expect(read('vite.config.ts')).toBe(viteBefore);
 	});
 });
 
@@ -120,20 +103,6 @@ export default defineConfig({
 		expect(result.applied).toBe(true);
 		const updated = fs.readFileSync(path.join(tmp, 'vite.config.ts'), 'utf8');
 		expect(updated).toMatch(/sveltekit\(\{[\s\S]*runes/);
-	});
-
-	test('prefers vite-inline and leaves a leftover svelte.config untouched', () => {
-		write('vite.config.ts', VITE_INLINE);
-		const sveltePath = write(
-			'svelte.config.js',
-			`const config = {\n\tkit: {}\n};\nexport default config;\n`
-		);
-		const svelteBefore = fs.readFileSync(sveltePath, 'utf8');
-		const result = mergeSvelteConfig(tmp);
-		expect(result.applied).toBe(true);
-		expect(result.file).toBe('vite.config.ts');
-		expect(fs.readFileSync(sveltePath, 'utf8')).toBe(svelteBefore);
-		expect(fs.readFileSync(path.join(tmp, 'vite.config.ts'), 'utf8')).toMatch(/runes/);
 	});
 
 	test('skips when runes already present in the sveltekit() arg', () => {
@@ -197,32 +166,318 @@ export default defineConfig({
 	});
 });
 
-describe('mergeTsconfig', () => {
-	test('adds rewriteRelativeImportExtensions', () => {
-		const filePath = write(
-			'tsconfig.json',
-			JSON.stringify(
-				{
-					extends: './.svelte-kit/tsconfig.json',
-					compilerOptions: { allowJs: true, strict: true }
+// vela's Kit 2 templates baked the deploy origin into prerender.origin, which
+// SvelteKit 3 removed. These are their vite configs as they shipped.
+const KIT2_MINIMAL_VITE = `import { defineConfig } from 'vite';
+import tailwindcss from '@tailwindcss/vite';
+import { sveltekit } from '@sveltejs/kit/vite';
+import adapter from '@sveltejs/adapter-node';
+
+export default defineConfig({
+	plugins: [
+		tailwindcss(),
+		sveltekit({
+			compilerOptions: {
+				runes: ({ filename }) =>
+					filename.split(/[/\\\\]/).includes('node_modules') ? undefined : true
+			},
+			adapter: adapter(),
+			...(process.env.VELA_ORIGIN ? { prerender: { origin: process.env.VELA_ORIGIN } } : {})
+		})
+	]
+});
+`;
+
+const KIT2_STATIC_VITE = `import { defineConfig } from 'vite';
+import tailwindcss from '@tailwindcss/vite';
+import { sveltekit } from '@sveltejs/kit/vite';
+import adapter from '@sveltejs/adapter-static';
+
+const PENDING_LEGAL_ROUTES = ['/privacy', '/terms'];
+
+export default defineConfig({
+	plugins: [
+		tailwindcss(),
+		sveltekit({
+			adapter: adapter({
+				fallback: '200.html'
+			}),
+			prerender: {
+				// Every other broken link still fails the build.
+				handleHttpError: ({ path, status, message }) => {
+					if (status === 404 && PENDING_LEGAL_ROUTES.includes(path)) return;
+					throw new Error(message);
 				},
-				null,
-				'\t'
+				...(process.env.VELA_ORIGIN ? { origin: process.env.VELA_ORIGIN } : {})
+			}
+		})
+	]
+});
+`;
+
+const ORIGIN_SPREAD = `...(process.env.VELA_ORIGIN ? { paths: { origin: process.env.VELA_ORIGIN } } : {})`;
+
+/** A vite.config whose sveltekit() argument is `kit`. */
+function viteWith(kit: string): string {
+	return `import { sveltekit } from '@sveltejs/kit/vite';\nexport default { plugins: [sveltekit(${kit})] };\n`;
+}
+
+/** Run the merge twice: the second run must find nothing to do and leave the file byte-identical. */
+function mergeOriginTwice() {
+	const first = mergeOriginConfig(tmp);
+	const after = read('vite.config.ts');
+	const second = mergeOriginConfig(tmp);
+	expect(second.applied).toBe(false);
+	expect(read('vite.config.ts')).toBe(after);
+	return { first, second, after };
+}
+
+describe('mergeOriginConfig', () => {
+	test('swaps the minimal template spread for paths.origin in place', () => {
+		write('vite.config.ts', KIT2_MINIMAL_VITE);
+		const { first, second, after } = mergeOriginTwice();
+		expect(first).toMatchObject({ applied: true, file: 'vite.config.ts' });
+		expect(after).toBe(
+			KIT2_MINIMAL_VITE.replace(
+				'...(process.env.VELA_ORIGIN ? { prerender: { origin: process.env.VELA_ORIGIN } } : {})',
+				ORIGIN_SPREAD
 			)
 		);
-		const result = mergeTsconfig(filePath);
-		expect(result.applied).toBe(true);
-		const updated = fs.readFileSync(filePath, 'utf8');
-		expect(updated).toContain('"rewriteRelativeImportExtensions": true');
+		expect(second.reason).toBe('paths.origin already configured');
 	});
 
-	test('skips when already set', () => {
-		const filePath = write(
-			'tsconfig.json',
-			JSON.stringify({ compilerOptions: { rewriteRelativeImportExtensions: true } })
+	test('takes the spread out of the static template prerender and keeps handleHttpError', () => {
+		write('vite.config.ts', KIT2_STATIC_VITE);
+		const { first, after } = mergeOriginTwice();
+		expect(first.applied).toBe(true);
+		expect(after).toBe(
+			KIT2_STATIC_VITE.replace(
+				`\t\t\t\t},\n\t\t\t\t...(process.env.VELA_ORIGIN ? { origin: process.env.VELA_ORIGIN } : {})\n\t\t\t}\n`,
+				`\t\t\t\t}\n\t\t\t},\n\t\t\t${ORIGIN_SPREAD}\n`
+			)
 		);
-		const result = mergeTsconfig(filePath);
+	});
+
+	test('drops a prerender left empty', () => {
+		write(
+			'vite.config.ts',
+			viteWith(
+				`{\n\tprerender: {\n\t\t...(process.env.VELA_ORIGIN ? { origin: process.env.VELA_ORIGIN } : {})\n\t}\n}`
+			)
+		);
+		const { after } = mergeOriginTwice();
+		expect(after).not.toContain('prerender');
+		expect(after).toContain(ORIGIN_SPREAD);
+	});
+
+	test('moves a literal prerender.origin to paths.origin', () => {
+		write(
+			'vite.config.ts',
+			viteWith(`{\n\tprerender: { origin: 'https://example.com', entries: ['*'] }\n}`)
+		);
+		const { first, after } = mergeOriginTwice();
+		expect(first.applied).toBe(true);
+		expect(after).toContain(`prerender: { entries: ['*'] }`);
+		expect(after).toMatch(/paths: \{ origin: 'https:\/\/example\.com' \}/);
+	});
+
+	test('puts origin inside an existing paths object, which a top-level spread would replace', () => {
+		write(
+			'vite.config.ts',
+			viteWith(
+				`{\n\tpaths: { base: '/docs' },\n\t...(process.env.VELA_ORIGIN ? { prerender: { origin: process.env.VELA_ORIGIN } } : {})\n}`
+			)
+		);
+		const { first, second, after } = mergeOriginTwice();
+		expect(first.applied).toBe(true);
+		expect(after).not.toContain('prerender');
+		expect(after).toMatch(
+			/paths: \{\s*base: '\/docs',\s*\.\.\.\(process\.env\.VELA_ORIGIN \? \{ origin: process\.env\.VELA_ORIGIN \} : \{\}\)\s*\}/
+		);
+		expect(second.reason).toBe('paths.origin already configured');
+	});
+
+	test('leaves an existing paths.origin alone and says so', () => {
+		write(
+			'vite.config.ts',
+			viteWith(
+				`{\n\tpaths: { origin: 'https://kept.example' },\n\tprerender: { origin: 'https://stale.example' }\n}`
+			)
+		);
+		const { first, after } = mergeOriginTwice();
+		expect(first.applied).toBe(true);
+		expect(first.reason).toMatch(/kept the existing paths\.origin/);
+		expect(after).toContain(`paths: { origin: 'https://kept.example' }`);
+		expect(after).not.toContain('stale.example');
+		expect(after).not.toContain('prerender');
+	});
+
+	test('a conditional paths spread without an origin does not count as one', () => {
+		write(
+			'vite.config.ts',
+			viteWith(
+				`{\n\t...(process.env.DOCS ? { paths: { base: '/docs' } } : {}),\n\tprerender: { origin: 'https://example.com' }\n}`
+			)
+		);
+		const { first, after } = mergeOriginTwice();
+		expect(first).toMatchObject({
+			applied: true,
+			reason: 'moved prerender.origin to paths.origin'
+		});
+		expect(after).toContain(`paths: { origin: 'https://example.com' }`);
+		expect(after).not.toContain('prerender');
+	});
+
+	test('nothing to move is a no-op', () => {
+		write('vite.config.ts', viteWith('{ adapter: adapter() }'));
+		const { first } = mergeOriginTwice();
+		expect(first).toMatchObject({ applied: false, reason: 'no prerender.origin to move' });
+		expect(read('vite.config.ts')).toBe(viteWith('{ adapter: adapter() }'));
+	});
+
+	test('a svelte.config gets the migrate command, not an edit', () => {
+		write('vite.config.ts', KIT2_MINIMAL_VITE);
+		write('svelte.config.js', `export default {};\n`);
+		expect(mergeOriginConfig(tmp)).toMatchObject({
+			applied: false,
+			snippet: 'npx vela@^0.15 migrate sveltekit-3'
+		});
+		expect(read('vite.config.ts')).toBe(KIT2_MINIMAL_VITE);
+	});
+});
+
+// The Kit 2 templates' tsconfig, as `vela create` wrote it.
+const KIT2_TSCONFIG = `{
+	"extends": "./.svelte-kit/tsconfig.json",
+	"compilerOptions": {
+		"rewriteRelativeImportExtensions": true,
+		"allowJs": true,
+		"strict": true,
+		"moduleResolution": "bundler"
+	}
+}
+`;
+
+/** Run the merge twice: the second run must find nothing to do and leave the file byte-identical. */
+function mergeTsconfigTwice(backend: boolean) {
+	const first = mergeTsconfig(tmp, { backend });
+	const after = read('tsconfig.json');
+	const second = mergeTsconfig(tmp, { backend });
+	expect(second).toMatchObject({
+		applied: false,
+		reason: 'tsconfig.json already set up for SvelteKit 3'
+	});
+	expect(read('tsconfig.json')).toBe(after);
+	return { first, after };
+}
+
+describe('mergeTsconfig', () => {
+	test('moves a Kit 2 vela tsconfig onto $app/tsconfig with the template include', () => {
+		write('tsconfig.json', KIT2_TSCONFIG);
+		write('vite.config.ts', '');
+		write('vitest.config.ts', '');
+		fs.mkdirSync(path.join(tmp, 'test'));
+		const { first, after } = mergeTsconfigTwice(true);
+		expect(first.applied).toBe(true);
+		expect(JSON.parse(after)).toEqual({
+			extends: '$app/tsconfig',
+			compilerOptions: { allowJs: true, strict: true, moduleResolution: 'bundler' },
+			include: [
+				'src',
+				'test',
+				'vite.config.ts',
+				'vitest.config.ts',
+				'.svelte-kit/types/pocketbase/*.d.ts'
+			]
+		});
+		// Too long for one line at prettier's width, so one entry per line.
+		expect(after).toContain(`\t"include": [\n\t\t"src",\n`);
+	});
+
+	test('a project without a backend, tests or vitest gets src and the vite config, on one line', () => {
+		write('tsconfig.json', KIT2_TSCONFIG);
+		write('vite.config.js', '');
+		const { after } = mergeTsconfigTwice(false);
+		expect(after).toContain(`\t"include": ["src", "vite.config.js"]\n`);
+		expect(after).not.toContain('pocketbase');
+		expect(after).not.toContain('rewriteRelativeImportExtensions');
+	});
+
+	test('keeps what sv create wrote and adds only what is missing', () => {
+		const sv = `{\n\t"extends": "$app/tsconfig",\n\t"compilerOptions": {\n\t\t"strict": true\n\t},\n\t"include": ["src", "vite.config.ts"]\n}\n`;
+		write('tsconfig.json', sv);
+		mergeTsconfigTwice(false);
+		expect(read('tsconfig.json')).toBe(sv);
+
+		const { first, after } = mergeTsconfigTwice(true);
+		expect(first).toMatchObject({
+			applied: true,
+			reason: 'include .svelte-kit/types/pocketbase/*.d.ts'
+		});
+		expect(JSON.parse(after).include).toEqual([
+			'src',
+			'vite.config.ts',
+			'.svelte-kit/types/pocketbase/*.d.ts'
+		]);
+	});
+
+	test('replaces the generated config inside an extends array', () => {
+		write(
+			'tsconfig.json',
+			JSON.stringify(
+				{ extends: ['./.svelte-kit/tsconfig.json', './base.json'], include: ['./src/'] },
+				null,
+				2
+			)
+		);
+		const { after } = mergeTsconfigTwice(false);
+		const parsed = JSON.parse(after);
+		expect(parsed.extends).toEqual(['$app/tsconfig', './base.json']);
+		expect(parsed.include).toEqual(['./src/', 'vite.config.ts']);
+		// The file's own two-space indent.
+		expect(after).toContain('\n  "extends": [');
+	});
+
+	test('a file with comments is left alone, with the file vela would write as the snippet', () => {
+		const commented = KIT2_TSCONFIG.replace(
+			'"allowJs": true,',
+			'// keep JS checked\n\t\t"allowJs": true,'
+		);
+		write('tsconfig.json', commented);
+		const result = mergeTsconfig(tmp, { backend: false });
 		expect(result.applied).toBe(false);
+		expect(result.reason).toMatch(/comments/);
+		expect(JSON.parse(result.snippet!)).toMatchObject({
+			extends: '$app/tsconfig',
+			include: ['src', 'vite.config.ts']
+		});
+		expect(read('tsconfig.json')).toBe(commented);
+	});
+
+	test('a commented file with nothing to change is just unchanged', () => {
+		write(
+			'tsconfig.json',
+			`{\n\t// sv\n\t"extends": "$app/tsconfig",\n\t"include": ["src", "vite.config.ts"]\n}\n`
+		);
+		expect(mergeTsconfig(tmp, { backend: false })).toEqual({
+			applied: false,
+			reason: 'tsconfig.json already set up for SvelteKit 3',
+			file: 'tsconfig.json'
+		});
+	});
+
+	test('an unrelated extends is not guessed at', () => {
+		write('tsconfig.json', JSON.stringify({ extends: '@tsconfig/strictest' }));
+		const result = mergeTsconfig(tmp, { backend: false });
+		expect(result.applied).toBe(false);
+		expect(result.snippet).toBe(`"extends": ["$app/tsconfig","@tsconfig/strictest"]`);
+	});
+
+	test('a missing tsconfig is reported', () => {
+		expect(mergeTsconfig(tmp, { backend: false })).toMatchObject({
+			applied: false,
+			reason: 'tsconfig.json not found'
+		});
 	});
 });
 

@@ -19,7 +19,7 @@ describe('assertShadcn', () => {
 		fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ devDependencies }));
 
 	test('refuses a project `sv create` made, naming the command and the way in', () => {
-		writePackage({ '@sveltejs/kit': '^2.0.0' });
+		writePackage({ '@sveltejs/kit': '^3.0.0' });
 		expect(() => assertShadcn('vela enable blog', root)).toThrow(
 			/`vela enable blog` needs shadcn-svelte[\s\S]*Nothing was changed[\s\S]*shadcn-svelte@latest init/
 		);

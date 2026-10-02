@@ -36,6 +36,24 @@ describe('componentsJsonHints', () => {
 		expect(hints[1]).toContain('"iconLibrary": "lucide"');
 	});
 
+	test('points $lib aliases at #lib, which is all SvelteKit 3 resolves', () => {
+		const hints = componentsJsonHints({
+			style: 'vega',
+			iconLibrary: 'lucide',
+			aliases: { components: '$lib/components', lib: '$lib', ui: '#lib/components/ui' }
+		});
+		expect(hints).toHaveLength(1);
+		expect(hints[0]).toContain('"components", "lib"');
+		expect(hints[0]).toContain('#lib');
+		expect(
+			componentsJsonHints({
+				style: 'vega',
+				iconLibrary: 'lucide',
+				aliases: { components: '#lib/components', lib: '#lib' }
+			})
+		).toEqual([]);
+	});
+
 	test('is silent once both are set', () => {
 		expect(componentsJsonHints({ style: 'nova', iconLibrary: 'lucide' })).toEqual([]);
 	});

@@ -38,28 +38,30 @@ function devDeps(): Record<string, string> {
 	return JSON.parse(read('package.json')).devDependencies;
 }
 
-// What `sv create --template minimal` writes today.
-const SV_SVELTE_CONFIG = `import adapter from '@sveltejs/adapter-auto';
-import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
+// What `sv create --template minimal` writes: sv 1.0.1's vite.config.ts.
+const SV_VITE_CONFIG = `import adapter from '@sveltejs/adapter-auto';
+import { sveltekit } from '@sveltejs/kit/vite';
+import { defineConfig } from 'vite';
 
-/** @type {import('@sveltejs/kit').Config} */
-const config = {
-	// Consult https://svelte.dev/docs/kit/integrations
-	// for more information about preprocessors
-	preprocess: vitePreprocess(),
+export default defineConfig({
+	plugins: [
+		sveltekit({
+			compilerOptions: {
+				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
+				runes: ({ filename }) =>
+					filename.split(/[/\\\\]/).includes('node_modules') ? undefined : true
+			},
 
-	kit: {
-		// adapter-auto only supports some environments, see https://svelte.dev/docs/kit/adapter-auto for a list.
-		// If your environment is not supported, or you settled on a specific environment, switch out the adapter.
-		// See https://svelte.dev/docs/kit/adapters for more information about adapters.
-		adapter: adapter()
-	}
-};
-
-export default config;
+			// adapter-auto only supports some environments, see https://svelte.dev/docs/kit/adapter-auto for a list.
+			// If your environment is not supported, or you settled on a specific environment, switch out the adapter.
+			// See https://svelte.dev/docs/kit/adapters for more information about adapters.
+			adapter: adapter()
+		})
+	]
+});
 `;
 
-const SV_VITE_CONFIG = `import { sveltekit } from '@sveltejs/kit/vite';
+const BARE_VITE_CONFIG = `import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
@@ -82,53 +84,68 @@ export default defineConfig({
 					filename.split(/[/\\\\]/).includes('node_modules') ? undefined : true
 			},
 			adapter: adapter(),
-			...(process.env.VELA_ORIGIN ? { prerender: { origin: process.env.VELA_ORIGIN } } : {})
+			...(process.env.VELA_ORIGIN ? { paths: { origin: process.env.VELA_ORIGIN } } : {})
 		})
 	]
 });
 `;
 
+/** A vite.config whose sveltekit() argument is `kit`, with `imports` above it. */
+function viteConfig(imports: string, kit: string): string {
+	return `${imports}import { sveltekit } from '@sveltejs/kit/vite';\nexport default { plugins: [sveltekit(${kit})] };\n`;
+}
+
 describe('detectAdapter', () => {
-	test('reads the sv layout: adapter-auto under kit in svelte.config.js', () => {
-		write('svelte.config.js', SV_SVELTE_CONFIG);
+	test('reads the sv layout: adapter-auto inline in sveltekit()', () => {
 		write('vite.config.ts', SV_VITE_CONFIG);
 		expect(detectAdapter(tmp)).toMatchObject({
 			kind: 'auto',
-			container: 'svelte-config',
+			file: path.join(tmp, 'vite.config.ts'),
 			specifier: '@sveltejs/adapter-auto'
 		});
 	});
 
-	test('an inline sveltekit() arg outranks a leftover svelte.config', () => {
+	test('a svelte.config is a SvelteKit 2 project, refused with the migrate command', () => {
 		write('vite.config.ts', INLINE_VITE_CONFIG);
-		write('svelte.config.js', SV_SVELTE_CONFIG.replace('adapter-auto', 'adapter-static'));
-		expect(detectAdapter(tmp)).toMatchObject({ kind: 'auto', container: 'vite-inline' });
+		write(
+			'svelte.config.js',
+			`import adapter from '@sveltejs/adapter-node';\nexport default { kit: { adapter: adapter() } };\n`
+		);
+		expect(() => detectAdapter(tmp)).toThrow(AdapterError);
+		expect(() => detectAdapter(tmp)).toThrow(/svelte\.config\.js found/);
+		try {
+			detectAdapter(tmp);
+		} catch (err) {
+			expect((err as AdapterError).snippet).toBe('npx vela@^0.15 migrate sveltekit-3');
+		}
 	});
 
 	test('classifies by module specifier, not by the local name', () => {
 		write(
-			'svelte.config.js',
-			`import adapter from '@sveltejs/adapter-vercel';\nexport default { kit: { adapter: adapter() } };\n`
+			'vite.config.ts',
+			viteConfig(`import adapter from '@sveltejs/adapter-vercel';\n`, '{ adapter: adapter() }')
 		);
 		expect(detectAdapter(tmp).kind).toBe('other');
 		write(
-			'svelte.config.js',
-			`import node from '@sveltejs/adapter-node';\nexport default { kit: { adapter: node() } };\n`
+			'vite.config.ts',
+			viteConfig(`import node from '@sveltejs/adapter-node';\n`, '{ adapter: node() }')
 		);
 		expect(detectAdapter(tmp).kind).toBe('node');
 	});
 
 	test('a conditional adapter is a decision vela does not touch', () => {
 		write(
-			'svelte.config.js',
-			`import node from '@sveltejs/adapter-node';\nimport auto from '@sveltejs/adapter-auto';\n` +
-				`export default { kit: { adapter: process.env.X ? node() : auto() } };\n`
+			'vite.config.ts',
+			viteConfig(
+				`import node from '@sveltejs/adapter-node';\nimport auto from '@sveltejs/adapter-auto';\n`,
+				'{ adapter: process.env.X ? node() : auto() }'
+			)
 		);
 		expect(detectAdapter(tmp).kind).toBe('other');
 	});
 
 	test('no adapter property is none', () => {
-		write('svelte.config.js', `export default { kit: {} };\n`);
+		write('vite.config.ts', viteConfig('', '{}'));
 		expect(detectAdapter(tmp).kind).toBe('none');
 	});
 
@@ -140,45 +157,55 @@ describe('detectAdapter', () => {
 		expect(() => detectAdapter(tmp)).toThrow(AdapterError);
 	});
 
-	test('a CommonJS svelte.config is refused', () => {
-		write('svelte.config.cjs', `module.exports = { kit: {} };\n`);
-		expect(() => detectAdapter(tmp)).toThrow(/CommonJS/);
+	test('no vite config at all is refused', () => {
+		expect(() => detectAdapter(tmp)).toThrow(/No vite.config/);
 	});
 });
 
 describe('ensureNodeAdapter', () => {
 	test('switches the sv layout to adapter-node and drops the adapter-auto boilerplate', async () => {
-		write('svelte.config.js', SV_SVELTE_CONFIG);
 		write('vite.config.ts', SV_VITE_CONFIG);
-		pkg({ '@sveltejs/adapter-auto': '^7.0.1', '@sveltejs/kit': '^2.63.0' });
+		pkg({ '@sveltejs/adapter-auto': '^8.0.0', '@sveltejs/kit': '^3.0.0' });
 
 		const outcome = await ensureNodeAdapter(tmp, { install: false });
 
 		expect(outcome).toMatchObject({
 			previous: 'auto',
-			configFile: 'svelte.config.js',
+			configFile: 'vite.config.ts',
 			packageJsonChanged: true,
 			removedDeps: ['@sveltejs/adapter-auto']
 		});
-		const updated = read('svelte.config.js');
+		const updated = read('vite.config.ts');
 		expect(updated).toContain(`import adapter from '@sveltejs/adapter-node';`);
 		expect(updated).not.toContain('adapter-auto');
-		expect(updated).toContain(`\tkit: {\n\t\tadapter: adapter()\n\t}`);
-		// Everything the author might have written stays.
-		expect(updated).toContain('// Consult https://svelte.dev/docs/kit/integrations');
-		expect(updated).toContain(`/** @type {import('@sveltejs/kit').Config} */`);
-		// The vite config is not touched: an inline arg would make Kit ignore svelte.config.
-		expect(read('vite.config.ts')).toBe(SV_VITE_CONFIG);
+		// The boilerplate goes along with the blank line above it; the runes
+		// comment the author might keep stays, and nothing is reformatted.
+		expect(updated).toBe(`import adapter from '@sveltejs/adapter-node';
+import { sveltekit } from '@sveltejs/kit/vite';
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+	plugins: [
+		sveltekit({
+			compilerOptions: {
+				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
+				runes: ({ filename }) =>
+					filename.split(/[/\\\\]/).includes('node_modules') ? undefined : true
+			},
+			adapter: adapter()
+		})
+	]
+});
+`);
 		expect(devDeps()).toEqual({
 			'@sveltejs/adapter-node': ADAPTER_NODE_RANGE,
-			'@sveltejs/kit': '^2.63.0'
+			'@sveltejs/kit': '^3.0.0'
 		});
 	});
 
-	test('switches an inline vite config and leaves a leftover svelte.config alone', async () => {
+	test('switches vela’s inline vite config', async () => {
 		write('vite.config.ts', INLINE_VITE_CONFIG);
-		write('svelte.config.js', SV_SVELTE_CONFIG);
-		pkg({ '@sveltejs/adapter-auto': '^7.0.1' });
+		pkg({ '@sveltejs/adapter-auto': '^8.0.0' });
 
 		const outcome = await ensureNodeAdapter(tmp, { install: false });
 
@@ -186,24 +213,35 @@ describe('ensureNodeAdapter', () => {
 		expect(read('vite.config.ts')).toBe(
 			INLINE_VITE_CONFIG.replace('@sveltejs/adapter-auto', '@sveltejs/adapter-node')
 		);
-		expect(read('svelte.config.js')).toBe(SV_SVELTE_CONFIG);
+	});
+
+	test('refuses a svelte.config project before touching anything', async () => {
+		write('vite.config.ts', SV_VITE_CONFIG);
+		write('svelte.config.js', `export default { kit: {} };\n`);
+		pkg({ '@sveltejs/adapter-auto': '^7.0.1' });
+
+		await expect(ensureNodeAdapter(tmp, { install: false })).rejects.toThrow(
+			/svelte\.config\.js found/
+		);
+		expect(read('vite.config.ts')).toBe(SV_VITE_CONFIG);
+		expect(devDeps()).toEqual({ '@sveltejs/adapter-auto': '^7.0.1' });
 	});
 
 	test('a project already on adapter-node is left byte-identical', async () => {
-		const config = SV_SVELTE_CONFIG.replace('adapter-auto', 'adapter-node');
-		write('svelte.config.js', config);
-		pkg({ '@sveltejs/adapter-node': '^5.0.0' });
+		const config = SV_VITE_CONFIG.replace('adapter-auto', 'adapter-node');
+		write('vite.config.ts', config);
+		pkg({ '@sveltejs/adapter-node': '^6.0.0' });
 
 		const outcome = await ensureNodeAdapter(tmp, { install: false });
 
 		expect(outcome).toMatchObject({ previous: 'node', packageJsonChanged: false });
 		expect(outcome.configFile).toBeUndefined();
-		expect(read('svelte.config.js')).toBe(config);
-		expect(devDeps()).toEqual({ '@sveltejs/adapter-node': '^5.0.0' });
+		expect(read('vite.config.ts')).toBe(config);
+		expect(devDeps()).toEqual({ '@sveltejs/adapter-node': '^6.0.0' });
 	});
 
 	test('adapter-node configured but not installed gets the devDependency', async () => {
-		write('svelte.config.js', SV_SVELTE_CONFIG.replace('adapter-auto', 'adapter-node'));
+		write('vite.config.ts', SV_VITE_CONFIG.replace('adapter-auto', 'adapter-node'));
 		pkg({});
 		const outcome = await ensureNodeAdapter(tmp, { install: false });
 		expect(outcome).toMatchObject({ previous: 'node', packageJsonChanged: true });
@@ -216,7 +254,7 @@ describe('ensureNodeAdapter', () => {
 			`adapter: adapter({ fallback: '200.html' })`
 		);
 		write('vite.config.ts', config);
-		pkg({ '@sveltejs/adapter-static': '^3.0.10' });
+		pkg({ '@sveltejs/adapter-static': '^4.0.0' });
 
 		await expect(ensureNodeAdapter(tmp, { install: false })).rejects.toMatchObject({
 			name: 'AdapterError',
@@ -224,55 +262,40 @@ describe('ensureNodeAdapter', () => {
 			snippet: expect.stringContaining(`import adapter from '@sveltejs/adapter-node'`)
 		});
 		expect(read('vite.config.ts')).toBe(config);
-		expect(devDeps()).toEqual({ '@sveltejs/adapter-static': '^3.0.10' });
+		expect(devDeps()).toEqual({ '@sveltejs/adapter-static': '^4.0.0' });
 	});
 
 	test("another platform's adapter is refused too", async () => {
 		write(
-			'svelte.config.js',
-			`import adapter from '@sveltejs/adapter-vercel';\nexport default { kit: { adapter: adapter() } };\n`
+			'vite.config.ts',
+			viteConfig(`import adapter from '@sveltejs/adapter-vercel';\n`, '{ adapter: adapter() }')
 		);
 		await expect(ensureNodeAdapter(tmp, { install: false })).rejects.toThrow(/adapter-vercel/);
 	});
 
-	test('adds an adapter to a svelte.config that has none, under kit', async () => {
-		write(
-			'svelte.config.js',
-			`/** @type {import('@sveltejs/kit').Config} */\nexport default {\n\tkit: {}\n};\n`
-		);
+	test('adds an adapter to an inline sveltekit({}) arg at the top level', async () => {
+		write('vite.config.ts', viteConfig('', '{ compilerOptions: { runes: true } }'));
 		pkg({});
 		const outcome = await ensureNodeAdapter(tmp, { install: false });
 		expect(outcome.previous).toBe('none');
-		const updated = read('svelte.config.js');
-		expect(updated).toContain(`import adapter from '@sveltejs/adapter-node';`);
-		expect(updated).toMatch(/kit: \{\s*adapter: adapter\(\)\s*\}/);
-		expect(detectAdapter(tmp).kind).toBe('node');
-	});
-
-	test('adds an adapter to an inline sveltekit({}) arg at the top level', async () => {
-		write(
-			'vite.config.ts',
-			`import { sveltekit } from '@sveltejs/kit/vite';\nexport default { plugins: [sveltekit({ compilerOptions: { runes: true } })] };\n`
-		);
-		pkg({});
-		await ensureNodeAdapter(tmp, { install: false });
 		const updated = read('vite.config.ts');
+		expect(updated).toContain(`import adapter from '@sveltejs/adapter-node';`);
 		expect(updated).toMatch(/sveltekit\(\{[^}]*runes: true[^}]*\},\s*adapter: adapter\(\)\s*\}\)/s);
-		expect(detectAdapter(tmp)).toMatchObject({ kind: 'node', container: 'vite-inline' });
+		expect(detectAdapter(tmp)).toMatchObject({ kind: 'node' });
 	});
 
-	test('a bare sveltekit() with no svelte.config gets an argument', async () => {
-		write('vite.config.ts', SV_VITE_CONFIG);
+	test('a bare sveltekit() gets an argument', async () => {
+		write('vite.config.ts', BARE_VITE_CONFIG);
 		pkg({});
 		await ensureNodeAdapter(tmp, { install: false });
 		expect(read('vite.config.ts')).toContain('adapter: adapter()');
-		expect(detectAdapter(tmp)).toMatchObject({ kind: 'node', container: 'vite-inline' });
+		expect(detectAdapter(tmp)).toMatchObject({ kind: 'node' });
 	});
 
 	test('does not shadow a different `adapter` binding', async () => {
 		write(
-			'svelte.config.js',
-			`import adapter from 'some-other-thing';\nexport default { kit: { paths: { base: adapter } } };\n`
+			'vite.config.ts',
+			viteConfig(`import adapter from 'some-other-thing';\n`, '{ paths: { base: adapter } }')
 		);
 		await expect(ensureNodeAdapter(tmp, { install: false })).rejects.toThrow(/already binds/);
 	});
@@ -281,7 +304,7 @@ describe('ensureNodeAdapter', () => {
 describe('adoptNodeAdapter', () => {
 	test('drops adapter-auto from either bucket and adds adapter-node once', () => {
 		const p = {
-			dependencies: { '@sveltejs/adapter-auto': '^7.0.1' },
+			dependencies: { '@sveltejs/adapter-auto': '^8.0.0' },
 			devDependencies: { zod: '^4.0.0' }
 		};
 		expect(adoptNodeAdapter(p)).toEqual({ changed: true, removed: ['@sveltejs/adapter-auto'] });
@@ -293,7 +316,11 @@ describe('adoptNodeAdapter', () => {
 	});
 
 	test('nothing to do when adapter-node is a dependency already', () => {
-		const p = { dependencies: { '@sveltejs/adapter-node': '^5.0.0' } };
+		const p = { dependencies: { '@sveltejs/adapter-node': '^6.0.0' } };
 		expect(adoptNodeAdapter(p)).toEqual({ changed: false, removed: [] });
+	});
+
+	test('writes the adapter-node major SvelteKit 3 needs', () => {
+		expect(ADAPTER_NODE_RANGE).toBe('^6.0.0');
 	});
 });

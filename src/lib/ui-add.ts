@@ -30,7 +30,7 @@ export const THEMES = [
 ];
 
 const NEXT_STEPS = [
-	"Import a component with: import { Button } from '$lib/components/ui/button';",
+	"Import a component with: import { Button } from '#lib/components/ui/button/index.js';",
 	'Tweak styling in src/lib/components/ui/<component>/*.svelte.',
 	`Run \`vela ui base <color>\` to change the palette (${BASE_COLORS.join(', ')}), or \`vela ui list\` to see what else is available.`
 ];

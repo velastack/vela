@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+	IndentationText,
 	Project,
 	QuoteKind,
 	SyntaxKind,
@@ -16,6 +17,12 @@ export const VITE_CONFIG_CANDIDATES = [
 	'vite.config.cjs'
 ];
 
+/**
+ * SvelteKit 3 reads its config only from the inline `sveltekit({...})`
+ * argument and refuses to start while one of these exists. They are kept for
+ * detection: a project that has one is a Kit 2 project to migrate, not a
+ * config file to edit.
+ */
 export const SVELTE_CONFIG_CANDIDATES = [
 	'svelte.config.ts',
 	'svelte.config.js',
@@ -23,28 +30,43 @@ export const SVELTE_CONFIG_CANDIDATES = [
 	'svelte.config.cjs'
 ];
 
-/**
- * `formatText()` in the file's own indentation: a tab, or the narrowest run of
- * spaces a line starts with. ts-morph's default is four spaces, which rewrites
- * every line of the tab-indented config `sv create` writes to change one of
- * them, and a project without prettier has nothing to put that back. Mirrors
- * `formatLikeSource` in @velastack/patterns.
- */
-export function formatLikeSource(sourceFile: SourceFile): void {
+/** The file's own indentation: a tab, or the narrowest run of spaces a line starts with. */
+function detectIndentation(sourceFile: SourceFile): { useTabs: boolean; size: number } {
 	let spaces = 0;
-	let tabs = false;
 	for (const line of sourceFile.getFullText().split('\n')) {
-		if (line.startsWith('\t')) {
-			tabs = true;
-			break;
-		}
+		if (line.startsWith('\t')) return { useTabs: true, size: 4 };
 		const width = line.match(/^ +(?=\S)/)?.[0].length ?? 0;
 		// A lone leading space is a comment continuation, not an indent.
 		if (width >= 2 && (spaces === 0 || width < spaces)) spaces = width;
 	}
-	const useTabs = tabs || spaces === 0;
-	const size = useTabs ? 4 : spaces;
+	return spaces === 0 ? { useTabs: true, size: 4 } : { useTabs: false, size: spaces };
+}
+
+/**
+ * `formatText()` in the file's own indentation. ts-morph's default is four
+ * spaces, which rewrites every line of the tab-indented config `sv create`
+ * writes to change one of them, and a project without prettier has nothing to
+ * put that back. Mirrors `formatLikeSource` in @velastack/patterns.
+ */
+export function formatLikeSource(sourceFile: SourceFile): void {
+	const { useTabs, size } = detectIndentation(sourceFile);
 	sourceFile.formatText({ convertTabsToSpaces: !useTabs, indentSize: size, tabSize: size });
+}
+
+/**
+ * Indent what ts-morph inserts the way the file already is, so an added
+ * property lines up with its siblings without reformatting the file.
+ */
+function matchIndentation(project: Project, sourceFile: SourceFile): void {
+	const { useTabs, size } = detectIndentation(sourceFile);
+	const indentationText = useTabs
+		? IndentationText.Tab
+		: size === 2
+			? IndentationText.TwoSpaces
+			: size >= 8
+				? IndentationText.EightSpaces
+				: IndentationText.FourSpaces;
+	project.manipulationSettings.set({ indentationText });
 }
 
 /** First candidate that exists under `root`, or null. */
@@ -54,6 +76,11 @@ export function probeFirstExisting(root: string, candidates: string[]): string |
 		if (fs.existsSync(abs)) return abs;
 	}
 	return null;
+}
+
+/** The project's leftover `svelte.config.*`, or null. */
+export function findSvelteConfig(root: string): string | null {
+	return probeFirstExisting(root, SVELTE_CONFIG_CANDIDATES);
 }
 
 export interface ViteSveltekit {
@@ -68,7 +95,8 @@ export interface ViteSveltekit {
 
 /**
  * Load the project's `vite.config.*` (if any) and locate the `sveltekit()` call
- * plus its inline argument. Returns null when there is no vite config file.
+ * plus its inline argument, the one place SvelteKit 3 keeps its config.
+ * Returns null when there is no vite config file.
  */
 export function inspectViteSveltekit(root: string): ViteSveltekit | null {
 	const filePath = probeFirstExisting(root, VITE_CONFIG_CANDIDATES);
@@ -79,6 +107,7 @@ export function inspectViteSveltekit(root: string): ViteSveltekit | null {
 		manipulationSettings: { quoteKind: QuoteKind.Single }
 	});
 	const sourceFile = project.addSourceFileAtPath(filePath);
+	matchIndentation(project, sourceFile);
 	const sveltekitCall =
 		sourceFile
 			.getDescendantsOfKind(SyntaxKind.CallExpression)

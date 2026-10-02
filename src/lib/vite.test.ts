@@ -12,7 +12,7 @@ describe('viteVersionError', () => {
 		const error = viteVersionError('7.3.2');
 		expect(error).toContain('vite 7.3.2');
 		expect(error).toContain(`vite ${REQUIRED_VITE_MAJOR} or newer`);
-		expect(error).toContain('@sveltejs/vite-plugin-svelte@^7');
+		expect(error).toContain('vite@^8.0.12 @sveltejs/vite-plugin-svelte@^7');
 	});
 
 	test('rejects every major below the requirement', () => {

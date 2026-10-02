@@ -20,6 +20,17 @@ export function readComponentsJson(root: string): ComponentsJson | undefined {
 }
 
 /**
+ * SvelteKit 3 removed `$lib`. shadcn-svelte writes its imports through these
+ * aliases, so a components.json still on `$lib` adds components whose imports
+ * do not resolve. Read as legacy input; never rewritten here.
+ */
+function legacyLibAliases(config: ComponentsJson): string[] {
+	return Object.entries(config.aliases ?? {})
+		.filter(([, value]) => value === '$lib' || value.startsWith('$lib/'))
+		.map(([key]) => key);
+}
+
+/**
  * Since shadcn-svelte 1.2 the registry is style-scoped and a config without
  * `style` silently resolves to `nova`; vela's templates and components are
  * written against `vega`. These are hints rather than edits: switching the
@@ -30,6 +41,12 @@ export function componentsJsonHints(config: ComponentsJson): string[] {
 	if (!config.style) {
 		hints.push(
 			'components.json has no "style": shadcn-svelte defaults to "nova", while vela ships "vega". Add "style": "vega" so new components match.'
+		);
+	}
+	const legacy = legacyLibAliases(config);
+	if (legacy.length > 0) {
+		hints.push(
+			`components.json aliases ${legacy.map((k) => `"${k}"`).join(', ')} still use $lib, which SvelteKit 3 removed: change "$lib" to "#lib" in each so new components import through the package.json #lib entries.`
 		);
 	}
 	if (!config.iconLibrary) {

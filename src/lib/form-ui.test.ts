@@ -20,7 +20,7 @@ afterEach(() => {
 
 describe('detectFormInput', () => {
 	test('a bare SvelteKit project has none of the vela helpers', () => {
-		writePackageJson({ '@sveltejs/kit': '^2.0.0' });
+		writePackageJson({ '@sveltejs/kit': '^3.0.0' });
 		expect(detectFormInput(tmp)).toEqual({ flash: false, serverTests: false });
 	});
 

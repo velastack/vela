@@ -104,8 +104,13 @@ vela enable backend   # just PocketBase and the server test harness
 vela bless            # the full upgrade: Tailwind, shadcn-svelte, vela's layout and routes, the backend
 ```
 
-Both work in place on a vanilla SvelteKit project. A project that is already deployed
+Both work in place on a vanilla SvelteKit 3 project. A project that is already deployed
 keeps deploying to the same instance, now with a database.
+
+On SvelteKit 2? `npx vela@^0.15 migrate sveltekit-3` runs SvelteKit's own migration and
+then the vela fix-ups it doesn't know about. Or stay on `vela@0.14`, which keeps
+working with SvelteKit 2: a project created by it pins `vela ^0.14`, so it isn't moved
+to 0.15 by accident.
 
 Much of `vela` needs neither. In a plain `npx sv create` project, with no setup:
 
@@ -126,7 +131,7 @@ Generated files are yours to edit — no framework wrapping your app, no magic y
 
 ## Requirements
 
-Node 20.19+ or 22.12+. That's it.
+Node 22.17+ and SvelteKit 3. That's it.
 
 ## Docs
 

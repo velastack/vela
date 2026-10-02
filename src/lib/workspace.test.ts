@@ -164,7 +164,7 @@ describe('detectUi', () => {
 	});
 
 	test('a bare SvelteKit project is plain', () => {
-		writePackageJson({ '@sveltejs/kit': '^2.0.0' });
+		writePackageJson({ '@sveltejs/kit': '^3.0.0' });
 		expect(detectUi(tmpDir)).toBe('plain');
 	});
 
