@@ -12,6 +12,7 @@ import { sourceFiles, VELA_ENV_VARS } from './vela-env.ts';
  * - `goto(url, { invalidateAll })` → `{ refreshAll }`
  * - `invalidateAll()` from `$app/navigation` → `refreshAll()`
  * - `vi.mock('$app/environment')` / `vi.doMock(...)` → `'$app/env'`
+ * - `vi.mock('$env/dynamic/private')` (and `static`, `public`) → `'$app/env/private'`
  * - `new URL(page.url)` → `new URL(page.url.href)` (`page.url` is a ReadonlyURL)
  *
  * Every rewrite is idempotent: its input shape is gone afterwards, and a
@@ -426,7 +427,49 @@ function insideScript(source: string, index: number): boolean {
 
 const MOCK_ENVIRONMENT =
 	/(\bvi\.(?:mock|doMock|unmock|doUnmock|importActual|importMock)\s*\(\s*)(['"])\$app\/environment\2/g;
+const MOCK_ENV =
+	/(\bvi\.(mock|doMock|unmock|doUnmock|importActual|importMock)\s*\(\s*)(['"])\$env\/(dynamic|static)\/(private|public)\3/g;
 const NEW_URL_PAGE_URL = /\bnew\s+URL\(\s*(\$?page\.url)\s*\)/g;
+
+/**
+ * `vi.mock('$env/dynamic/private')` → `'$app/env/private'`, and the same for
+ * `static` and `public`: the module id only. A `mock`/`doMock` factory that
+ * returns Kit 2's `{ env: {...} }` gets a task, since `$app/env/*` exports
+ * each variable by name; the factory itself is the project's to rewrite.
+ */
+function rewriteEnvMocks(source: string): {
+	code: string;
+	changes: string[];
+	tasks: Array<[number, string]>;
+} {
+	const changes: string[] = [];
+	const tasks: Array<[number, string]> = [];
+	let code = '';
+	let last = 0;
+	for (const match of source.matchAll(MOCK_ENV)) {
+		const [whole, lead, method, quote, kind, visibility] = match as unknown as string[];
+		const start = match.index!;
+		const target = `$app/env/${visibility}`;
+		code += source.slice(last, start);
+		const at = code.length;
+		code += `${lead}${quote}${target}${quote}`;
+		last = start + whole!.length;
+		changes.push(`line ${lineOf(source, start)}: mock of $env/${kind}/${visibility} → ${target}`);
+		if (kind !== 'dynamic' || (method !== 'mock' && method !== 'doMock')) continue;
+		const open = start + lead!.lastIndexOf('(');
+		const close = matchBracket(source, open);
+		if (close === -1) continue;
+		const factory = splitTopLevel(source.slice(open + 1, close - 1))[1]?.text ?? '';
+		if (/(?<![\w$.])env\s*[:,}]/.test(factory)) {
+			tasks.push([
+				at,
+				`\`${target}\` exports each variable by name, but this mock returns Kit 2's \`{ env: {...} }\`. Return the variables themselves, e.g. \`() => ({ TEST: 'true' })\`.`
+			]);
+		}
+	}
+	code += source.slice(last);
+	return { code, changes, tasks };
+}
 
 /** Apply every rewrite to one file's source. */
 export function rewriteKit3Source(
@@ -444,14 +487,19 @@ export function rewriteKit3Source(
 		changes.push(`line ${lineOf(code, offset)}: new URL(${url}) → new URL(${url}.href)`);
 		return `new URL(${url}.href)`;
 	});
+	// Its task indexes are into this code, and moved along by every edit after it.
+	const envMocks = rewriteEnvMocks(code);
+	code = envMocks.code;
+	changes.push(...envMocks.changes);
 
-	let tasks: Array<[number, string]> = [];
+	let tasks: Array<[number, string]> = [...envMocks.tasks];
 	const bindings = navigationBindings(code);
 	const gotoNames = [...bindings].filter(([, name]) => name === 'goto').map(([local]) => local);
 	if (gotoNames.length > 0) {
 		const goto = rewriteGotoCalls(code, gotoNames);
 		code = applyEdits(code, goto.edits);
 		changes.push(...goto.changes);
+		tasks = tasks.map(([i, m]) => [mapIndex(goto.edits, i), m]);
 		tasks.push(...goto.tasks.map(([i, m]) => [mapIndex(goto.edits, i), m] as [number, string]));
 	}
 	if ([...bindings.values()].includes('invalidateAll')) {
@@ -473,7 +521,9 @@ export function rewriteKit3Code(root: string): CodeRewrite[] {
 	const files = [...sourceFiles(path.join(root, 'src')), ...sourceFiles(path.join(root, 'test'))];
 	for (const file of files) {
 		const source = fs.readFileSync(file, 'utf8');
-		if (!/\$app\/navigation|\$app\/environment|new\s+URL\(\s*\$?page\.url\s*\)/.test(source))
+		if (
+			!/\$app\/navigation|\$app\/environment|\$env\/|new\s+URL\(\s*\$?page\.url\s*\)/.test(source)
+		)
 			continue;
 		const rel = path.relative(root, file);
 		const { code, changes, tasks } = rewriteKit3Source(rel, source);

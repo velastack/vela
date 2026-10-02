@@ -164,6 +164,60 @@ describe('rewriteKit3Source', () => {
 	});
 });
 
+describe('vi.mock of $env/*', () => {
+	test("velastack.dev's tests: the module id moves, an `{ env }` factory gets a task", () => {
+		// src/lib/server/instant-deploys.test.ts at 24c9a86.
+		const source = [
+			"import { describe, expect, test, vi } from 'vitest';",
+			'',
+			"vi.mock('$env/dynamic/private', () => ({ env: { TEST: 'true' } }));",
+			"vi.mock('$env/static/public', () => ({ PUBLIC_CMS_URL: 'http://localhost:5173' }));",
+			"vi.doMock('$env/dynamic/public', () => ({ env }));",
+			"vi.unmock('$env/static/private');",
+			"const actual = await vi.importActual('$env/dynamic/private');",
+			''
+		].join('\n');
+		const first = rewriteKit3Source('src/lib/server/instant-deploys.test.ts', source);
+		expect(first.code).toBe(
+			[
+				"import { describe, expect, test, vi } from 'vitest';",
+				'',
+				"// @migration-task `$app/env/private` exports each variable by name, but this mock returns Kit 2's `{ env: {...} }`. Return the variables themselves, e.g. `() => ({ TEST: 'true' })`.",
+				"vi.mock('$app/env/private', () => ({ env: { TEST: 'true' } }));",
+				"vi.mock('$app/env/public', () => ({ PUBLIC_CMS_URL: 'http://localhost:5173' }));",
+				"// @migration-task `$app/env/public` exports each variable by name, but this mock returns Kit 2's `{ env: {...} }`. Return the variables themselves, e.g. `() => ({ TEST: 'true' })`.",
+				"vi.doMock('$app/env/public', () => ({ env }));",
+				"vi.unmock('$app/env/private');",
+				"const actual = await vi.importActual('$app/env/private');",
+				''
+			].join('\n')
+		);
+		expect(first.changes).toEqual([
+			'line 3: mock of $env/dynamic/private → $app/env/private',
+			'line 4: mock of $env/static/public → $app/env/public',
+			'line 5: mock of $env/dynamic/public → $app/env/public',
+			'line 6: mock of $env/static/private → $app/env/private',
+			'line 7: mock of $env/dynamic/private → $app/env/private'
+		]);
+		expect(first.tasks).toHaveLength(2);
+		const second = rewriteKit3Source('src/lib/server/instant-deploys.test.ts', first.code);
+		expect(second).toEqual({ code: first.code, changes: [], tasks: [] });
+	});
+
+	test('a task lands on its own line when a goto rewrite above it changes the code', () => {
+		const source = [
+			"import { goto } from '$app/navigation';",
+			"goto('/', { noScroll: true, keepFocus: true });",
+			"vi.mock('$env/dynamic/private', () => ({ env: {} }));",
+			''
+		].join('\n');
+		const lines = rewriteKit3Source('src/a.test.ts', source).code.split('\n');
+		expect(lines[1]).toBe("goto('/', { reset: false });");
+		expect(lines[2]).toMatch(/^\/\/ @migration-task `\$app\/env\/private`/);
+		expect(lines[3]).toBe("vi.mock('$app/env/private', () => ({ env: {} }));");
+	});
+});
+
 describe('rewriteKit3Code', () => {
 	let dir: string;
 	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -180,8 +234,19 @@ describe('rewriteKit3Code', () => {
 			path.join(dir, 'test/setup.ts'),
 			"vi.doMock('$app/environment', () => ({ building: false }));\n"
 		);
+		fs.writeFileSync(
+			path.join(dir, 'test/env.ts'),
+			"vi.mock('$env/static/private', () => ({ TEST: 'true' }));\n"
+		);
 		const first = rewriteKit3Code(dir);
-		expect(first.map((r) => r.file).sort()).toEqual(['src/routes/+page.svelte', 'test/setup.ts']);
+		expect(first.map((r) => r.file).sort()).toEqual([
+			'src/routes/+page.svelte',
+			'test/env.ts',
+			'test/setup.ts'
+		]);
+		expect(fs.readFileSync(path.join(dir, 'test/env.ts'), 'utf8')).toBe(
+			"vi.mock('$app/env/private', () => ({ TEST: 'true' }));\n"
+		);
 		expect(rewriteKit3Code(dir)).toEqual([]);
 	});
 });
