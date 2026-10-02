@@ -129,11 +129,8 @@ export const create = new Command('create')
 		return runCommand(async () => {
 			const listing = await listAllTemplates();
 			const options = parseOptions(optionsSchema(listing), rawOpts);
-			const { directory, packageManager, installed, name, template, link } = await createProject(
-				projectPath,
-				options,
-				listing
-			);
+			const { directory, packageManager, installed, migrated, name, template, link } =
+				await createProject(projectPath, options, listing);
 
 			const relative = path.relative(process.cwd(), directory);
 			const pm =
@@ -149,6 +146,13 @@ export const create = new Command('create')
 				if (resolved) {
 					nextSteps.push(
 						`\`${resolved.command} ${resolved.args.join(' ')}\` to install dependencies`
+					);
+				}
+				// After an install vela formats what the migration rewrote; without one it cannot.
+				const format = resolveCommand(pm, 'run', ['format']);
+				if (migrated && format && hasScript(directory, 'format')) {
+					nextSteps.push(
+						`\`${format.command} ${format.args.join(' ')}\` to format the files the SvelteKit 3 migration rewrote`
 					);
 				}
 			}
@@ -312,7 +316,7 @@ async function createProject(
 		p.log.success('PocketBase initialized');
 	}
 
-	return { directory: projectPath, packageManager, installed, name, template, link };
+	return { directory: projectPath, packageManager, installed, migrated, name, template, link };
 }
 
 /**
@@ -464,4 +468,13 @@ async function promptCms(onCancel: () => void): Promise<CmsPromptChoice> {
 	});
 	if (p.isCancel(url)) onCancel();
 	return { kind: 'url', url: normalizeCmsUrl(url as string) };
+}
+
+function hasScript(directory: string, name: string): boolean {
+	try {
+		const pkg = JSON.parse(fs.readFileSync(path.join(directory, 'package.json'), 'utf8'));
+		return typeof pkg.scripts?.[name] === 'string';
+	} catch {
+		return false;
+	}
 }
