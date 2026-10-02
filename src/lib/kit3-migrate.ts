@@ -859,6 +859,12 @@ function collectFollowUps(root: string, sv: SvSummary): string[] {
 		}
 
 		for (const line of lines) {
+			// Kit's own warning suggests the string form, which its attribute types reject.
+			if (/data-sveltekit-(?:noscroll|keepfocus)\b|data-sveltekit-reset=["']false["']/.test(line)) {
+				items.push(
+					`${code(rel)}: ${code(line.trim())}. \`data-sveltekit-noscroll\` and \`data-sveltekit-keepfocus\` are now one \`data-sveltekit-reset\` attribute; write \`data-sveltekit-reset={false}\`: svelte-check rejects the string \`"false"\`.`
+				);
+			}
 			if (/(?<![\w$])ORIGIN(?![\w$])/.test(line) && !line.includes(MIGRATION_TASK_MARKER)) {
 				items.push(
 					`${code(rel)}: ${code(line.trim())}. adapter-node 6 no longer reads \`ORIGIN\`; the origin comes from \`paths.origin\` (baked in at build time) or the request.`
