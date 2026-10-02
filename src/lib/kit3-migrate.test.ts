@@ -736,7 +736,12 @@ describe('vela steps', () => {
 		);
 		fs.writeFileSync(
 			path.join(dir, 'src', 'routes', 'links.svelte'),
-			'<a href="/a" data-sveltekit-noscroll>a</a>\n<a href="/b" data-sveltekit-reset="false">b</a>\n'
+			'<a href="/a" data-sveltekit-noscroll>a</a>\n<a href="/b" data-sveltekit-reset="false">b</a>\n<a href="/a" data-sveltekit-noscroll>a</a>\n'
+		);
+		fs.mkdirSync(path.join(dir, 'src', 'lib', 'content'), { recursive: true });
+		fs.writeFileSync(
+			path.join(dir, 'src', 'lib', 'content', 'blog.svx'),
+			'# Blog\n\n`svelte.config.js` gains the `.svx` extension.\n'
 		);
 		fs.writeFileSync(
 			path.join(dir, MIGRATION_TASKS_FILE),
@@ -759,7 +764,15 @@ describe('vela steps', () => {
 		expect(joined).toContain('`export const origin = ORIGIN;`');
 		expect(joined).toContain('`paths.origin` is a literal');
 		expect(joined).toContain(
-			'`src/routes/links.svelte`: `<a href="/a" data-sveltekit-noscroll>a</a>`'
+			'`src/routes/links.svelte:1`: `<a href="/a" data-sveltekit-noscroll>a</a>`'
+		);
+		// The same line twice in a file is two places to fix, each listed once.
+		expect(joined).toContain(
+			'`src/routes/links.svelte:3`: `<a href="/a" data-sveltekit-noscroll>a</a>`'
+		);
+		expect(new Set(first.followUps).size).toBe(first.followUps.length);
+		expect(joined).toContain(
+			'`src/lib/content/blog.svx:3`: `` `svelte.config.js` gains the `.svx` extension. ``. It names `svelte.config.js`'
 		);
 		expect(joined).toContain('`<a href="/b" data-sveltekit-reset="false">b</a>`');
 		expect(joined).toContain('write `data-sveltekit-reset={false}`');

@@ -263,10 +263,11 @@ export async function runKit3Migration(
 	}
 
 	// After formatting, so what they quote is what the files now say.
-	const followUps = [...collectFollowUps(root, sv), ...fixups.flatMap((f) => f.followUps ?? [])];
+	const found = [...collectFollowUps(root, sv), ...fixups.flatMap((f) => f.followUps ?? [])];
 	// What sv could not do is only known on the run that ran it: a later run
 	// keeps those items rather than dropping them unresolved.
-	if (!sv.ran) followUps.unshift(...previousSvFollowUps(root));
+	if (!sv.ran) found.unshift(...previousSvFollowUps(root));
+	const followUps = [...new Set(found)];
 	// `vela deploy` runs adapter-node apps; anything else is hosted elsewhere.
 	const genericFollowUps = depRange(
 		readJson(path.join(root, 'package.json')).data,
@@ -1012,19 +1013,35 @@ function collectFollowUps(root: string, sv: SvSummary): string[] {
 			}
 		}
 
-		for (const line of lines) {
+		lines.forEach((line, i) => {
+			// The line number keeps two identical lines in one file apart.
+			const at = code(`${rel}:${i + 1}`);
 			// Kit's own warning suggests the string form, which its attribute types reject.
 			if (/data-sveltekit-(?:noscroll|keepfocus)\b|data-sveltekit-reset=["']false["']/.test(line)) {
 				items.push(
-					`${code(rel)}: ${code(line.trim())}. \`data-sveltekit-noscroll\` and \`data-sveltekit-keepfocus\` are now one \`data-sveltekit-reset\` attribute; write \`data-sveltekit-reset={false}\`: svelte-check rejects the string \`"false"\`.`
+					`${at}: ${code(line.trim())}. \`data-sveltekit-noscroll\` and \`data-sveltekit-keepfocus\` are now one \`data-sveltekit-reset\` attribute; write \`data-sveltekit-reset={false}\`: svelte-check rejects the string \`"false"\`.`
 				);
 			}
 			if (/(?<![\w$])ORIGIN(?![\w$])/.test(line) && !line.includes(MIGRATION_TASK_MARKER)) {
 				items.push(
-					`${code(rel)}: ${code(line.trim())}. adapter-node 6 no longer reads \`ORIGIN\`; the origin comes from \`paths.origin\` (baked in at build time) or the request.`
+					`${at}: ${code(line.trim())}. adapter-node 6 no longer reads \`ORIGIN\`; the origin comes from \`paths.origin\` (baked in at build time) or the request.`
 				);
 			}
-		}
+		});
+	}
+
+	// Docs and content that point at a file the project no longer has.
+	for (const file of textFiles(path.join(root, 'src'))) {
+		const rel = path.relative(root, file).split(path.sep).join('/');
+		const source = fs.readFileSync(file, 'utf8');
+		if (!source.includes('svelte.config.js')) continue;
+		source.split('\n').forEach((line, i) => {
+			if (!line.includes('svelte.config.js')) return;
+			const excerpt = line.trim().length > 100 ? `${line.trim().slice(0, 97)}...` : line.trim();
+			items.push(
+				`${code(`${rel}:${i + 1}`)}: ${code(excerpt)}. It names \`svelte.config.js\`, which a SvelteKit 3 project no longer has: the config is the \`sveltekit({...})\` argument in vite.config.`
+			);
+		});
 	}
 
 	const vite = inspectViteSveltekit(root);
@@ -1043,6 +1060,25 @@ function collectFollowUps(root: string, sv: SvSummary): string[] {
 		}
 	}
 	return items;
+}
+
+const BINARY_EXTENSIONS =
+	/\.(?:png|jpe?g|gif|webp|avif|ico|bmp|tiff?|woff2?|ttf|otf|eot|pdf|zip|gz|tgz|mp[34]|webm|mov|wav|ogg|wasm|db|sqlite3?)$/i;
+
+/** Every text file under `dir`, outside node_modules and generated output. */
+function textFiles(dir: string): string[] {
+	if (!fs.existsSync(dir)) return [];
+	return fs
+		.globSync('**/*', {
+			cwd: dir,
+			exclude: (name) => name === 'node_modules' || name === '.svelte-kit'
+		})
+		.filter((rel) => !BINARY_EXTENSIONS.test(rel))
+		.map((rel) => path.join(dir, rel))
+		.filter((file) => {
+			const stat = fs.statSync(file);
+			return stat.isFile() && stat.size < 2_000_000;
+		});
 }
 
 const SV_FAILURE_ITEM = /sv's `[^`]+` task (could not parse it|failed)|: sv dropped `/;

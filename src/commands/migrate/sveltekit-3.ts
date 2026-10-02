@@ -75,16 +75,42 @@ export function printReport(root: string, result: Kit3MigrationResult): void {
 		});
 	}
 
-	const nextSteps: string[] = [];
+	p.note(
+		nextStepsFor(result)
+			.map((s) => `- ${s}`)
+			.join('\n'),
+		'Next steps',
+		{
+			format: (line) => line
+		}
+	);
+}
+
+/**
+ * What to do after this run. A run that skipped sv (already on SvelteKit 3,
+ * or `--skip-sv`) and changed nothing has nothing to install, format or
+ * review: it says so, and only what is still open in MIGRATION_TASKS.md.
+ */
+export function nextStepsFor(result: Kit3MigrationResult): string[] {
+	const tasks = result.tasks;
+	const open: string[] = [];
 	if (tasks && (tasks.sections.length > 0 || result.followUps.length > 0)) {
-		nextSteps.push(`Work through ${MIGRATION_TASKS_FILE}, then delete it.`);
+		open.push(`Work through ${MIGRATION_TASKS_FILE}, then delete it.`);
 	}
 	if (tasks?.markerComments) {
-		nextSteps.push('Search the code for `@migration-task` and resolve each comment.');
+		open.push('Search the code for `@migration-task` and resolve each comment.');
 	}
+	const changed = result.fixups.some((f) => f.changed);
+	if (!result.sv.ran && !changed) {
+		return ['Nothing left to change.', ...open];
+	}
+
+	const nextSteps = [...open];
 	if (result.installed === null) {
 		nextSteps.push(
-			'Install dependencies (`npm install`), then format what changed (`npx prettier --write .`): sv could not format without node_modules.'
+			result.sv.ran
+				? 'Install dependencies (`npm install`), then format what changed (`npx prettier --write .`): sv could not format without node_modules.'
+				: 'Install dependencies (`npm install`), then format what changed (`npx prettier --write .`).'
 		);
 	}
 	if (result.installed === false) {
@@ -93,5 +119,5 @@ export function printReport(root: string, result: Kit3MigrationResult): void {
 	nextSteps.push('Run `npm run check`, `vela test:server` and `npm run build`.');
 	nextSteps.push(...result.genericFollowUps);
 	nextSteps.push('Review the diff and commit it.');
-	p.note(nextSteps.map((s) => `- ${s}`).join('\n'), 'Next steps', { format: (line) => line });
+	return nextSteps;
 }
