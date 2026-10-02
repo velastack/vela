@@ -351,10 +351,22 @@ describe('svelte.config spreads', () => {
 			path.join(dir, 'src', 'hooks.ts'),
 			"import { matchUrl } from '$locales/main.url';\nexport { matchUrl };\n"
 		);
+		fs.mkdirSync(path.join(dir, 'src', 'params'));
+		fs.writeFileSync(
+			path.join(dir, 'src', 'params', 'country.ts'),
+			"import type { ParamMatcher } from '@sveltejs/kit';\nimport { isCountryCode, type CountryCode } from '$lib/countries';\n\nexport const match = ((param: string): param is CountryCode => isCountryCode(param)) satisfies ParamMatcher;\n"
+		);
+		fs.writeFileSync(
+			path.join(dir, 'src', 'lib', 'countries.ts'),
+			"export type CountryCode = 'mx';\nexport const isCountryCode = (c: string): c is CountryCode => c === 'mx';\n"
+		);
 		commitAll(dir, 'svelte.config');
 		const runSv = svThatWrites(dir, {
 			'svelte.config.js': null,
-			'vite.config.ts': VELASTACK_VITE_AFTER_SV
+			'vite.config.ts': VELASTACK_VITE_AFTER_SV,
+			'src/params/country.ts': null,
+			'src/params.ts':
+				"import { defineParams } from '@sveltejs/kit/params';\nimport { isCountryCode, CountryCode } from '#lib/countries.js';\n\nconst matchCountry = (param: string): param is CountryCode => isCountryCode(param);\n\nexport const params = defineParams({\n\tcountry: (param) => (matchCountry(param) ? param : undefined)\n});\n"
 		});
 		const first = await runKit3Migration(dir, { ...base, runSv });
 
@@ -376,6 +388,12 @@ describe('svelte.config spreads', () => {
 			"from '#locales/main.url.js'"
 		);
 		expect(first.followUps.join('\n')).not.toContain('`alias` option');
+		expect(fs.readFileSync(path.join(dir, 'src', 'params.ts'), 'utf8')).toContain(
+			"import { isCountryCode, type CountryCode } from './lib/countries.ts';"
+		);
+		expect(first.followUps).toContainEqual(
+			expect.stringMatching(/^`src\/params\.ts` is loaded by Node directly .* Node 22\.18 or later/)
+		);
 		expect(first.fixups.find((f) => f.name === 'origin')!.details[0]).toMatch(
 			/restored the origin sv dropped from svelte\.config\.js/
 		);

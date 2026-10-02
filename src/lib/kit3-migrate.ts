@@ -34,6 +34,7 @@ import {
 import { installDependencies } from './package-manager.ts';
 import { findKit2Peers, type PeerLookup } from './kit-peers.ts';
 import { migrateLocalesAlias } from './locales-alias.ts';
+import { captureParamTypeImports, fixParamsImports } from './params-native.ts';
 import { hasBackend } from './workspace.ts';
 import {
 	envImports,
@@ -216,6 +217,7 @@ export async function runKit3Migration(
 
 	const sv: SvSummary = { ran: false, failures: [], excluded: [], cleared: [], dropped: [] };
 	let svelteConfig: SvelteConfigCapture | null = null;
+	let paramTypes = new Set<string>();
 	if (mode === 'repair') {
 		sv.skipped = 'SvelteKit 3 already, with no svelte.config: running only the vela steps';
 		log.info('Already on SvelteKit 3: skipping sv and re-checking the vela steps.');
@@ -227,6 +229,7 @@ export async function runKit3Migration(
 		sv.cleared = clearOutputDirs(root, log);
 		// What sv is about to drop without a word, read while it is still there.
 		svelteConfig = captureSvelteConfig(root);
+		paramTypes = captureParamTypeImports(root);
 		await runSv(root, options.runSv ?? defaultSvRunner, quiet, sv, log);
 		sv.ran = true;
 	}
@@ -238,6 +241,7 @@ export async function runKit3Migration(
 		await envFixup(root),
 		libFixup(root, sv.excluded),
 		await localesFixup(root),
+		paramsFixup(root, paramTypes),
 		codeFixup(root),
 		tsconfigFixup(root),
 		packageFixup(root, cliVersion),
@@ -658,6 +662,29 @@ async function localesFixup(root: string): Promise<Fixup> {
 	f.changed = outcome.changed;
 	f.details.push(...outcome.details);
 	f.warnings.push(...outcome.warnings);
+	return f;
+}
+
+/**
+ * SvelteKit 3.0.0 imports src/params.ts with Node, not Vite: its `#lib`
+ * imports of `.ts` files become relative `.ts` paths, and the `type`
+ * modifiers sv's reprint dropped go back.
+ */
+function paramsFixup(root: string, typeNames: Set<string>): Fixup {
+	const f = fixup('params');
+	const outcome = fixParamsImports(root, typeNames);
+	if (!outcome.file) return f;
+	if (outcome.changes.length > 0) {
+		f.changed = true;
+		f.details.push(`${outcome.file}: ${outcome.changes.join(', ')}`);
+	}
+	const typescript = outcome.file.endsWith('.ts');
+	const viteOnly = outcome.viteOnly.length
+		? ` These imports it loads do not: ${outcome.viteOnly.map(code).join(', ')}.`
+		: '';
+	f.followUps = [
+		`${code(outcome.file)} is loaded by Node directly (SvelteKit's build imports it with \`import()\`, not through Vite), so everything it imports has to resolve without Vite: relative paths with real file names, no \`$lib\` or other aliases, \`type\` on type-only imports.${viteOnly}${typescript ? ' A TypeScript params.ts needs Node 22.18 or later (native type stripping) wherever the app is built.' : ''}`
+	];
 	return f;
 }
 
