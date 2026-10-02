@@ -345,6 +345,12 @@ describe('svelte.config spreads', () => {
 				'\t\t...(process.env.CSP ? { csp: { mode: "auto" } } : {}),\n\t\tcsrf:'
 			)
 		);
+		fs.mkdirSync(path.join(dir, 'src', 'locales'));
+		fs.writeFileSync(path.join(dir, 'src', 'locales', 'main.url.js'), 'export {};\n');
+		fs.writeFileSync(
+			path.join(dir, 'src', 'hooks.ts'),
+			"import { matchUrl } from '$locales/main.url';\nexport { matchUrl };\n"
+		);
 		commitAll(dir, 'svelte.config');
 		const runSv = svThatWrites(dir, {
 			'svelte.config.js': null,
@@ -364,6 +370,12 @@ describe('svelte.config spreads', () => {
 			].join('\n')
 		);
 		expect(vite).not.toContain('prerender:');
+		expect(vite).not.toContain('alias');
+		expect(readJson(dir, 'package.json').imports['#locales/*']).toBe('./src/locales/*');
+		expect(fs.readFileSync(path.join(dir, 'src', 'hooks.ts'), 'utf8')).toContain(
+			"from '#locales/main.url.js'"
+		);
+		expect(first.followUps.join('\n')).not.toContain('`alias` option');
 		expect(first.fixups.find((f) => f.name === 'origin')!.details[0]).toMatch(
 			/restored the origin sv dropped from svelte\.config\.js/
 		);

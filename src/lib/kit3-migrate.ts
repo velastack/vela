@@ -33,6 +33,7 @@ import {
 } from './package-json.ts';
 import { installDependencies } from './package-manager.ts';
 import { findKit2Peers, type PeerLookup } from './kit-peers.ts';
+import { migrateLocalesAlias } from './locales-alias.ts';
 import { hasBackend } from './workspace.ts';
 import {
 	envImports,
@@ -236,6 +237,7 @@ export async function runKit3Migration(
 		originFixup(root, svelteConfig, sv),
 		await envFixup(root),
 		libFixup(root, sv.excluded),
+		await localesFixup(root),
 		codeFixup(root),
 		tsconfigFixup(root),
 		packageFixup(root, cliVersion),
@@ -646,6 +648,16 @@ function libFixup(root: string, skippedBySv: string[]): Fixup {
 	}
 	for (const u of outside.unresolved)
 		f.warnings.push(`${u} names nothing under src/lib; change it by hand`);
+	return f;
+}
+
+/** `alias.$locales` → `#locales/*`, the way patterns' i18n sets it up on SvelteKit 3. */
+async function localesFixup(root: string): Promise<Fixup> {
+	const f = fixup('#locales');
+	const outcome = await migrateLocalesAlias(root);
+	f.changed = outcome.changed;
+	f.details.push(...outcome.details);
+	f.warnings.push(...outcome.warnings);
 	return f;
 }
 
