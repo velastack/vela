@@ -12,6 +12,7 @@ import { authWithRetries, findFreePort, launchPocketbase } from '../lib/pocketba
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { DataLoadError, loadFixtures, loadSeeds } from '../lib/data.ts';
 import { loadVite } from '../lib/vite.ts';
+import { warnIfKit2 } from '../lib/kit-version.ts';
 import type { Plugin, ViteDevServer } from 'vite';
 
 export const testServer = new Command('test:server')
@@ -21,6 +22,7 @@ export const testServer = new Command('test:server')
 	.configureHelp(helpConfig)
 	.action(async (_opts, cmd) => {
 		const cwd = process.cwd();
+		warnIfKit2(cwd, (m) => console.warn(pc.yellow(`▲ ${m}`)));
 		const email = `test-${Math.random().toString(36).slice(2)}@example.com`;
 		const password = 'password';
 
@@ -164,8 +166,14 @@ function describeLoadFailure(e: unknown): string {
 	return `Failed to load test data: ${(e as Error).message}`;
 }
 
+/**
+ * Server tests exercise endpoints and actions, so pages render nothing. A
+ * layout stub still renders its children: SvelteKit 3 warns
+ * (`layout_children_missing`) about a layout that does not, once per layout.
+ */
 function stubPagesPlugin(): Plugin {
 	const stub = `<script>export const render = () => '';</script>`;
+	const layoutStub = `<script>let { children } = $props(); export const render = () => '';</script>{@render children?.()}`;
 	return {
 		name: 'stub-pages',
 		resolveId(id: string) {
@@ -173,13 +181,8 @@ function stubPagesPlugin(): Plugin {
 			return undefined;
 		},
 		load(id: string) {
-			if (
-				id.endsWith('+page.svelte') ||
-				id.endsWith('+layout.svelte') ||
-				id.endsWith('+error.svelte')
-			) {
-				return stub;
-			}
+			if (id.endsWith('+layout.svelte')) return layoutStub;
+			if (id.endsWith('+page.svelte') || id.endsWith('+error.svelte')) return stub;
 			return undefined;
 		}
 	};
