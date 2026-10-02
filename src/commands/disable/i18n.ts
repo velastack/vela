@@ -15,7 +15,7 @@ export const i18n = new Command('i18n')
 					{
 						slug: 'disable-i18n',
 						confirmMessage:
-							'Disable i18n? Deletes the Wuchale config, reroute hook, URL helpers and language select, uninstalls wuchale, and reverts vite.config, svelte.config, hooks.server, app.html, the root +layout.ts and layout, and .gitignore. The translation catalogs in src/locales stay.',
+							'Disable i18n? Deletes the Wuchale config, reroute hook, URL helpers and language select, uninstalls wuchale, and reverts vite.config (including the $locales alias), hooks.server, app.html, the root +layout.ts and layout, and .gitignore. The translation catalogs in src/locales stay.',
 						report: {
 							summary: 'Disabled i18n.',
 							nextSteps: ['Delete src/locales if you no longer need the translation catalogs.'],

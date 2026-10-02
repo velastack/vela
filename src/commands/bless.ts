@@ -26,11 +26,14 @@ import { ensureShadcnImport } from '../lib/app-css.ts';
 import { componentsJsonHints, readComponentsJson } from '../lib/components-json.ts';
 import {
 	dropTemplateAdapters,
+	ensureLibImports,
 	fillTemplatePlaceholders,
 	mergePackageJson,
 	readPackageJson,
 	readTemplatePackageJson,
-	writePackageJson
+	writePackageJson,
+	type MergeChange,
+	type PkgJson
 } from '../lib/package-json.ts';
 import { SITE_FILE } from '../lib/site.ts';
 import {
@@ -41,6 +44,8 @@ import {
 } from '../lib/config-merge.ts';
 import { isVanillaRoutes } from '../lib/scaffold-detect.ts';
 import { getWorkspace } from '../lib/workspace.ts';
+import { assertKit3 } from '../lib/kit-version.ts';
+import { ensureEnvDeclarations, VELA_ENV_VARS } from '../lib/vela-env.ts';
 import { reportResult } from '../lib/result-report.ts';
 import { templateName } from '../lib/template-files.ts';
 
@@ -80,13 +85,13 @@ export const VELA_ONLY_FILES: VelaFile[] = [
 	},
 	{
 		path: 'src/lib/server/workflows.ts',
-		adds: 'the OpenWorkflow client and the worker `src/hooks.server.ts` starts — its import of $lib/server/workflows does not resolve without it'
+		adds: 'the OpenWorkflow client and the worker `src/hooks.server.ts` starts — its import of #lib/server/workflows.js does not resolve without it'
 	},
 	{
 		path: 'src/app.css',
 		adds: "vela's Tailwind imports, theme tokens and the shadcn-svelte/tailwind.css import"
 	},
-	{ path: 'src/lib/index.ts', adds: 'a $lib placeholder comment' },
+	{ path: 'src/lib/index.ts', adds: 'the placeholder `#lib` resolves to' },
 	{ path: 'src/lib/utils.ts', adds: 'the cn helper and the component type utilities' },
 	{
 		path: 'components.json',
@@ -127,6 +132,9 @@ export const bless = new Command('bless')
 async function blessProject(cwdArg: string | undefined, options: Options) {
 	const projectPath = cwdArg ? resolveProjectPath(cwdArg) : (await getWorkspace()).workspaceRootDir;
 
+	// The template is SvelteKit 3 code; blessed into a Kit 2 project it would not run.
+	assertKit3(projectPath, 'vela bless');
+
 	assertNotAlreadyBlessed(projectPath);
 
 	const templateDir = findProjectTemplate(options.template ?? DEFAULT_TEMPLATE).dir;
@@ -138,6 +146,7 @@ async function blessProject(cwdArg: string | undefined, options: Options) {
 
 	mergeDependencies(projectPath, templateDir);
 	copyVelaOnlyFiles(templateDir, projectPath);
+	await declareEnvVars(projectPath);
 	writeSiteFile(templateDir, projectPath);
 	ensureShadcnCss(projectPath);
 	hintComponentsJson(projectPath);
@@ -237,8 +246,13 @@ function mergeDependencies(projectPath: string, templateDir: string) {
 		userPkg,
 		dropTemplateAdapters(userPkg, templatePkg)
 	);
+	const pinned = applyTemplatePins(merged, templatePkg, conflicts);
+	if (ensureLibImports(merged)) p.log.info('package.json: added the #lib imports.');
 	writePackageJson(userPkgPath, merged);
 
+	if (pinned.length > 0) {
+		p.log.info(`Pinned what SvelteKit 3 needs exactly:\n${pinned.map((l) => `  ${l}`).join('\n')}`);
+	}
 	if (added.length > 0) {
 		p.log.info(
 			`Added ${added.length} entries to package.json (${summarize(added.map((c) => c.name))}).`
@@ -257,6 +271,69 @@ function mergeDependencies(projectPath: string, templateDir: string) {
 				`  dep ${pc.bold(c.name)}: kept ${pc.cyan(c.userValue ?? '')} (template wants ${pc.gray(c.templateValue)})`
 		);
 		p.log.warn(`Kept ${conflicts.length} dependency version(s) on conflict:\n${lines.join('\n')}`);
+	}
+}
+
+/**
+ * The form libraries' SvelteKit 3 releases are prereleases, pinned exactly,
+ * and formsnap needs an npm override to accept them. A project's own version
+ * of either library wins nothing here: superforms 2 does not run on Kit 3. The
+ * override goes in before the install, which fails ERESOLVE without it, and
+ * the Node floor comes along. Mutates `merged`, and drops the pins it applies
+ * from `conflicts` so they are not reported as kept.
+ */
+const EXACT_TEMPLATE_PINS = ['sveltekit-superforms', 'sveltekit-flash-message'];
+
+function applyTemplatePins(merged: PkgJson, template: PkgJson, conflicts: MergeChange[]): string[] {
+	const lines: string[] = [];
+	for (const name of EXACT_TEMPLATE_PINS) {
+		const wanted = template.devDependencies?.[name] ?? template.dependencies?.[name];
+		if (!wanted) continue;
+		for (const kind of ['dependencies', 'devDependencies'] as const) {
+			const current = merged[kind]?.[name];
+			if (current === undefined || current === wanted) continue;
+			merged[kind]![name] = wanted;
+			lines.push(`${name}: ${current} → ${wanted}`);
+		}
+		const index = conflicts.findIndex((c) => c.name === name);
+		if (index !== -1) conflicts.splice(index, 1);
+	}
+
+	const overrides = template.overrides as Record<string, unknown> | undefined;
+	const hasFormsnap = Boolean(merged.dependencies?.formsnap ?? merged.devDependencies?.formsnap);
+	if (overrides?.formsnap && hasFormsnap) {
+		const existing = (merged.overrides ?? {}) as Record<string, unknown>;
+		const current = existing.formsnap;
+		const next =
+			typeof current === 'object' && current !== null
+				? { ...current, ...(overrides.formsnap as object) }
+				: overrides.formsnap;
+		if (JSON.stringify(current) !== JSON.stringify(next)) {
+			merged.overrides = { ...existing, formsnap: next };
+			lines.push(`overrides.formsnap: ${JSON.stringify(next)}`);
+		}
+	}
+
+	const engines = template.engines as Record<string, string> | undefined;
+	const userEngines = (merged.engines ?? {}) as Record<string, string>;
+	if (engines?.node && !userEngines.node) {
+		merged.engines = { ...userEngines, node: engines.node };
+		lines.push(`engines.node: ${engines.node}`);
+	}
+	return lines;
+}
+
+/**
+ * The template's `hooks.server.ts` and workflow worker import the vela
+ * variables from `$app/env/private`, which exposes only what `src/env.ts`
+ * declares. Entries the project already has are left as they are.
+ */
+export async function declareEnvVars(projectPath: string): Promise<void> {
+	const outcome = await ensureEnvDeclarations(projectPath, VELA_ENV_VARS);
+	if (outcome.failure) {
+		p.log.warn(`${outcome.file}: ${outcome.failure}`);
+	} else if (outcome.changed) {
+		p.log.info(`${outcome.file}: declared ${outcome.declared.join(', ')}.`);
 	}
 }
 
@@ -287,7 +364,7 @@ function copyVelaOnlyFiles(templateDir: string, projectPath: string) {
 
 /**
  * The app's name and public URL, which the template's layouts and pages read
- * from `$lib/site`. A project that already has the file keeps it; one that
+ * from `#lib/site.js`. A project that already has the file keeps it; one that
  * doesn't is named after its package until someone edits it.
  */
 function writeSiteFile(templateDir: string, projectPath: string) {

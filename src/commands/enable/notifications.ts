@@ -19,7 +19,7 @@ export const notifications = new Command('notifications')
 						summary: 'Enabled notifications.',
 						nextSteps: [
 							'Run `vela dev` and open any (app) page to see the bell in the header; /notifications lists them all.',
-							'Send one from server code with `notify(locals.admin, userId, { title, body })` from $lib/server/notifications.',
+							'Send one from server code with `notify(locals.admin, userId, { title, body })` from #lib/server/notifications.js.',
 							'Customize the bell in src/lib/components/notifications-bell.svelte and the page in src/routes/(app)/notifications/.'
 						],
 						task: {

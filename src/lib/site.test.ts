@@ -42,8 +42,8 @@ describe('readSite', () => {
 	test('leaves out values it would have to run code to know', async () => {
 		writeSite(
 			[
-				"import { env } from '$env/dynamic/public';",
-				"export const site = { name: env.PUBLIC_NAME, url: 'https://example.com' };"
+				"import { PUBLIC_NAME } from '$app/env/public';",
+				"export const site = { name: PUBLIC_NAME, url: 'https://example.com' };"
 			].join('\n')
 		);
 		expect(await readSite(root)).toEqual({ url: 'https://example.com' });

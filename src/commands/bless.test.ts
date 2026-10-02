@@ -1,7 +1,9 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { VELA_ONLY_DIRS, VELA_ONLY_FILES } from './bless.ts';
+import { declareEnvVars, VELA_ONLY_DIRS, VELA_ONLY_FILES } from './bless.ts';
+import { envImports } from '../lib/vela-env.ts';
 import { findProjectTemplate, projectTemplateNames } from '../lib/templates.ts';
 import { templateName } from '../lib/template-files.ts';
 import { SITE_FILE } from '../lib/site.ts';
@@ -69,6 +71,30 @@ describe('bless installs a project that resolves', () => {
 			}
 
 			expect(dangling).toEqual([]);
+		});
+
+		// The template's hook reads $app/env/private, which exposes only what
+		// src/env.ts declares: a blessed project without the declarations
+		// builds, then fails to start.
+		test(`${name}: src/env.ts declares every $app/env import of an installed file`, async () => {
+			const project = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-bless-env-'));
+			try {
+				const imported = new Set<string>();
+				for (const rel of installedPaths(templateDir)) {
+					if (!/\.(ts|js|svelte)$/.test(rel)) continue;
+					const file = path.join(templateDir, templateName(rel));
+					if (!fs.existsSync(file)) continue;
+					for (const { name } of envImports(fs.readFileSync(file, 'utf8'))) imported.add(name);
+				}
+				expect(imported.size).toBeGreaterThan(0);
+
+				await declareEnvVars(project);
+				const env = fs.readFileSync(path.join(project, 'src', 'env.ts'), 'utf8');
+				const declared = new Set([...env.matchAll(/^\t([A-Z_][A-Z0-9_]*): \{/gm)].map((m) => m[1]));
+				expect([...imported].filter((n) => !declared.has(n))).toEqual([]);
+			} finally {
+				fs.rmSync(project, { recursive: true, force: true });
+			}
 		});
 
 		// The regression: hooks.server.ts starts the workflow worker, and bless

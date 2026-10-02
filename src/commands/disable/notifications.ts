@@ -15,11 +15,11 @@ export const notifications = new Command('notifications')
 					{
 						slug: 'disable-notifications',
 						confirmMessage:
-							'Disable notifications? Drops the notifications collection, removes the bell, the /notifications page and $lib/server/notifications, and takes the bell out of the (app) layout.',
+							'Disable notifications? Drops the notifications collection, removes the bell, the /notifications page and src/lib/server/notifications.ts, and takes the bell out of the (app) layout.',
 						report: {
 							summary: 'Disabled notifications.',
 							nextSteps: [
-								'The timeAgo helper enable-notifications added to $lib/utils is kept in case other code uses it.'
+								'The timeAgo helper enable-notifications added to src/lib/utils.ts is kept in case other code uses it.'
 							],
 							task: {
 								title: 'Disabling notifications',
