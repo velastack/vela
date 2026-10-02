@@ -37,5 +37,11 @@ jobs:
       - run: npm test
       - run: npm run build
 
+      # A prerelease (0.15.0-next.0) goes to the `next` dist-tag, so `npx vela`
+      # keeps resolving the last stable release until a stable tag is pushed.
       - name: Publish to npm
-        run: npm publish --access public --provenance
+        run: |
+          case "${GITHUB_REF_NAME#v}" in
+            *-*) npm publish --access public --provenance --tag next ;;
+            *) npm publish --access public --provenance ;;
+          esac
