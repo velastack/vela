@@ -85,7 +85,14 @@ const EXPECTED_DISABLE_SUBCOMMANDS = [
 	'smtp'
 ];
 
-const EXPECTED_MIGRATE_SUBCOMMANDS = ['up', 'down', 'create', 'collections', 'history-sync'];
+const EXPECTED_MIGRATE_SUBCOMMANDS = [
+	'up',
+	'down',
+	'create',
+	'collections',
+	'history-sync',
+	'sveltekit-3'
+];
 
 const EXPECTED_ENV_SUBCOMMANDS = ['list', 'set', 'unset', 'import'];
 
@@ -232,6 +239,18 @@ describe('program registration', () => {
 		for (const flag of ['--open', '--host', '--port', '--strictPort', '--cors', '--force']) {
 			expect(flags).toContain(flag);
 		}
+	});
+
+	test('migrate sveltekit-3 takes the flags its docs name', () => {
+		const migrate = program.commands.find((c) => c.name() === 'migrate')!;
+		const sveltekit3 = migrate.commands.find((c) => c.name() === 'sveltekit-3')!;
+		expect(sveltekit3.options.map((o) => o.long)).toEqual(
+			expect.arrayContaining(['--no-install', '--force', '--skip-sv', '--cwd'])
+		);
+		// Plain `vela migrate` still runs PocketBase migrations.
+		expect((migrate as unknown as { _actionHandler: unknown })._actionHandler).toBeTypeOf(
+			'function'
+		);
 	});
 
 	test('migrate aliases are wired', () => {
@@ -425,6 +444,11 @@ describe('backend gate', () => {
 		['disable', 'i18n']
 	])('%s %s runs in a project without a backend', async (name, sub) => {
 		expect(await runs([name, sub, 'contact', '--yes'])).toBe(true);
+	});
+
+	// A static project is migrated too, and a Kit 2 one's .env may predate vela.
+	test('migrate sveltekit-3 runs in a project without a backend', async () => {
+		expect(await runs(['migrate', 'sveltekit-3'])).toBe(true);
 	});
 
 	test.each([

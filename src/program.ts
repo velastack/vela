@@ -84,6 +84,8 @@ const NO_BACKEND_COMMMANDS = new Set([
 	'enable i18n',
 	'disable i18n',
 	'cms',
+	// Upgrades the project's code; a static project has no backend to need.
+	'migrate sveltekit-3',
 	// Server commands talk to a VPS over SSH, never to the local database.
 	'provision',
 	'env',
