@@ -15,6 +15,8 @@ import {
 	listAllTemplates,
 	resolveTemplate,
 	templateChoicesMessage,
+	type AnyTemplate,
+	type ResolvedTemplate,
 	type TemplateInfo,
 	type TemplateListing
 } from '../lib/templates.ts';
@@ -51,6 +53,7 @@ import { writeProjectConfig } from '../lib/project-config.ts';
 import { loginInteractively } from './login.ts';
 import { kitStatus } from '../lib/kit-version.ts';
 import { formatProject, MIGRATION_TASKS_FILE, runKit3Migration } from '../lib/kit3-migrate.ts';
+import { findKit3Blocker, kit3BlockerMessage } from '../lib/kit3-template-support.ts';
 
 /**
  * Built per run rather than at module load: the accepted templates come from the
@@ -188,74 +191,24 @@ async function createProject(
 	options: Options,
 	listing: TemplateListing
 ) {
+	const template = findTemplate(listing, options.template ?? DEFAULT_TEMPLATE);
+	checkFlagsForTemplate(template, options);
+
+	const resolved = await resolveCreatableTemplate(template);
 	const onCancel = () => {
+		resolved.cleanup();
 		p.cancel('Operation cancelled.');
 		process.exit(0);
 	};
 
-	const template = findTemplate(listing, options.template ?? DEFAULT_TEMPLATE);
-	checkFlagsForTemplate(template, options);
-
-	let directory: string;
-	if (cwdArg) {
-		directory = path.resolve(cwdArg);
-	} else {
-		const answer = await p.text({
-			message: 'Where would you like your project to be created?',
-			placeholder: '  (hit Enter to use current directory)',
-			defaultValue: './'
-		});
-		if (p.isCancel(answer)) onCancel();
-		directory = path.resolve(answer as string);
-	}
-
-	if (
-		fs.existsSync(directory) &&
-		fs.readdirSync(directory).filter((f) => !f.startsWith('.git')).length > 0
-	) {
-		const force = await p.confirm({
-			message: 'Directory not empty. Continue?',
-			initialValue: false
-		});
-		if (p.isCancel(force) || !force) onCancel();
-	}
-
-	const dirName = path.basename(directory);
-
-	const { name } = await p.group(
-		{
-			name: () => {
-				if (options.name) return Promise.resolve(options.name);
-				return p.text({
-					message: 'App name (written to src/lib/site.ts)',
-					initialValue: dirName || 'SvelteKit',
-					validate: (value) => (value?.trim() ? undefined : 'App name is required')
-				});
-			}
-		},
-		{ onCancel }
-	);
-
-	const credentials = template.backend ? await promptSuperuser(options, onCancel) : undefined;
-
-	// Before any file is written: a failed copy leaves at most an orphan row on
-	// velastack.dev, where a half-written project would be the worse leftover.
-	const link = await linkOnCreate(name, template, options, onCancel);
-
-	const projectPath = directory;
-
-	if (template.source === 'remote') p.log.step(`Downloading template ${template.name}...`);
-	const resolved = await resolveTemplate(template);
+	let scaffolded: Awaited<ReturnType<typeof scaffoldProject>>;
 	try {
-		copyTemplate(resolved, projectPath);
-		applyTemplateFiles(projectPath, {
-			appName: name,
-			cliVersion: pkg.version,
-			cmsEndpoint: link.cmsEndpoint
-		});
+		scaffolded = await scaffoldProject(cwdArg, options, template, resolved, onCancel);
 	} finally {
 		resolved.cleanup();
 	}
+	const { directory: projectPath, name, credentials, link } = scaffolded;
+
 	if (!fs.existsSync(path.join(projectPath, 'package.json'))) {
 		throw new Error(`Template ${template.name} is missing package.template.json`);
 	}
@@ -317,6 +270,91 @@ async function createProject(
 	}
 
 	return { directory: projectPath, packageManager, installed, migrated, name, template, link };
+}
+
+/**
+ * Put the template's files on disk (downloading a registry one) and refuse one
+ * that can't be carried over to SvelteKit 3, before any prompt, link or project
+ * file: a refusal leaves nothing behind. The registry index says nothing about
+ * dependencies, so the check reads the template itself.
+ */
+export async function resolveCreatableTemplate(template: AnyTemplate): Promise<ResolvedTemplate> {
+	if (template.source === 'remote') p.log.step(`Downloading template ${template.name}...`);
+	const resolved = await resolveTemplate(template);
+	const blocker = findKit3Blocker(resolved.dir);
+	if (blocker) {
+		resolved.cleanup();
+		throw new Error(kit3BlockerMessage(template.name, blocker));
+	}
+	return resolved;
+}
+
+/**
+ * Ask where the project goes and what it is called, link it, then put the
+ * template's files there. The template is already downloaded and checked, so
+ * nothing is asked of a user whose template would be refused.
+ */
+async function scaffoldProject(
+	cwdArg: string | undefined,
+	options: Options,
+	template: TemplateInfo,
+	resolved: ResolvedTemplate,
+	onCancel: () => void
+) {
+	let directory: string;
+	if (cwdArg) {
+		directory = path.resolve(cwdArg);
+	} else {
+		const answer = await p.text({
+			message: 'Where would you like your project to be created?',
+			placeholder: '  (hit Enter to use current directory)',
+			defaultValue: './'
+		});
+		if (p.isCancel(answer)) onCancel();
+		directory = path.resolve(answer as string);
+	}
+
+	if (
+		fs.existsSync(directory) &&
+		fs.readdirSync(directory).filter((f) => !f.startsWith('.git')).length > 0
+	) {
+		const force = await p.confirm({
+			message: 'Directory not empty. Continue?',
+			initialValue: false
+		});
+		if (p.isCancel(force) || !force) onCancel();
+	}
+
+	const dirName = path.basename(directory);
+
+	const { name } = await p.group(
+		{
+			name: () => {
+				if (options.name) return Promise.resolve(options.name);
+				return p.text({
+					message: 'App name (written to src/lib/site.ts)',
+					initialValue: dirName || 'SvelteKit',
+					validate: (value) => (value?.trim() ? undefined : 'App name is required')
+				});
+			}
+		},
+		{ onCancel }
+	);
+
+	const credentials = template.backend ? await promptSuperuser(options, onCancel) : undefined;
+
+	// Before any file is written: a failed copy leaves at most an orphan row on
+	// velastack.dev, where a half-written project would be the worse leftover.
+	const link = await linkOnCreate(name, template, options, onCancel);
+
+	copyTemplate(resolved, directory);
+	applyTemplateFiles(directory, {
+		appName: name,
+		cliVersion: pkg.version,
+		cmsEndpoint: link.cmsEndpoint
+	});
+
+	return { directory, name, credentials, link };
 }
 
 /**
