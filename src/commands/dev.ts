@@ -7,13 +7,14 @@ import type { AddressInfo } from 'node:net';
 import { Command, InvalidArgumentError } from 'commander';
 import type { InlineConfig } from 'vite';
 import pc from 'picocolors';
+import { warnIfKit2 } from '../lib/kit-version.ts';
 import PocketBase from 'pocketbase';
 import { helpConfig } from '../lib/help.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { startPocketbaseServe } from '../lib/pocketbase.ts';
 import { createPocketbaseLogFilter } from '../lib/pocketbase-log-filter.ts';
 import { readSite, SITE_FILE } from '../lib/site.ts';
-import { hasBackend, localDataDir } from '../lib/workspace.ts';
+import { findWorkspaceRoot, hasBackend, localDataDir } from '../lib/workspace.ts';
 import { loadVite } from '../lib/vite.ts';
 
 /**
@@ -54,6 +55,7 @@ export const dev = new Command('dev')
 	.configureHelp(helpConfig)
 	.action(async (options: DevOptions) => {
 		const cwd = process.cwd();
+		warnIfKit2(findWorkspaceRoot(cwd) ?? cwd, (m) => console.warn(pc.yellow(`▲ ${m}`)));
 
 		// Every other context reads the data directory out of the environment, so
 		// the one this machine uses has to be there too — otherwise the fallback

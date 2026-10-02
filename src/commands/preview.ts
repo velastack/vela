@@ -11,7 +11,8 @@ import { resolveCommand } from 'package-manager-detector/commands';
 import { helpConfig } from '../lib/help.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { startPocketbaseServe } from '../lib/pocketbase.ts';
-import { hasBackend, localDataDir } from '../lib/workspace.ts';
+import { findWorkspaceRoot, hasBackend, localDataDir } from '../lib/workspace.ts';
+import { warnIfKit2 } from '../lib/kit-version.ts';
 import { isLocalUrl } from '../lib/site.ts';
 
 /** Where adapter-node 6 writes the values only known after a build, `origin` among them. */
@@ -28,6 +29,7 @@ export const preview = new Command('preview')
 		// is the only code path local development ever exercises.
 		process.env.VELA_DATA_DIR ??= localDataDir(cwd);
 
+		warnIfKit2(findWorkspaceRoot(cwd) ?? cwd, (m) => p.log.warn(m));
 		warnIfOriginBaked(cwd);
 
 		let pbProc: ChildProcess | undefined;

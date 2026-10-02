@@ -103,3 +103,24 @@ function readPkg(file: string): PkgJson | undefined {
 		return undefined;
 	}
 }
+
+let warned = false;
+
+/**
+ * One line, once per process, for the commands that only run the project's
+ * own toolchain (`dev`, `build`, `preview`, `test:server`): they work on
+ * whatever SvelteKit the project has, but vela 0.15's generators and deploy
+ * will not, so a Kit 2 project hears about it early. Never throws.
+ */
+export function warnIfKit2(root: string, warn: (message: string) => void): void {
+	if (warned) return;
+	try {
+		assertKit3(root, 'vela');
+	} catch (e) {
+		if (!(e instanceof KitVersionError)) return;
+		warned = true;
+		warn(
+			`SvelteKit 2 project: vela 0.15 generators and deploy need SvelteKit 3. Upgrade with \`${KIT3_MIGRATE_COMMAND}\`, or pin vela@^0.14.`
+		);
+	}
+}

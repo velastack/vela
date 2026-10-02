@@ -6,6 +6,7 @@ import { getWorkspace } from './workspace.ts';
 import { reportResult, type ReportFailure } from './result-report.ts';
 import { checkProviderInput } from './providers.ts';
 import { assertShadcn } from './require-ui.ts';
+import { assertKit3 } from './kit-version.ts';
 
 export interface PatternReport {
 	summary?: string;
@@ -59,6 +60,10 @@ export async function runPattern(
 	checkProviderInput(pattern, argv, input);
 
 	const { workspaceRootDir, features, routeGroups } = await getWorkspace();
+
+	// Patterns write SvelteKit 3 code only; on a Kit 2 project that would leave
+	// it half migrated.
+	assertKit3(workspaceRootDir, `vela ${pattern.command.base.replace(/^vela /, '')}`);
 
 	// `requires.ui` marks a pattern whose pages exist only as shadcn-svelte
 	// markup. Patterns with a plain variant (forms, i18n, ai) leave it unset and

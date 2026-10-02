@@ -5,7 +5,8 @@ import pc from 'picocolors';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { runPattern } from '../../lib/pattern-runner.ts';
-import { detectAdapter, type AdapterKind } from '../../lib/adapter.ts';
+import { AdapterError, detectAdapter, type AdapterKind } from '../../lib/adapter.ts';
+import { assertKit3, KIT3_MIGRATE_COMMAND } from '../../lib/kit-version.ts';
 import { cmsEndpointFor } from '../../lib/link-on-create.ts';
 import { readProjectConfig } from '../../lib/project-config.ts';
 import { findWorkspaceRoot, hasBackend } from '../../lib/workspace.ts';
@@ -44,7 +45,10 @@ export function resolveCmsBackend(facts: {
 function adapterOf(root: string): AdapterKind {
 	try {
 		return detectAdapter(root).kind;
-	} catch {
+	} catch (e) {
+		// A svelte.config (a SvelteKit 2 project) carries the migrate command; it
+		// is not an unreadable config to look past.
+		if (e instanceof AdapterError && e.snippet === KIT3_MIGRATE_COMMAND) throw e;
 		// An unreadable config is not a reason to refuse a project with a backend.
 		return 'none';
 	}
@@ -62,6 +66,8 @@ export const cms = new Command('cms')
 	.action((opts: { endpoint?: string }, cmd) =>
 		runCommand(async () => {
 			const root = findWorkspaceRoot() ?? process.cwd();
+			// Before the backend is worked out from a config Kit 3 would refuse.
+			assertKit3(root, 'vela enable cms');
 			const backend = resolveCmsBackend({
 				endpoint: opts.endpoint,
 				backend: hasBackend(root),

@@ -16,6 +16,7 @@ import { applyBuildEnv } from '../lib/build-env.ts';
 import { loadDeployConfig } from '../lib/deploy-config.ts';
 import { bindingKey, parseTarget, PRODUCTION_TARGET } from '../lib/target.ts';
 import { resolveOrigin } from '../lib/origin.ts';
+import { warnIfKit2 } from '../lib/kit-version.ts';
 
 /** Where SvelteKit leaves the pages it rendered at build time. */
 const PRERENDERED_DIR = path.join('.svelte-kit', 'output', 'prerendered');
@@ -26,6 +27,7 @@ export const build = new Command('build')
 	.option('-t, --target <target>', 'which copy of the app to build for', PRODUCTION_TARGET)
 	.action(async (options: { target?: string }) => {
 		const cwd = process.cwd();
+		warnIfKit2(findWorkspaceRoot(cwd) ?? cwd, (m) => p.log.warn(m));
 
 		applyBuildEnv(cwd);
 

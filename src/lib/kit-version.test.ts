@@ -2,7 +2,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { assertKit3, declaredMajor, KitVersionError, kitStatus } from './kit-version.ts';
+import {
+	assertKit3,
+	declaredMajor,
+	KitVersionError,
+	kitStatus,
+	warnIfKit2
+} from './kit-version.ts';
 
 let tmp: string;
 
@@ -138,5 +144,20 @@ describe('assertKit3', () => {
 		writePackageJson({ devDependencies: { '@sveltejs/kit': '^3.0.0' } });
 		installKit('2.70.4');
 		expect(() => assertKit3(tmp, 'vela deploy')).not.toThrow();
+	});
+});
+
+describe('warnIfKit2', () => {
+	test('says nothing on Kit 3, and warns once per process on Kit 2', () => {
+		const warnings: string[] = [];
+		writePackageJson({ devDependencies: { '@sveltejs/kit': '^3.0.0' } });
+		warnIfKit2(tmp, (m) => warnings.push(m));
+		expect(warnings).toEqual([]);
+
+		writePackageJson({ devDependencies: { '@sveltejs/kit': '^2.70.3' } });
+		warnIfKit2(tmp, (m) => warnings.push(m));
+		warnIfKit2(tmp, (m) => warnings.push(m));
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain('npx vela@^0.15 migrate sveltekit-3');
 	});
 });

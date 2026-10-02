@@ -8,7 +8,8 @@ import * as v from 'valibot';
 import { helpConfig } from '../lib/help.ts';
 import { runCommand } from '../lib/run.ts';
 import { parseOptions } from '../lib/options.ts';
-import { getWorkspace, hasBackend } from '../lib/workspace.ts';
+import { findWorkspaceRoot, getWorkspace, hasBackend } from '../lib/workspace.ts';
+import { assertKit3 } from '../lib/kit-version.ts';
 import { withSsh, type SshSession } from '../lib/ssh.ts';
 import { addSshOptions, SSH_OPTION_SCHEMA, sshOptionsFrom } from '../lib/ssh-options.ts';
 import { writeBinding } from '../lib/deploy-config.ts';
@@ -98,6 +99,9 @@ export const deploy = addLockWaitOption(
 
 			// Local preflight, before a server is named or a deploy announced:
 			// a project that cannot build for a server has nothing to deploy.
+			// Even with --no-build: the server side (adapter-node 6, the origin
+			// handling, Node 22.17) is SvelteKit 3's.
+			assertKit3(findWorkspaceRoot() ?? process.cwd(), 'vela deploy');
 			if (options.build !== false) {
 				const { workspaceRootDir } = await getWorkspace();
 				await prepareAdapter(workspaceRootDir);
