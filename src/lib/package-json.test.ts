@@ -7,6 +7,7 @@ import {
 	fillTemplatePlaceholders,
 	mergePackageJson,
 	minVersion,
+	rangeAdmits,
 	raiseFloor,
 	readTemplatePackageJson,
 	toValidPackageName,
@@ -435,4 +436,41 @@ describe('shipped templates', () => {
 			});
 		});
 	}
+});
+
+describe('rangeAdmits', () => {
+	test.each([
+		['^2.5.0', false],
+		['^2.0.0 || ^3.0.0', true],
+		['>=2.0.0', true],
+		['>=2 <3', false],
+		['2.x', false],
+		['3.x', true],
+		['*', true],
+		['^3.0.0-next.1', true],
+		['~3.0.0', true],
+		['~2', false],
+		['<=3', true],
+		['<3', false],
+		['>2', true],
+		['>2.9', true],
+		['2.0.0 - 3', true],
+		['2.0.0 - 2.99.0', false],
+		['3.0.0', true],
+		['^0.3.0', false]
+	])('%s admits 3.0.0: %s', (range, expected) => {
+		expect(rangeAdmits(range, '3.0.0')).toBe(expected);
+	});
+
+	test('^0.x stays within its minor, ^0.0.x within its patch', () => {
+		expect(rangeAdmits('^0.3.0', '0.3.9')).toBe(true);
+		expect(rangeAdmits('^0.3.0', '0.4.0')).toBe(false);
+		expect(rangeAdmits('^0.0.3', '0.0.4')).toBe(false);
+	});
+
+	test('a range it cannot read is null, unless another alternative admits', () => {
+		expect(rangeAdmits('workspace:*', '3.0.0')).toBeNull();
+		expect(rangeAdmits('latest', '3.0.0')).toBeNull();
+		expect(rangeAdmits('latest || ^3.0.0', '3.0.0')).toBe(true);
+	});
 });

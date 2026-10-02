@@ -332,6 +332,88 @@ function parseVersionPart(
 	};
 }
 
+/**
+ * Whether an npm range admits `version` (a release, not a prerelease), or
+ * null when the range is not one this can read. The same subset as
+ * `minVersion`: `^`, `~`, comparators, x-ranges, hyphen ranges and `||`.
+ */
+export function rangeAdmits(range: string, version: string): boolean | null {
+	const target = parseVersionPart(version)?.version;
+	if (!target) return null;
+	let unreadable = false;
+	for (const alt of range.split('||').map((a) => a.trim())) {
+		const comparators = comparatorsOf(alt);
+		if (!comparators) {
+			unreadable = true;
+			continue;
+		}
+		if (comparators.every(([op, v]) => compare(target, op, v))) return true;
+	}
+	return unreadable ? null : false;
+}
+
+type Comparator = ['>=' | '>' | '<' | '<=' | '=', Version];
+
+function compare(target: Version, op: Comparator[0], v: Version): boolean {
+	const c = compareVersions(target, v);
+	return op === '>='
+		? c >= 0
+		: op === '>'
+			? c > 0
+			: op === '<'
+				? c < 0
+				: op === '<='
+					? c <= 0
+					: c === 0;
+}
+
+/** One comparator set as plain comparators; `[]` admits everything, null is unreadable. */
+function comparatorsOf(set: string): Comparator[] | null {
+	if (set === '' || set === '*' || /^[xX]$/.test(set)) return [];
+	const hyphen = set.match(/^(\S+)\s+-\s+(\S+)$/);
+	if (hyphen) {
+		const low = parseVersionPart(hyphen[1]!);
+		const high = parseVersionPart(hyphen[2]!);
+		if (!low || !high) return null;
+		return [
+			['>=', low.version],
+			high.wildcard ? ['<', bump(high.version, high.wildcard)] : ['<=', high.version]
+		];
+	}
+	const out: Comparator[] = [];
+	for (const part of set.replace(/([<>=~^]+)\s+/g, '$1').split(/\s+/)) {
+		const match = part.match(/^(<=|>=|<|>|=|\^|~>?)?(.*)$/)!;
+		const op = match[1] ?? '';
+		if (/^[*xX]$/.test(match[2]!)) continue;
+		const parsed = parseVersionPart(match[2]!);
+		if (!parsed) return null;
+		const { version: v, wildcard } = parsed;
+		// How many leading parts were written: `2` is one, `2.1` two, `2.1.0` three.
+		const written = wildcard === 'major' ? 1 : wildcard === 'minor' ? 2 : 3;
+		if (op === '^') {
+			const upper =
+				v.major > 0 || written === 1
+					? bump(v, 'major')
+					: v.minor > 0 || written === 2
+						? bump(v, 'minor')
+						: bump(v, 'patch');
+			out.push(['>=', v], ['<', upper]);
+		} else if (op === '~' || op === '~>') {
+			out.push(['>=', v], ['<', bump(v, written === 1 ? 'major' : 'minor')]);
+		} else if (op === '' || op === '=') {
+			if (wildcard) out.push(['>=', v], ['<', bump(v, wildcard)]);
+			else out.push(['=', v]);
+		} else if (op === '>') {
+			out.push(wildcard ? ['>=', bump(v, wildcard)] : ['>', v]);
+		} else if (op === '<=') {
+			out.push(wildcard ? ['<', bump(v, wildcard)] : ['<=', v]);
+		} else {
+			out.push([op as '>=' | '<', v]);
+		}
+	}
+	return out;
+}
+
 function bump(version: Version, part: 'major' | 'minor' | 'patch'): Version {
 	if (part === 'major') return { major: version.major + 1, minor: 0, patch: 0, prerelease: [] };
 	if (part === 'minor') return { ...version, minor: version.minor + 1, patch: 0, prerelease: [] };

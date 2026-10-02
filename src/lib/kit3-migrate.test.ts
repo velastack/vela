@@ -15,6 +15,7 @@ import {
 	type SvRunner
 } from './kit3-migrate.ts';
 import { commitAll, copyKit2Fixture, snapshot } from './kit2-fixture.ts';
+import type { PeerLookup, PeerManifest } from './kit-peers.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -107,7 +108,9 @@ export default defineConfig({
 const base: Kit3MigrationOptions = {
 	install: false,
 	log: silent,
-	cliVersion: '0.15.0'
+	cliVersion: '0.15.0',
+	// No registry in tests: every third-party package peers nothing.
+	peerLookup: async () => ({ version: '1.0.0' })
 };
 
 function readJson(dir: string, file: string) {
@@ -382,6 +385,130 @@ describe('svelte.config spreads', () => {
 	});
 });
 
+describe('third-party SvelteKit 2 peers', () => {
+	const registry: Record<string, PeerManifest> = {
+		'@icons-pack/svelte-simple-icons': {
+			version: '7.2.0',
+			peerDependencies: { '@sveltejs/kit': '^2.5.0', svelte: '^5.0.0' }
+		},
+		'pocketbase-sveltekit': {
+			version: '0.28.2',
+			peerDependencies: { '@sveltejs/kit': '^2.0.0 || ^3.0.0' }
+		},
+		'svelte-meta-tags': { version: '5.0.2', peerDependencies: { svelte: '^5.0.0' } }
+	};
+
+	test('overrides the kit peer of each one that stops at Kit 2, once, from node_modules or the registry', async () => {
+		const dir = fixture('minimal');
+		setPkg(dir, (pkg) => {
+			Object.assign(pkg.devDependencies, {
+				'@icons-pack/svelte-simple-icons': '^7.2.0',
+				'pocketbase-sveltekit': '^0.28.1',
+				'svelte-meta-tags': '^5.0.2',
+				'local-kit2': '^1.0.0'
+			});
+		});
+		const local = path.join(dir, 'node_modules', 'local-kit2');
+		fs.mkdirSync(local, { recursive: true });
+		fs.writeFileSync(
+			path.join(local, 'package.json'),
+			JSON.stringify({ version: '1.0.4', peerDependencies: { '@sveltejs/kit': '^2.0.0' } })
+		);
+		const asked: string[] = [];
+		const peerLookup: PeerLookup = async (name, range) => {
+			asked.push(`${name}@${range}`);
+			return registry[name] ?? { version: '1.0.0' };
+		};
+
+		const first = await runKit3Migration(dir, {
+			...base,
+			gitCheck: false,
+			skipSv: true,
+			peerLookup
+		});
+		expect(asked).toEqual(
+			expect.arrayContaining([
+				'@icons-pack/svelte-simple-icons@^7.2.0',
+				'pocketbase-sveltekit@^0.28.1',
+				'svelte-meta-tags@^5.0.2'
+			])
+		);
+		// Installed, vela's own, or bumped by the migration: not asked about.
+		for (const name of [
+			'local-kit2',
+			'vela',
+			'@sveltejs/kit',
+			'@velastack/kit',
+			'svelte',
+			'sveltekit-superforms'
+		]) {
+			expect(asked.some((a) => a.startsWith(`${name}@`))).toBe(false);
+		}
+		expect(readJson(dir, 'package.json').overrides).toEqual({
+			formsnap: { 'sveltekit-superforms': '3.0.0-next.1' },
+			'@icons-pack/svelte-simple-icons': { '@sveltejs/kit': '^3.0.0' },
+			'local-kit2': { '@sveltejs/kit': '^3.0.0' }
+		});
+		const peers = first.fixups.find((f) => f.name === 'SvelteKit 2 peers')!;
+		expect(peers.details).toContain(
+			'overrides @icons-pack/svelte-simple-icons → @sveltejs/kit ^3.0.0 (@icons-pack/svelte-simple-icons@7.2.0 peers @sveltejs/kit ^2.5.0)'
+		);
+		expect(first.followUps).toEqual(
+			expect.arrayContaining([
+				'`@icons-pack/svelte-simple-icons` declares a SvelteKit 2 peer; overridden (`overrides` in package.json). Check it works and watch for an update that supports SvelteKit 3.',
+				'`local-kit2` declares a SvelteKit 2 peer; overridden (`overrides` in package.json). Check it works and watch for an update that supports SvelteKit 3.'
+			])
+		);
+
+		// The second run asks nothing about the overridden ones and writes the same.
+		asked.length = 0;
+		const before = snapshot(dir);
+		const second = await runKit3Migration(dir, {
+			...base,
+			gitCheck: false,
+			skipSv: true,
+			peerLookup
+		});
+		expect(asked.some((a) => a.startsWith('@icons-pack/'))).toBe(false);
+		expect(second.fixups.filter((f) => f.changed)).toEqual([]);
+		expect(second.followUps).toEqual(first.followUps);
+		expect(snapshot(dir)).toEqual(before);
+	});
+
+	test('offline: the packages are listed as unchecked, and the registry is not asked about every one', async () => {
+		const dir = fixture('static');
+		setPkg(dir, (pkg) => {
+			Object.assign(pkg.devDependencies, {
+				'@icons-pack/svelte-simple-icons': '^7.2.0',
+				'svelte-meta-tags': '^5.0.2'
+			});
+		});
+		const peerLookup = vi.fn<PeerLookup>(async () => {
+			throw new Error('getaddrinfo ENOTFOUND registry.npmjs.org');
+		});
+		const result = await runKit3Migration(dir, {
+			...base,
+			gitCheck: false,
+			skipSv: true,
+			peerLookup
+		});
+		const third = Object.keys(readJson(dir, 'package.json').devDependencies).filter(
+			(name) =>
+				!/^(@sveltejs|@velastack|@types)\/|^(vela|svelte|vite|svelte-check|typescript|shadcn-svelte)$/.test(
+					name
+				)
+		);
+		expect(third.length).toBeGreaterThan(8);
+		expect(peerLookup.mock.calls.length).toBeLessThan(third.length);
+		const unchecked = result.followUps.find((item) =>
+			item.startsWith('Could not ask the npm registry')
+		);
+		expect(unchecked).toContain('`@icons-pack/svelte-simple-icons`');
+		expect(unchecked).toContain('`svelte-meta-tags`');
+		expect(readJson(dir, 'package.json').overrides).toBeUndefined();
+	});
+});
+
 describe('vela steps', () => {
 	for (const name of ['minimal', 'static'] as const) {
 		test(`${name}: every step reports a change once, and a second run changes nothing`, async () => {
@@ -453,6 +580,47 @@ describe('vela steps', () => {
 		expect(pkg.overrides).toBeUndefined();
 		expect(result.genericFollowUps).toEqual([]);
 		expect(fs.existsSync(path.join(dir, 'src', 'env.ts'))).toBe(false);
+	});
+
+	test('@velastack/patterns and sveltekit-negotiate are raised, and their stale lock entries dropped', async () => {
+		const dir = fixture('static');
+		setPkg(dir, (pkg) => {
+			pkg.devDependencies['@velastack/patterns'] = '^0.3.4';
+			pkg.dependencies = { ...pkg.dependencies, 'sveltekit-negotiate': '^0.3.0' };
+		});
+		const lock = {
+			name: 'static-fixture',
+			lockfileVersion: 3,
+			packages: {
+				'': {},
+				'node_modules/@velastack/patterns': { version: '0.3.4' },
+				'node_modules/sveltekit-negotiate': { version: '0.3.0' },
+				'node_modules/clsx': { version: '2.1.1' }
+			}
+		};
+		fs.writeFileSync(path.join(dir, 'package-lock.json'), JSON.stringify(lock, null, '\t'));
+		const result = await runKit3Migration(dir, { ...base, gitCheck: false, skipSv: true });
+		const pkg = readJson(dir, 'package.json');
+		expect(pkg.devDependencies['@velastack/patterns']).toBe('^0.4.0');
+		expect(pkg.dependencies['sveltekit-negotiate']).toBe('^0.3.1');
+		expect(result.fixups.find((f) => f.name === 'package.json')!.details).toEqual(
+			expect.arrayContaining([
+				'@velastack/patterns ^0.3.4 → ^0.4.0',
+				'sveltekit-negotiate ^0.3.0 → ^0.3.1'
+			])
+		);
+		expect(Object.keys(readJson(dir, 'package-lock.json').packages)).toEqual([
+			'',
+			'node_modules/clsx'
+		]);
+
+		// A Kit 3 project already on negotiate 0.3.0 is raised too.
+		setPkg(dir, (p) => (p.dependencies['sveltekit-negotiate'] = '^0.3.0'));
+		lock.packages = { '': {}, 'node_modules/sveltekit-negotiate': { version: '0.3.0' } } as never;
+		fs.writeFileSync(path.join(dir, 'package-lock.json'), JSON.stringify(lock, null, '\t'));
+		await runKit3Migration(dir, { ...base, gitCheck: false });
+		expect(readJson(dir, 'package.json').dependencies['sveltekit-negotiate']).toBe('^0.3.1');
+		expect(Object.keys(readJson(dir, 'package-lock.json').packages)).toEqual(['']);
 	});
 
 	test('a Kit 2 package-lock loses its stale entries, a Kit 3 one keeps them', async () => {

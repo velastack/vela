@@ -9,8 +9,8 @@ import { detect } from 'package-manager-detector';
 import {
 	ADAPTER_NODE,
 	ADAPTER_STATIC,
+	ensurePackageOverrides,
 	FLASH,
-	NEGOTIATE,
 	SUPERFORMS_VERSION,
 	VELASTACK_CMS,
 	VELASTACK_KIT,
@@ -32,6 +32,7 @@ import {
 	type PkgJson
 } from './package-json.ts';
 import { installDependencies } from './package-manager.ts';
+import { findKit2Peers, type PeerLookup } from './kit-peers.ts';
 import { hasBackend } from './workspace.ts';
 import {
 	envImports,
@@ -135,6 +136,8 @@ export interface Kit3MigrationOptions {
 	runSv?: SvRunner;
 	/** Install with this instead of the project's package manager (tests). */
 	installer?: (root: string) => Promise<boolean>;
+	/** Read a package's peers from the registry with this instead of `npm view` (tests). */
+	peerLookup?: PeerLookup;
 	log?: MigrationLog;
 	/** Overrides for tests. */
 	nodeVersion?: string;
@@ -166,6 +169,8 @@ export interface Fixup {
 	changed: boolean;
 	details: string[];
 	warnings: string[];
+	/** Items for the follow-ups, from what this step found. */
+	followUps?: string[];
 }
 
 export interface MigrationTasksSummary {
@@ -234,6 +239,7 @@ export async function runKit3Migration(
 		codeFixup(root),
 		tsconfigFixup(root),
 		packageFixup(root, cliVersion),
+		await peersFixup(root, options.peerLookup),
 		lockfileFixup(root)
 	];
 	for (const fixup of fixups) {
@@ -251,7 +257,7 @@ export async function runKit3Migration(
 	}
 
 	// After formatting, so what they quote is what the files now say.
-	const followUps = collectFollowUps(root, sv);
+	const followUps = [...collectFollowUps(root, sv), ...fixups.flatMap((f) => f.followUps ?? [])];
 	// What sv could not do is only known on the run that ran it: a later run
 	// keeps those items rather than dropping them unresolved.
 	if (!sv.ran) followUps.unshift(...previousSvFollowUps(root));
@@ -692,7 +698,10 @@ const FLOORS: Array<[string, string]> = [
 	splitSpec(VELASTACK_KIT),
 	splitSpec(VELASTACK_POCKETBASE),
 	splitSpec(VELASTACK_CMS),
-	splitSpec(NEGOTIATE)
+	// 0.3.0's package lost the `type="text/plain"` its prerender test relies on.
+	['sveltekit-negotiate', '^0.3.1'],
+	// 0.3 peers @velastack/pocketbase ^0.3, which the floor above moves past.
+	['@velastack/patterns', pkg.dependencies['@velastack/patterns']]
 ];
 
 /** Installed exactly: a caret on a prerelease would follow later `next` builds. */
@@ -754,6 +763,83 @@ function packageFixup(root: string, cliVersion: string): Fixup {
 		writeJson(pkgPath, data, indent);
 		f.changed = true;
 		f.details.push(...changed);
+	}
+	return f;
+}
+
+/** Packages this migration moves itself, whose peers are its own business. */
+function bumpedHere(name: string): boolean {
+	return (
+		name === 'vela' ||
+		name.startsWith('@sveltejs/') ||
+		name.startsWith('@velastack/') ||
+		name.startsWith('@types/') ||
+		FLOORS.some(([floor]) => floor === name) ||
+		EXACT_PINS.some(([pin]) => pin === name)
+	);
+}
+
+/**
+ * Override the `@sveltejs/kit` peer of each direct dependency that still
+ * stops at SvelteKit 2, so the install does not fail ERESOLVE over it. A
+ * package already overridden is listed again without asking the registry,
+ * which keeps a second run offline and its follow-ups the same.
+ */
+async function peersFixup(root: string, lookup?: PeerLookup): Promise<Fixup> {
+	const f = fixup('SvelteKit 2 peers');
+	f.followUps = [];
+	const data = readJson(path.join(root, 'package.json')).data;
+	const kit = depRange(data, '@sveltejs/kit') ?? '^3.0.0';
+	const overrides = (data.overrides ?? {}) as Record<string, unknown>;
+	const overridden = (name: string) => {
+		const entry = overrides[name];
+		return typeof entry === 'object' && entry !== null && '@sveltejs/kit' in entry;
+	};
+	const scan = await findKit2Peers(
+		root,
+		data,
+		(name) => bumpedHere(name) || overridden(name),
+		lookup
+	);
+
+	const wanted: Record<string, { '@sveltejs/kit': string }> = {};
+	for (const peer of scan.kit2) wanted[peer.name] = { '@sveltejs/kit': kit };
+	if (scan.kit2.length > 0) {
+		const result = await ensurePackageOverrides(root, wanted);
+		if (result.outcome.status === 'success') {
+			if (result.outcome.changed) {
+				f.changed = true;
+				for (const peer of scan.kit2) {
+					f.details.push(
+						`overrides ${peer.name} → @sveltejs/kit ${kit} (${peer.name}@${peer.version} peers @sveltejs/kit ${peer.peer})`
+					);
+				}
+			}
+		} else {
+			f.warnings.push(result.outcome.message ?? 'could not write package.json overrides');
+		}
+	}
+
+	const names = [
+		...Object.keys(data.dependencies ?? {}),
+		...Object.keys(data.devDependencies ?? {})
+	].filter((name, i, all) => all.indexOf(name) === i);
+	const after = (readJson(path.join(root, 'package.json')).data.overrides ?? {}) as Record<
+		string,
+		unknown
+	>;
+	for (const name of names) {
+		const entry = after[name];
+		if (bumpedHere(name) || typeof entry !== 'object' || entry === null) continue;
+		if (!('@sveltejs/kit' in entry)) continue;
+		f.followUps.push(
+			`${code(name)} declares a SvelteKit 2 peer; overridden (\`overrides\` in package.json). Check it works and watch for an update that supports SvelteKit 3.`
+		);
+	}
+	if (scan.unchecked.length > 0) {
+		f.followUps.push(
+			`Could not ask the npm registry whether these declare a SvelteKit 2 peer: ${scan.unchecked.map(code).join(', ')}. If the install fails with an ERESOLVE naming one, add \`"overrides": { "<package>": { "@sveltejs/kit": "${kit}" } }\` to package.json.`
+		);
 	}
 	return f;
 }
