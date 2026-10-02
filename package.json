@@ -42,7 +42,7 @@
 		"commander": "^13.1.0",
 		"cross-spawn": "^7.0.6",
 		"dedent": "^1.7.2",
-		"dotenv": "^17.4.2",
+		"dotenv": "^18.0.1",
 		"fetch-cookie": "^3.2.0",
 		"json-schema-faker": "^0.6.3",
 		"magic-string": "^1.2.3",
