@@ -37,6 +37,18 @@ jobs:
       - run: npm test
       - run: npm run build
 
+      # The bundle inlines package.json's version at build time. Check the
+      # built CLI, not just package.json, so a stale or mis-built dist can't
+      # publish under the wrong number.
+      - name: Verify built CLI reports the tag version
+        run: |
+          BUILT_VERSION=$(node dist/bin.js --version)
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$BUILT_VERSION" != "$TAG_VERSION" ]; then
+            echo "Built CLI reports $BUILT_VERSION, tag is $TAG_VERSION"
+            exit 1
+          fi
+
       # A prerelease (0.15.0-next.0) goes to the `next` dist-tag, so `npx vela`
       # keeps resolving the last stable release until a stable tag is pushed.
       - name: Publish to npm
