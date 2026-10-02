@@ -835,6 +835,68 @@ describe.skipIf(!process.env.VELA_E2E)('e2e: real sv on the Kit 2 fixture', () =
 		expect(snapshot(dir)).toEqual(before);
 	});
 
+	test(
+		"velastack.dev's shapes: svelte.config origin, $locales, params, $env mocks",
+		{ timeout: 120_000 },
+		async () => {
+			const dir = fixture('minimal');
+			fs.writeFileSync(path.join(dir, 'svelte.config.js'), VELASTACK_SVELTE_CONFIG);
+			const vite = path.join(dir, 'vite.config.ts');
+			// The fixture's inline config would win; velastack.dev's was a bare sveltekit().
+			fs.writeFileSync(
+				vite,
+				"import { defineConfig } from 'vite';\nimport { sveltekit } from '@sveltejs/kit/vite';\n\nexport default defineConfig({\n\tplugins: [sveltekit()]\n});\n"
+			);
+			const write = (rel: string, content: string) => {
+				fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+				fs.writeFileSync(path.join(dir, rel), content);
+			};
+			write('src/locales/main.url.js', 'export const getLocale = () => "en";\n');
+			write(
+				'src/routes/+layout.ts',
+				"import { getLocale } from '$locales/main.url';\nexport const load = () => ({ locale: getLocale() });\n"
+			);
+			write(
+				'src/lib/countries.ts',
+				"export type CountryCode = 'mx';\nexport const isCountryCode = (c: string): c is CountryCode => c === 'mx';\n"
+			);
+			write(
+				'src/params/country.ts',
+				"import type { ParamMatcher } from '@sveltejs/kit';\nimport { isCountryCode, type CountryCode } from '$lib/countries';\n\nexport const match = ((param: string): param is CountryCode => isCountryCode(param)) satisfies ParamMatcher;\n"
+			);
+			write(
+				'src/lib/server/a.test.ts',
+				"import { test, vi } from 'vitest';\nvi.mock('$env/dynamic/private', () => ({ env: { TEST: 'true' } }));\ntest('a', () => {});\n"
+			);
+			commitAll(dir, 'velastack shapes', true);
+
+			const result = await runKit3Migration(dir, { ...base, quiet: true });
+			expect(result.sv.ran).toBe(true);
+			expect(fs.existsSync(path.join(dir, 'svelte.config.js'))).toBe(false);
+			const config = fs.readFileSync(vite, 'utf8');
+			expect(config).toContain(
+				'...(process.env.VELA_ORIGIN ? { paths: { origin: process.env.VELA_ORIGIN } } : {})'
+			);
+			expect(config).not.toContain('alias');
+			expect(readJson(dir, 'package.json').imports['#locales/*']).toBe('./src/locales/*');
+			expect(fs.readFileSync(path.join(dir, 'src/routes/+layout.ts'), 'utf8')).toContain(
+				"'#locales/main.url.js'"
+			);
+			const params = fs.readFileSync(path.join(dir, 'src/params.ts'), 'utf8');
+			expect(params).toContain('type CountryCode');
+			expect(params).toContain("from './lib/countries.ts'");
+			expect(fs.readFileSync(path.join(dir, 'src/lib/server/a.test.ts'), 'utf8')).toContain(
+				"vi.mock('$app/env/private'"
+			);
+
+			commitAll(dir, 'migrated');
+			const before = snapshot(dir);
+			const again = await runKit3Migration(dir, { ...base, quiet: true });
+			expect(again.mode).toBe('repair');
+			expect(snapshot(dir)).toEqual(before);
+		}
+	);
+
 	test('the vela create hook: no git, no install', { timeout: 120_000 }, async () => {
 		const dir = fixture('static');
 		const result = await runKit3Migration(dir, { ...base, gitCheck: false, quiet: true });
