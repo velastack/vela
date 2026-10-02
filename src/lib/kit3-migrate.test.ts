@@ -415,6 +415,76 @@ describe('svelte.config spreads', () => {
 	});
 });
 
+describe('ssr.external', () => {
+	function addSsrExternal(dir: string, external: string) {
+		const file = path.join(dir, 'vite.config.ts');
+		const source = fs.readFileSync(file, 'utf8');
+		const next = source.replace(
+			/\n\t\]\n\}\);\n$/,
+			`\n\t],\n\tssr: { external: ${external} }\n});\n`
+		);
+		expect(next).not.toBe(source);
+		fs.writeFileSync(file, next);
+	}
+
+	test('adapter-node: devDependencies it names move to dependencies, once', async () => {
+		const dir = fixture('minimal');
+		addSsrExternal(dir, `['pocketbase-sveltekit', 'node:fs', 'clsx/dist']`);
+		setPkg(dir, (pkg) => (pkg.dependencies = { 'better-sqlite3': '^13.0.3' }));
+		const ranges = readJson(dir, 'package.json').devDependencies;
+
+		const first = await runKit3Migration(dir, { ...base, gitCheck: false, skipSv: true });
+		const pkg = readJson(dir, 'package.json');
+		expect(pkg.dependencies).toEqual({
+			'better-sqlite3': '^13.0.3',
+			clsx: ranges.clsx,
+			'pocketbase-sveltekit': ranges['pocketbase-sveltekit']
+		});
+		expect(Object.keys(pkg.dependencies)).toEqual([
+			'better-sqlite3',
+			'clsx',
+			'pocketbase-sveltekit'
+		]);
+		expect(pkg.devDependencies['pocketbase-sveltekit']).toBeUndefined();
+		expect(pkg.devDependencies.clsx).toBeUndefined();
+
+		const fixup = first.fixups.find((f) => f.name === 'ssr.external')!;
+		expect(fixup.changed).toBe(true);
+		expect(fixup.details).toEqual([
+			'moved pocketbase-sveltekit, clsx from devDependencies to dependencies'
+		]);
+		const item = first.followUps.find((i) => i.includes('`ssr.external` lists'));
+		expect(item).toMatch(/adapter-node 6 .* no longer bundles `ssr\.external` imports/);
+		expect(fs.readFileSync(path.join(dir, MIGRATION_TASKS_FILE), 'utf8')).toContain(item);
+
+		// Nothing left to move; the follow-up stays, and nothing else changes.
+		const before = snapshot(dir);
+		const second = await runKit3Migration(dir, { ...base, gitCheck: false, skipSv: true });
+		expect(second.fixups.find((f) => f.name === 'ssr.external')!.changed).toBe(false);
+		expect(second.followUps).toContain(item);
+		expect(snapshot(dir)).toEqual(before);
+	});
+
+	test('`true` is a follow-up, with nothing moved', async () => {
+		const dir = fixture('minimal');
+		addSsrExternal(dir, 'true');
+		const before = readJson(dir, 'package.json').devDependencies['pocketbase-sveltekit'];
+		const result = await runKit3Migration(dir, { ...base, gitCheck: false, skipSv: true });
+		expect(readJson(dir, 'package.json').devDependencies['pocketbase-sveltekit']).toBe(before);
+		expect(result.followUps).toContainEqual(
+			expect.stringMatching(/`ssr\.external: true` does nothing under adapter-node 6/)
+		);
+	});
+
+	test('adapter-static has no server: nothing moves', async () => {
+		const dir = fixture('static');
+		addSsrExternal(dir, `['clsx']`);
+		const result = await runKit3Migration(dir, { ...base, gitCheck: false, skipSv: true });
+		expect(readJson(dir, 'package.json').dependencies).toBeUndefined();
+		expect(result.fixups.find((f) => f.name === 'ssr.external')!.changed).toBe(false);
+	});
+});
+
 describe('third-party SvelteKit 2 peers', () => {
 	const registry: Record<string, PeerManifest> = {
 		'@icons-pack/svelte-simple-icons': {

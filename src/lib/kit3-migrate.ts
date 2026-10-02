@@ -23,6 +23,8 @@ import {
 	type SvelteConfigCapture
 } from './config-merge.ts';
 import { inspectViteSveltekit } from './config-target.ts';
+import { detectAdapter } from './adapter.ts';
+import { moveSsrExternalsToDependencies, ssrExternalNotInDependencies } from './ssr-external.ts';
 import { kitStatus } from './kit-version.ts';
 import {
 	compareVersions,
@@ -245,6 +247,7 @@ export async function runKit3Migration(
 		codeFixup(root),
 		tsconfigFixup(root),
 		packageFixup(root, cliVersion),
+		ssrExternalFixup(root),
 		await peersFixup(root, options.peerLookup),
 		lockfileFixup(root)
 	];
@@ -266,7 +269,7 @@ export async function runKit3Migration(
 	const found = [...collectFollowUps(root, sv), ...fixups.flatMap((f) => f.followUps ?? [])];
 	// What sv could not do is only known on the run that ran it: a later run
 	// keeps those items rather than dropping them unresolved.
-	if (!sv.ran) found.unshift(...previousSvFollowUps(root));
+	if (!sv.ran) found.unshift(...previousFollowUps(root, SV_FAILURE_ITEM));
 	const followUps = [...new Set(found)];
 	// `vela deploy` runs adapter-node apps; anything else is hosted elsewhere.
 	const genericFollowUps = depRange(
@@ -807,6 +810,44 @@ function packageFixup(root: string, cliVersion: string): Fixup {
 	return f;
 }
 
+/**
+ * devDependencies named in `ssr.external` → dependencies. adapter-node 5
+ * bundled them into the server build anyway; adapter-node 6 leaves every
+ * `ssr.external` import bare, and the server installs production dependencies
+ * only. Only for adapter-node: adapter-static has no server, and other
+ * adapters are not vela's to deploy.
+ */
+function ssrExternalFixup(root: string): Fixup {
+	const f = fixup('ssr.external');
+	// The run that moved a package is the only one that knows it did: a later
+	// run keeps the item, in the same place.
+	f.followUps = previousFollowUps(root, SSR_EXTERNAL_ITEM);
+	let adapter;
+	try {
+		adapter = detectAdapter(root);
+	} catch {
+		return f;
+	}
+	if (adapter.kind !== 'node') return f;
+
+	const check = ssrExternalNotInDependencies(root);
+	if (check.kind === 'list' && check.missing.length > 0) {
+		const moved = moveSsrExternalsToDependencies(root, check.missing);
+		if (moved.length > 0) {
+			f.changed = true;
+			f.details.push(`moved ${moved.join(', ')} from devDependencies to dependencies`);
+			f.followUps.push(
+				`${code(check.file)}: moved ${moved.map(code).join(', ')} from devDependencies to dependencies because \`ssr.external\` lists ${moved.length === 1 ? 'it' : 'them'}. adapter-node 6 builds the server in one Vite pass and no longer bundles \`ssr.external\` imports, and the server installs production dependencies only. Keep ${moved.length === 1 ? 'it' : 'them'} in dependencies, or drop ${moved.length === 1 ? 'it' : 'them'} from \`ssr.external\` to have ${moved.length === 1 ? 'it' : 'them'} bundled.`
+			);
+		}
+	} else if (check.kind === 'all') {
+		f.followUps.push(
+			`${code(check.file)}: \`ssr.external: true\` does nothing under adapter-node 6, which bundles the whole server, dependencies included. Drop it, or list only the packages that must stay external, each in dependencies.`
+		);
+	}
+	return f;
+}
+
 /** Packages this migration moves itself, whose peers are its own business. */
 function bumpedHere(name: string): boolean {
 	return (
@@ -1082,9 +1123,11 @@ function textFiles(dir: string): string[] {
 }
 
 const SV_FAILURE_ITEM = /sv's `[^`]+` task (could not parse it|failed)|: sv dropped `/;
+const SSR_EXTERNAL_ITEM =
+	/: moved .+ from devDependencies to dependencies because `ssr\.external` lists /;
 
-/** Items about what sv failed at or dropped, from the follow-ups an earlier run wrote. */
-function previousSvFollowUps(root: string): string[] {
+/** Items matching `pattern` from the follow-ups an earlier run wrote. */
+function previousFollowUps(root: string, pattern: RegExp): string[] {
 	const file = path.join(root, MIGRATION_TASKS_FILE);
 	if (!fs.existsSync(file)) return [];
 	const content = fs.readFileSync(file, 'utf8');
@@ -1094,7 +1137,7 @@ function previousSvFollowUps(root: string): string[] {
 	return content
 		.slice(start, end === -1 ? undefined : end)
 		.split('\n')
-		.filter((line) => line.startsWith('- [') && SV_FAILURE_ITEM.test(line))
+		.filter((line) => line.startsWith('- [') && pattern.test(line))
 		.map((line) => line.replace(/^- \[[ x]\] /, ''));
 }
 

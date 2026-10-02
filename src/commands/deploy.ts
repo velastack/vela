@@ -49,6 +49,11 @@ import {
 	type AdapterInfo
 } from '../lib/adapter.ts';
 import { isInteractive } from '../lib/providers.ts';
+import {
+	ssrExternalAllNotice,
+	ssrExternalNotInDependencies,
+	ssrExternalProblem
+} from '../lib/ssr-external.ts';
 import { readRemoteEnv } from '../lib/remote-env.ts';
 
 const OptionsSchema = v.object({
@@ -115,6 +120,8 @@ export const deploy = addLockWaitOption(
 					);
 				}
 			}
+			// With --no-build too: the build already there has the same bare imports.
+			ssrExternalPreflight(findWorkspaceRoot() ?? process.cwd());
 
 			await withTarget(
 				raw,
@@ -455,6 +462,28 @@ async function prepareAdapter(workspaceRootDir: string): Promise<void> {
 		}
 	}
 	p.log.warn(`Commit ${changed.join(', ')} so every deploy builds the same way.`);
+}
+
+/**
+ * Refuse a build whose server would import a package the server never
+ * installs: a devDependency named in `ssr.external`. adapter-node 6 leaves
+ * those imports bare, and the release installs production dependencies only,
+ * so every page that reaches one would 500 with ERR_MODULE_NOT_FOUND. Only for
+ * adapter-node; a config vela cannot read passes.
+ */
+export function ssrExternalPreflight(root: string): void {
+	let adapter: AdapterInfo;
+	try {
+		adapter = detectAdapter(root);
+	} catch {
+		return;
+	}
+	if (adapter.kind !== 'node') return;
+	const check = ssrExternalNotInDependencies(root);
+	const problem = ssrExternalProblem(check);
+	if (problem) throw new Error(problem);
+	const notice = ssrExternalAllNotice(check);
+	if (notice) p.log.warn(notice);
 }
 
 /**

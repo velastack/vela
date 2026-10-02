@@ -18,6 +18,12 @@ import { bindingKey, parseTarget, PRODUCTION_TARGET } from '../lib/target.ts';
 import { resolveOrigin } from '../lib/origin.ts';
 import { warnIfKit2 } from '../lib/kit-version.ts';
 import { onTerminate, stopChild } from '../lib/terminate.ts';
+import { detectAdapter } from '../lib/adapter.ts';
+import {
+	ssrExternalAllNotice,
+	ssrExternalNotInDependencies,
+	ssrExternalProblem
+} from '../lib/ssr-external.ts';
 
 /** Where SvelteKit leaves the pages it rendered at build time. */
 const PRERENDERED_DIR = path.join('.svelte-kit', 'output', 'prerendered');
@@ -29,6 +35,7 @@ export const build = new Command('build')
 	.action(async (options: { target?: string }) => {
 		const cwd = process.cwd();
 		warnIfKit2(findWorkspaceRoot(cwd) ?? cwd, (m) => p.log.warn(m));
+		warnIfSsrExternalMissing(findWorkspaceRoot(cwd) ?? cwd);
 
 		applyBuildEnv(cwd);
 
@@ -80,6 +87,23 @@ export const build = new Command('build')
 
 		if (!origin) warnIfPrerendered(cwd);
 	});
+
+/**
+ * Builds fine, then 500s on the server: a devDependency in `ssr.external` is a
+ * bare import adapter-node 6 leaves for a production install that lacks it.
+ * A warning here; `vela deploy` refuses it. `ssr.external: true`, which
+ * adapter-node 6 overrides, is pointed out too.
+ */
+function warnIfSsrExternalMissing(root: string): void {
+	try {
+		if (detectAdapter(root).kind !== 'node') return;
+	} catch {
+		return;
+	}
+	const check = ssrExternalNotInDependencies(root);
+	const problem = ssrExternalProblem(check) ?? ssrExternalAllNotice(check);
+	if (problem) p.log.warn(problem);
+}
 
 /**
  * The origin to render this build's absolute URLs against, if one is knowable.
