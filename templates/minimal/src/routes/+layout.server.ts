@@ -1,6 +1,6 @@
 import { loadFlash } from 'sveltekit-flash-message/server';
 import { defineBaseMetaTags } from 'svelte-meta-tags';
-import { site } from '$lib/site';
+import { site } from '#lib/site.js';
 
 export const load = loadFlash(async ({ url }) => {
 	// Built from `site.url`, not `url.origin`: every deployment and every

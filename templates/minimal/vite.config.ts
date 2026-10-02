@@ -12,7 +12,11 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 			adapter: adapter(),
-			...(process.env.VELA_ORIGIN ? { prerender: { origin: process.env.VELA_ORIGIN } } : {})
+			// The public origin, which SvelteKit checks form posts against and uses
+			// for prerendered pages. `vela deploy` sets VELA_ORIGIN, and the value is
+			// baked in at build time. It is left unset for a deploy that serves more
+			// than one host, where each request's own origin is used instead.
+			...(process.env.VELA_ORIGIN ? { paths: { origin: process.env.VELA_ORIGIN } } : {})
 		})
 	]
 });

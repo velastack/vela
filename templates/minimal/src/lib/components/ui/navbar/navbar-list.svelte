@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { cn } from '$lib/utils.js';
+	import { cn } from '#lib/utils.js';
 	import { getContext } from 'svelte';
 	import { MOBILE_MENU_CONTEXT_KEY, type MobileMenuContext } from './navbar-store';
 

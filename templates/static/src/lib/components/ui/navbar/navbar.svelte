@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { setContext } from 'svelte';
-	import { cn } from '$lib/utils.js';
+	import { cn } from '#lib/utils.js';
 	let { children, class: className = '' } = $props();
 
 	import { MOBILE_MENU_CONTEXT_KEY } from './navbar-store';

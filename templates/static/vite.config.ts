@@ -27,9 +27,12 @@ export default defineConfig({
 				handleHttpError: ({ path, status, message }) => {
 					if (status === 404 && PENDING_LEGAL_ROUTES.includes(path)) return;
 					throw new Error(message);
-				},
-				...(process.env.VELA_ORIGIN ? { origin: process.env.VELA_ORIGIN } : {})
-			}
+				}
+			},
+			// The origin prerendered pages see as `url.origin`. `vela deploy` sets
+			// VELA_ORIGIN, and the value is baked in at build time. It is left unset
+			// for a deploy that serves more than one host.
+			...(process.env.VELA_ORIGIN ? { paths: { origin: process.env.VELA_ORIGIN } } : {})
 		})
 	]
 });

@@ -1,6 +1,13 @@
 import process from 'node:process';
-import { building } from '$app/environment';
-import { env } from '$env/dynamic/private';
+import { building } from '$app/env';
+import {
+	POCKETBASE_URL,
+	POCKETBASE_SUPERUSER_EMAIL,
+	POCKETBASE_SUPERUSER_PASSWORD,
+	WORKFLOWS_ENABLED,
+	WORKFLOWS_CONCURRENCY,
+	TEST
+} from '$app/env/private';
 import { Cron } from 'croner';
 import { OpenWorkflow, type Worker } from 'openworkflow';
 import { BackendPocketBase } from 'openworkflow-pocketbase';
@@ -16,9 +23,9 @@ import PocketBase from 'pocketbase-sveltekit';
  * from the last completed step. See src/lib/workflows/README.md.
  */
 
-const url = env.POCKETBASE_URL ?? '';
-const email = env.POCKETBASE_SUPERUSER_EMAIL ?? '';
-const password = env.POCKETBASE_SUPERUSER_PASSWORD ?? '';
+const url = POCKETBASE_URL;
+const email = POCKETBASE_SUPERUSER_EMAIL;
+const password = POCKETBASE_SUPERUSER_PASSWORD;
 
 /** The OpenWorkflow client: `defineWorkflow`, `runWorkflow`, `cancelWorkflowRun`, `sendSignal`. */
 export const ow = new OpenWorkflow({
@@ -118,7 +125,7 @@ const state = globalThis as { [KEY]?: Running };
  */
 export async function startWorker() {
 	if (building || process.env.VITE_BUILD === 'true') return;
-	if (env.WORKFLOWS_ENABLED === 'false' || !url) return;
+	if (WORKFLOWS_ENABLED === 'false' || !url) return;
 	if (Object.keys(modules).length === 0) return;
 
 	const loaded = await loadModules();
@@ -128,9 +135,9 @@ export async function startWorker() {
 	// Not awaited: runs in flight finish on the old code, new claims stop now.
 	void state[KEY]?.stop();
 
-	const worker = ow.newWorker({ concurrency: Number(env.WORKFLOWS_CONCURRENCY ?? 5) });
+	const worker = ow.newWorker({ concurrency: Number(WORKFLOWS_CONCURRENCY || 5) });
 	const crons =
-		env.TEST === 'true'
+		TEST === 'true'
 			? []
 			: loaded
 					.filter((mod) => mod.cron)

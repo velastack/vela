@@ -12,7 +12,7 @@ That writes `send-welcome-email.ts` here, along with a test:
 
 ```ts
 import { z } from 'zod';
-import { ow } from '$lib/server/workflows';
+import { ow } from '#lib/server/workflows.js';
 
 export const sendWelcomeEmail = ow.defineWorkflow(
 	{
@@ -48,5 +48,5 @@ Good to know:
 
 - Steps are the unit of retry, so make each one safe to repeat.
 - A workflow gets one attempt unless `retryPolicy` says otherwise.
-- `getAdmin()` from `$lib/server/workflows` is a superuser client for use inside steps.
+- `getAdmin()` from `#lib/server/workflows.js` is a superuser client for use inside steps.
 - The worker runs inside the web server. `WORKFLOWS_CONCURRENCY` (default 5) caps parallel runs and `WORKFLOWS_ENABLED=false` turns the worker off for a process that should only queue runs.

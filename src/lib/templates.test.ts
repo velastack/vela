@@ -122,3 +122,169 @@ describe('categories', () => {
 		expect(message).toBe('starter: minimal, static; blog: broadsheet, confetti');
 	});
 });
+
+describe('SvelteKit 3', () => {
+	/** Every text file a template ships, as [template-relative path, contents]. */
+	function textFiles(dir: string): [string, string][] {
+		return fs
+			.globSync('**/*', { cwd: dir, withFileTypes: true })
+			.filter(
+				(entry) =>
+					entry.isFile() &&
+					entry.name !== '.DS_Store' &&
+					!/\.(jpe?g|png|gif|webp|ico|db)$/.test(entry.name) &&
+					!entry.parentPath.split(path.sep).includes('node_modules')
+			)
+			.map((entry) => {
+				const full = path.join(entry.parentPath, entry.name);
+				return [path.relative(dir, full), fs.readFileSync(full, 'utf8')];
+			});
+	}
+
+	/** The body of each `prerender: { … }` object literal in a config file. */
+	function prerenderBlocks(source: string): string[] {
+		const blocks: string[] = [];
+		for (const match of source.matchAll(/\bprerender\s*:\s*\{/g)) {
+			let depth = 1;
+			let i = match.index! + match[0].length;
+			const start = i;
+			for (; i < source.length && depth > 0; i++) {
+				if (source[i] === '{') depth++;
+				else if (source[i] === '}') depth--;
+			}
+			blocks.push(source.slice(start, i - 1));
+		}
+		return blocks;
+	}
+
+	/** Names imported from `$app/env/private` and `$app/env/public`. */
+	function envImports(source: string): string[] {
+		const imports = source.matchAll(
+			/import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]\$app\/env\/(?:private|public)['"]/g
+		);
+		return [...imports].flatMap((match) =>
+			match[1]!
+				.split(',')
+				.map((name) =>
+					name
+						.trim()
+						.split(/\s+as\s+/)[0]!
+						.trim()
+				)
+				.filter(Boolean)
+		);
+	}
+
+	/** The variables `src/env.ts` declares in its `defineEnvVars({ … })` call. */
+	function declaredEnvVars(source: string): string[] {
+		return [...source.matchAll(/^\t([A-Z_][A-Z0-9_]*)\s*:\s*\{/gm)].map((match) => match[1]!);
+	}
+
+	// Kit 3 removed `$lib`, `svelte.config.*` and `prerender.origin`, and deprecated
+	// `$env/*` and `$app/environment`: a template that still mentions one either
+	// fails to build or teaches the old API.
+	test.each([
+		['$lib', /\$lib\b/],
+		['$env/', /\$env\//],
+		['$app/environment', /\$app\/environment\b/],
+		['svelte.config', /svelte\.config/],
+		['prerender.origin', /prerender\.origin/]
+	])('no template mentions %s', (_label, pattern) => {
+		for (const template of listProjectTemplates()) {
+			const offenders = textFiles(template.dir)
+				.filter(([, contents]) => pattern.test(contents))
+				.map(([rel]) => `${template.name}/${rel}`);
+			expect(offenders).toEqual([]);
+		}
+	});
+
+	test('no template sets an origin under prerender', () => {
+		for (const template of listProjectTemplates()) {
+			const config = fs.readFileSync(path.join(template.dir, 'vite.config.ts'), 'utf8');
+			for (const block of prerenderBlocks(config)) {
+				expect(block).not.toMatch(/\borigin\b/);
+			}
+		}
+	});
+
+	// Without a declaration in src/env.ts Kit 3 exposes no variable at all, so
+	// a named import of an undeclared one fails the build.
+	test('src/env.ts declares every variable a template imports', () => {
+		for (const template of listProjectTemplates()) {
+			const imported = new Set(
+				textFiles(template.dir)
+					.filter(([rel]) => /\.(ts|js|svelte)$/.test(rel))
+					.flatMap(([, contents]) => envImports(contents))
+			);
+			const envFile = path.join(template.dir, 'src', 'env.ts');
+			const declared = fs.existsSync(envFile)
+				? declaredEnvVars(fs.readFileSync(envFile, 'utf8'))
+				: [];
+			expect([...imported].filter((name) => !declared.includes(name))).toEqual([]);
+		}
+	});
+
+	test('minimal declares the variables its server code reads', () => {
+		const envFile = path.join(findProjectTemplate('minimal').dir, 'src', 'env.ts');
+		expect(declaredEnvVars(fs.readFileSync(envFile, 'utf8')).sort()).toEqual([
+			'POCKETBASE_SUPERUSER_EMAIL',
+			'POCKETBASE_SUPERUSER_PASSWORD',
+			'POCKETBASE_URL',
+			'TEST',
+			'WORKFLOWS_CONCURRENCY',
+			'WORKFLOWS_ENABLED'
+		]);
+	});
+
+	// sv's rules: a module gets `.js`, a directory `/index.js`, and `.svelte`
+	// and `.svg` keep their own extension. `site.ts` ships as `site.template.ts`.
+	test('every #lib import names a file the template ships', () => {
+		for (const template of listProjectTemplates()) {
+			const lib = path.join(template.dir, 'src', 'lib');
+			const dangling: string[] = [];
+			// Code and the docs that show it; components.json holds directory aliases.
+			const sources = textFiles(template.dir).filter(([rel]) => /\.(ts|js|svelte|md)$/.test(rel));
+			for (const [rel, contents] of sources) {
+				for (const match of contents.matchAll(/['"`]#lib\/([^'"`]+)['"`]/g)) {
+					const target = match[1]!;
+					const candidates = /\.(svelte|svg|svx)$/.test(target)
+						? [target]
+						: target.endsWith('.js')
+							? [target, target.replace(/\.js$/, '.ts'), target.replace(/\.js$/, '.template.ts')]
+							: [];
+					if (!candidates.some((candidate) => fs.existsSync(path.join(lib, candidate)))) {
+						dangling.push(`${template.name}/${rel} -> #lib/${target}`);
+					}
+				}
+			}
+			expect(dangling).toEqual([]);
+		}
+	});
+
+	test('package.json maps #lib and requires the Node that Kit 3 does', () => {
+		for (const template of listProjectTemplates()) {
+			const pkg = JSON.parse(
+				fs.readFileSync(path.join(template.dir, 'package.template.json'), 'utf8')
+			);
+			expect(pkg.imports).toEqual({ '#lib': './src/lib/index.js', '#lib/*': './src/lib/*' });
+			expect(pkg.engines).toEqual({ node: '>=22.17' });
+			expect(pkg.devDependencies['@sveltejs/kit']).toBe('^3.0.0');
+		}
+	});
+
+	// formsnap 2 peers superforms ^2. The override has to name the version
+	// itself: npm 10, which Node 22 ships, cannot resolve a `$sveltekit-superforms`
+	// reference to a devDependency.
+	test('the formsnap override follows the superforms pin', () => {
+		for (const template of listProjectTemplates()) {
+			const pkg = JSON.parse(
+				fs.readFileSync(path.join(template.dir, 'package.template.json'), 'utf8')
+			);
+			if (!pkg.devDependencies.formsnap) continue;
+			expect(pkg.devDependencies['sveltekit-superforms']).toMatch(/^\d/);
+			expect(pkg.overrides?.formsnap?.['sveltekit-superforms']).toBe(
+				pkg.devDependencies['sveltekit-superforms']
+			);
+		}
+	});
+});

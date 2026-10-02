@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { cn } from '$lib/utils.js';
+	import { cn } from '#lib/utils.js';
 	let {
 		src = 'https://upload.wikimedia.org/wikipedia/commons/1/1b/Svelte_Logo.svg',
 		alt = 'Logo',

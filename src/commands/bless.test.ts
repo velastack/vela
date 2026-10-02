@@ -28,15 +28,15 @@ function installedPaths(templateDir: string): Set<string> {
 	return installed;
 }
 
-/** `$lib/...` specifiers imported by a source file. */
+/** `#lib/...` specifiers imported by a source file. */
 function libImports(source: string): string[] {
-	const specifiers = source.matchAll(/from\s+'(\$lib\/[^']+)'/g);
+	const specifiers = source.matchAll(/from\s+'(#lib\/[^']+)'/g);
 	return [...new Set([...specifiers].map((match) => match[1]!))];
 }
 
-/** Whether `$lib/x` resolves to something in `installed`. */
+/** Whether `#lib/x` resolves to something in `installed`. */
 function resolves(specifier: string, installed: Set<string>): boolean {
-	const base = specifier.replace(/^\$lib\//, 'src/lib/');
+	const base = specifier.replace(/^#lib\//, 'src/lib/');
 	const candidates = [
 		base,
 		`${base}.ts`,
@@ -55,7 +55,7 @@ describe('bless installs a project that resolves', () => {
 	for (const name of projectTemplateNames({ backend: true })) {
 		const templateDir = findProjectTemplate(name).dir;
 
-		test(`${name}: every $lib import in an installed file is installed too`, () => {
+		test(`${name}: every #lib import in an installed file is installed too`, () => {
 			const installed = installedPaths(templateDir);
 			const dangling: string[] = [];
 
@@ -79,7 +79,7 @@ describe('bless installs a project that resolves', () => {
 			const hook = path.join(templateDir, 'src/hooks.server.ts');
 			if (!fs.existsSync(hook)) return;
 
-			expect(fs.readFileSync(hook, 'utf8')).toContain("from '$lib/server/workflows'");
+			expect(fs.readFileSync(hook, 'utf8')).toContain("from '#lib/server/workflows.js'");
 			expect(installed.has('src/lib/server/workflows.ts')).toBe(true);
 		});
 	}

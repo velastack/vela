@@ -1,5 +1,5 @@
 import { defineBaseMetaTags } from 'svelte-meta-tags';
-import { site } from '$lib/site';
+import { site } from '#lib/site.js';
 import type { LayoutLoad } from './$types';
 
 export const prerender = true;
