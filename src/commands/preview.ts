@@ -9,6 +9,7 @@ import { x } from 'tinyexec';
 import { detect } from 'package-manager-detector';
 import { resolveCommand } from 'package-manager-detector/commands';
 import { helpConfig } from '../lib/help.ts';
+import { onTerminate } from '../lib/terminate.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { startPocketbaseServe } from '../lib/pocketbase.ts';
 import { findWorkspaceRoot, hasBackend, localDataDir } from '../lib/workspace.ts';
@@ -51,11 +52,7 @@ export const preview = new Command('preview')
 			pbProc = started.proc;
 			process.env.POCKETBASE_URL = started.url;
 
-			process.on('exit', cleanup);
-			process.on('SIGINT', () => {
-				cleanup();
-				process.exit(0);
-			});
+			onTerminate(cleanup);
 		}
 
 		try {

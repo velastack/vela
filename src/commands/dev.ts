@@ -10,6 +10,7 @@ import pc from 'picocolors';
 import { warnIfKit2 } from '../lib/kit-version.ts';
 import PocketBase from 'pocketbase';
 import { helpConfig } from '../lib/help.ts';
+import { onTerminate } from '../lib/terminate.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { startPocketbaseServe } from '../lib/pocketbase.ts';
 import { createPocketbaseLogFilter } from '../lib/pocketbase-log-filter.ts';
@@ -99,11 +100,7 @@ export const dev = new Command('dev')
 			pbProc.on('error', (err) => console.error('PocketBase error:', err));
 			pbProc.on('exit', (code) => console.log(`PocketBase exited with code ${code}`));
 
-			process.on('exit', cleanup);
-			process.on('SIGINT', () => {
-				cleanup();
-				process.exit(0);
-			});
+			onTerminate(cleanup);
 		}
 
 		// Only forward what was actually passed: an explicit `undefined` here would
