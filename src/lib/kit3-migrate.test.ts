@@ -16,6 +16,7 @@ import {
 } from './kit3-migrate.ts';
 import { commitAll, copyKit2Fixture, snapshot } from './kit2-fixture.ts';
 import type { PeerLookup, PeerManifest } from './kit-peers.ts';
+import cliPackage from '../../package.json' with { type: 'json' };
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -700,12 +701,14 @@ describe('vela steps', () => {
 		};
 		fs.writeFileSync(path.join(dir, 'package-lock.json'), JSON.stringify(lock, null, '\t'));
 		const result = await runKit3Migration(dir, { ...base, gitCheck: false, skipSv: true });
-		const pkg = readJson(dir, 'package.json');
-		expect(pkg.devDependencies['@velastack/patterns']).toBe('^0.4.0');
-		expect(pkg.dependencies['sveltekit-negotiate']).toBe('^0.3.1');
+		// Raised to whatever this CLI depends on, so the expectation follows it.
+		const patterns = cliPackage.dependencies['@velastack/patterns'];
+		const migrated = readJson(dir, 'package.json');
+		expect(migrated.devDependencies['@velastack/patterns']).toBe(patterns);
+		expect(migrated.dependencies['sveltekit-negotiate']).toBe('^0.3.1');
 		expect(result.fixups.find((f) => f.name === 'package.json')!.details).toEqual(
 			expect.arrayContaining([
-				'@velastack/patterns ^0.3.4 → ^0.4.0',
+				`@velastack/patterns ^0.3.4 → ${patterns}`,
 				'sveltekit-negotiate ^0.3.0 → ^0.3.1'
 			])
 		);
