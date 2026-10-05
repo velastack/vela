@@ -486,7 +486,17 @@ if [ -n "$DOMAIN" ]; then
 	tmp=$(mktemp "$VELA_ETC/caddy/.snippet.XXXXXX")
 	{
 		printf '# Managed by vela - app %s (%s)\n' "$APP_NAME" "$INSTANCE"
-		printf '%s {\n\treverse_proxy 127.0.0.1:%s\n}\n' "$hosts" "$WEB_PORT"
+		printf '%s {\n' "$hosts"
+		# The app precompresses its built assets but not rendered pages; Caddy
+		# passes an already-encoded response through untouched.
+		printf '\tencode zstd gzip\n'
+		# Files from static/ come back with an ETag and no Cache-Control, so a
+		# browser asks again on every view. Unhashed, so an hour rather than
+		# forever; `?` leaves whatever the app or PocketBase set alone.
+		printf '\t@static path *.jpg *.jpeg *.png *.gif *.webp *.avif *.svg *.ico *.woff *.woff2\n'
+		printf '\theader @static ?Cache-Control "public, max-age=3600"\n'
+		printf '\treverse_proxy 127.0.0.1:%s\n' "$WEB_PORT"
+		printf '}\n'
 	} > "$tmp"
 	caddy_install "$tmp" "$CADDY_SNIPPET" \
 		|| die "release $RELEASE is live, but the generated Caddy config for $DOMAIN is invalid and was not installed - routing is unchanged"
