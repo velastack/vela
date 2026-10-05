@@ -77,6 +77,20 @@ PB_UNIT=$(unit_pb "$INSTANCE")
 
 lock_instance "$INSTANCE" "$LOCK_WAIT"
 
+# The instance was removed after this deploy began: a pull request closed while
+# its last push was still building, say. Going ahead would recreate what the
+# removal was for, so the upload is dropped instead - and with it the instance
+# directory, when the upload is all that is in it. A `shared/` left by a
+# non-purge destroy is kept. Checked before anything else, since a purge that
+# ran mid-upload may have taken part of the release with it.
+if removed_since_release "$INSTANCE" "$RELEASE"; then
+	rm -rf "${RELEASE_DIR:?}"
+	rmdir "$APP/releases" "$APP" 2>/dev/null || true
+	printf 'error: %s was removed at %s, after this deploy began (release %s) - not recreating it\n' \
+		"$INSTANCE" "$(removed_at "$INSTANCE")" "$RELEASE" >&2
+	exit "$REMOVED_EXIT"
+fi
+
 [ -d "$RELEASE_DIR" ] || die "release $RELEASE was not uploaded to $RELEASE_DIR"
 [ -f "$RELEASE_DIR/build/index.js" ] || die \
 	"release $RELEASE has no build/index.js - the app must build with @sveltejs/adapter-node"
@@ -447,6 +461,8 @@ state_merge "$INSTANCE" "$(jq -c -n \
 	  managed: $managed, url: $url,
 	  healthCheckPath: $health, pocketbaseVersion: $pb, gitSha: $sha,
 	  webPort: $web, pbPort: $pbport, backend: ($backend == 1), deployedAt: $at}')"
+# A deploy that began after the last removal is live; the mark has done its job.
+clear_removed "$INSTANCE"
 
 # ------------------------------------------------------------------ routing
 #

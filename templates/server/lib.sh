@@ -58,6 +58,58 @@ require_provisioned() {
 	[ -f "$VELA_ETC/provisioned" ] || die "server is not provisioned - run 'vela provision' first"
 }
 
+# When an instance was last removed, so a deploy that was already under way
+# cannot bring it back.
+#
+# A deploy spends minutes building on its own machine before it reaches the
+# server and takes the instance lock; a destroy that lands in that window finds
+# nothing to remove, and the deploy then creates the instance that was meant
+# to be gone. CI does this whenever a pull request closes while a push to it
+# is still building: the cleanup runs first and the preview appears after it.
+#
+# destroy.sh records the server's clock here, whether or not there was anything
+# to remove. A release id starts with the server's clock at the moment its
+# deploy began, so apply.sh can tell a deploy that started before the removal
+# (refused) from one that started after it (a fresh deploy - the pull request
+# was reopened, say - which goes ahead and clears the mark). Kept under state/,
+# not the instance's own directory, which a purge deletes.
+
+# Exit status of that refusal, so the CLI can tell it apart from a failed deploy.
+# shellcheck disable=SC2034 # read by apply.sh
+REMOVED_EXIT=3
+removed_file() { printf '%s/state/removed/%s' "$VELA_ROOT" "$1"; }
+
+# usage: mark_removed <instance>
+mark_removed() {
+	local file
+	file=$(removed_file "$1")
+	mkdir -p "$(dirname "$file")"
+	# A mark only matters to a deploy that began before it, and no build takes a
+	# month; pruning keeps one file per pull request from piling up forever.
+	find "$(dirname "$file")" -maxdepth 1 -type f -mtime +30 -delete 2>/dev/null || true
+	date -u +%Y%m%dT%H%M%SZ > "$file"
+}
+
+# The stamp of the instance's last removal, or nothing.
+removed_at() {
+	local file
+	file=$(removed_file "$1")
+	if [ -f "$file" ]; then head -n1 "$file"; fi
+}
+
+# Whether `release` belongs to a deploy that began no later than the instance's
+# last removal. A tie counts as before: a deploy and a destroy in the same
+# second are far more likely to be the race than a deliberate redeploy.
+#
+# usage: removed_since_release <instance> <release>
+removed_since_release() {
+	local removed
+	removed=$(removed_at "$1")
+	[ -n "$removed" ] && ! [[ "${2%%-*}" > "$removed" ]]
+}
+
+clear_removed() { rm -f "$(removed_file "$1")"; }
+
 # Whether an instance was last deployed with a PocketBase backend: `true` or
 # `false`. Absent state, or state from before the flag existed, is treated as
 # having one, so this only ever answers `false` for an instance that was

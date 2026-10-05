@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
-import { UnsupportedError } from './errors.ts';
+import { TargetRemovedError, UnsupportedError } from './errors.ts';
 
 type MaybePromise = () => Promise<void> | void;
 
@@ -8,6 +8,14 @@ export async function runCommand(action: MaybePromise, failureMessage?: string):
 	try {
 		await action();
 	} catch (e) {
+		if (e instanceof TargetRemovedError) {
+			// Not a failure of the deploy so much as the absence of anything to
+			// deploy to; said as such, and with its own exit status.
+			p.log.warn(e.message);
+			p.cancel('Nothing was deployed.');
+			process.exitCode = e.exitCode;
+			return;
+		}
 		if (e instanceof UnsupportedError) {
 			const padding = Math.max(...e.reasons.map((r) => r.id.length), 0);
 			const message = e.reasons

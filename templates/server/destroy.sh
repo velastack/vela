@@ -35,6 +35,10 @@ ETC=$(etc_dir "$INSTANCE")
 
 lock_instance "$INSTANCE" "$LOCK_WAIT"
 
+# Before anything else, and whether or not there turns out to be anything to
+# remove: a deploy still building elsewhere must not put the instance back.
+mark_removed "$INSTANCE"
+
 # Nothing to remove is a result, not an error: a preview that never deployed
 # still gets a cleanup run when its pull request closes. Nothing is touched,
 # so a mistyped name cannot do harm either way.

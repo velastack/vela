@@ -192,6 +192,31 @@ else
 	echo "SKIP health gate (no python3)"
 fi
 
+# ---------------------------------------------------------- removal marks
+#
+# destroy.sh marks an instance removed, even when nothing was there; apply.sh
+# refuses a release whose deploy began at or before that mark, and lets a later
+# one through.
+
+expect_die "removed: no mark refuses nothing" removed_since_release fresh 20261005T192332Z-510d
+[ -z "$(removed_at fresh)" ] && ok "removed: no mark reads empty" || bad "removed: no mark reads empty"
+mark_removed gone
+stamp=$(removed_at gone)
+[[ $stamp =~ ^[0-9]{8}T[0-9]{6}Z$ ]] && ok "removed: mark is a server-clock stamp" || bad "removed: mark is a server-clock stamp" "$stamp"
+printf '20261005T192000Z\n' > "$(removed_file gone)"
+expect_ok "removed: a deploy begun before the removal is refused" removed_since_release gone 20261005T191657Z-510d
+expect_ok "removed: a deploy begun in the same second is refused" removed_since_release gone 20261005T192000Z-ffff
+expect_die "removed: a deploy begun after the removal goes ahead" removed_since_release gone 20261005T192001Z-0000
+expect_die "removed: another instance's mark does not apply" removed_since_release other 20261005T191657Z-510d
+clear_removed gone
+expect_die "removed: a cleared mark refuses nothing" removed_since_release gone 20261005T191657Z-510d
+[ ! -e "$(removed_file gone)" ] && ok "removed: clear_removed deletes the mark" || bad "removed: clear_removed deletes the mark"
+mark_removed stale
+touch -t 202001010000 "$(removed_file stale)"
+mark_removed recent
+[ ! -f "$(removed_file stale)" ] && [ -f "$(removed_file recent)" ] \
+	&& ok "removed: marks older than 30 days are pruned" || bad "removed: marks older than 30 days are pruned"
+
 # ------------------------------------------------------------------- lock
 
 if command -v flock >/dev/null 2>&1; then

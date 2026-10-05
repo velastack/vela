@@ -6,6 +6,7 @@ import type { ServerIdentity } from './remote.ts';
 import { ensureServerIdentity } from './server-identity.ts';
 import type { SshSession } from './ssh.ts';
 import {
+	ApiError,
 	destroyEnvironment,
 	finishDeployment,
 	startDeployment,
@@ -89,10 +90,16 @@ export function createDeployReporter(workspaceRootDir: string): DeployReporter {
 	};
 }
 
-/** After `destroy.sh` has removed an instance, retire its environment on velastack.dev. */
+/**
+ * After `destroy.sh` has removed an instance, retire its environment on
+ * velastack.dev. `missingOk` is for callers that cannot know whether one was
+ * ever recorded - a preview that never deployed has none - so its absence is
+ * not worth a warning.
+ */
 export async function reportEnvironmentDestroyed(
 	workspaceRootDir: string,
-	envTag: string
+	envTag: string,
+	{ missingOk = false }: { missingOk?: boolean } = {}
 ): Promise<void> {
 	const link = readProjectConfig(workspaceRootDir);
 	const apiKey = link ? readApiKey() : null;
@@ -100,6 +107,7 @@ export async function reportEnvironmentDestroyed(
 	try {
 		await destroyEnvironment(apiKey, link.projectId, envTag);
 	} catch (err) {
+		if (missingOk && err instanceof ApiError && err.status === 404) return;
 		warn('retire the environment', err);
 	}
 }
