@@ -10,7 +10,7 @@ import { runCommand } from '../lib/run.ts';
 import { parseOptions } from '../lib/options.ts';
 import { findWorkspaceRoot, getWorkspace, hasBackend } from '../lib/workspace.ts';
 import { assertKit3 } from '../lib/kit-version.ts';
-import { withSsh, type SshSession } from '../lib/ssh.ts';
+import { RemoteCommandError, withSsh, type SshSession } from '../lib/ssh.ts';
 import { addSshOptions, SSH_OPTION_SCHEMA, sshOptionsFrom } from '../lib/ssh-options.ts';
 import { writeBinding } from '../lib/deploy-config.ts';
 import { bindingKey } from '../lib/target.ts';
@@ -26,7 +26,8 @@ import { ensureSuperuser, findFreePort, pocketbaseVersion } from '../lib/pocketb
 import { copiedMeta, readLocalMeta, syncRemoteMeta } from '../lib/pocketbase-settings.ts';
 import { buildOrigin, normalizeOrigin, splitHosts } from '../lib/origin.ts';
 import { isLocalUrl, readSite, SITE_FILE } from '../lib/site.ts';
-import { createDeployReporter } from '../lib/deploy-report.ts';
+import { createDeployReporter, reportEnvironmentDestroyed } from '../lib/deploy-report.ts';
+import { TARGET_REMOVED_EXIT, TargetRemovedError } from '../lib/errors.ts';
 import {
 	instanceHasBackend,
 	readInstanceStates,
@@ -307,6 +308,23 @@ export const deploy = addLockWaitOption(
 								stream: true
 							});
 						} catch (err) {
+							// Removed while this deploy was building (a pull request closed
+							// while its last push was in flight): the server dropped the
+							// upload. Announcing the deploy above made the environment
+							// active again and republished its hostname, so it is retired
+							// once more - the removal is the later intent.
+							if (err instanceof RemoteCommandError && err.exitCode === TARGET_REMOVED_EXIT) {
+								await reporter.finish({
+									status: 'failed',
+									error: 'The target was removed while this deploy was under way.'
+								});
+								await reportEnvironmentDestroyed(workspaceRootDir, ctx.envTag, {
+									missingOk: true
+								});
+								throw new TargetRemovedError(
+									`${ctx.appName} (${ctx.targetName}) was removed from ${ctx.server} after this deploy began, so it was not put back.`
+								);
+							}
 							// The server has rolled back (or never activated); say so before
 							// the error reaches the user.
 							await reporter.finish({

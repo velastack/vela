@@ -34,6 +34,17 @@ interface PaginatedResponse<T> {
 	totalPages: number;
 }
 
+/** A non-2xx answer from velastack.dev other than an auth failure. */
+export class ApiError extends Error {
+	override name = 'ApiError';
+	constructor(
+		readonly status: number,
+		message: string
+	) {
+		super(message);
+	}
+}
+
 async function apiFetch<T>(apiKey: string, pathAndQuery: string, init?: RequestInit): Promise<T> {
 	const headers = new Headers(init?.headers);
 	headers.set('Authorization', `Bearer ${apiKey}`);
@@ -51,7 +62,10 @@ async function apiFetch<T>(apiKey: string, pathAndQuery: string, init?: RequestI
 	}
 	if (!res.ok) {
 		const body = await res.text().catch(() => '');
-		throw new Error(`Velastack API error (${res.status}): ${body || res.statusText}`);
+		throw new ApiError(
+			res.status,
+			`Velastack API error (${res.status}): ${body || res.statusText}`
+		);
 	}
 	return (await res.json()) as T;
 }

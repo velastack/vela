@@ -75,6 +75,17 @@ export const deployment = addLockWaitOption(
 						});
 
 						if (result?.existed === false) {
+							// Nothing on the server, but velastack.dev may still list a
+							// preview as live: one that announced itself and then failed
+							// before reaching the server leaves it that way, with its
+							// hostname still published. Previews only - for anything else,
+							// nothing here is as likely to mean the wrong server, and that
+							// must not retire the real one.
+							if (ctx.target.kind === 'preview') {
+								await reportEnvironmentDestroyed(ctx.workspaceRootDir, ctx.envTag, {
+									missingOk: true
+								});
+							}
 							p.log.info(
 								`Nothing named ${pc.cyan(`${ctx.appName} (${ctx.targetName})`)} on ${ctx.server}; nothing to remove.`
 							);
