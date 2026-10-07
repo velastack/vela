@@ -194,6 +194,12 @@ runtime_tmp=$(mktemp "$ETC/.runtime.XXXXXX")
 	printf 'HOST=127.0.0.1\n'
 	printf 'PORT=%s\n' "$WEB_PORT"
 	runtime_origin_lines "$DOMAIN" "$PRIMARY_URL"
+	# Caddy is the only thing that reaches the app, so without these
+	# `getClientAddress()` is always 127.0.0.1. Caddy replaces any
+	# X-Forwarded-For a client sends with the address it saw (or, on a managed
+	# route, the one the Worker reports), so the last entry is the visitor.
+	printf 'ADDRESS_HEADER=x-forwarded-for\n'
+	printf 'XFF_DEPTH=1\n'
 	# Only an instance with a PocketBase gets pointed at one: a URL to a port
 	# nothing listens on is not a setting, it is a trap. Kept for one more
 	# deploy when the backend is being removed, so that a failed deploy can put
