@@ -227,13 +227,17 @@ unit_active() { systemctl is-active --quiet "$1"; }
 # A fourth argument is the public host to ask as, the way Caddy would. An app
 # serving several hosts has no pinned origin and tells its sites apart by
 # `Host`; asked as 127.0.0.1 it may rightly answer that it serves no such site.
+#
+# X-Forwarded-For always, as Caddy would send it: the app reads the client
+# address from it (ADDRESS_HEADER), and adapter-node throws from
+# `getClientAddress()` on a request without one.
 wait_for_http() {
 	local url=$1 attempts=${2:-60} delay=${3:-0.5} host=${4:-} code
 	local i=0
-	local -a as=()
-	[ -z "$host" ] || as=(-H "Host: $host" -H 'X-Forwarded-Proto: https')
+	local -a as=(-H 'X-Forwarded-For: 127.0.0.1')
+	[ -z "$host" ] || as+=(-H "Host: $host" -H 'X-Forwarded-Proto: https')
 	while [ "$i" -lt "$attempts" ]; do
-		code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 ${as[@]+"${as[@]}"} "$url" 2>/dev/null || echo 000)
+		code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "${as[@]}" "$url" 2>/dev/null || echo 000)
 		case "$code" in
 			2*|3*|401|403) return 0 ;;
 		esac
