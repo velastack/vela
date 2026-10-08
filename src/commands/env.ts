@@ -4,11 +4,13 @@ import { envList } from './env/list.ts';
 import { envSet } from './env/set.ts';
 import { envUnset } from './env/unset.ts';
 import { envImport } from './env/import.ts';
+import { envGet } from './env/get.ts';
 
 export const env = new Command('env')
 	.description('manage environment variables, locally or on a target')
 	.configureHelp(helpConfig)
 	.addCommand(envList)
+	.addCommand(envGet)
 	.addCommand(envSet)
 	.addCommand(envUnset)
 	.addCommand(envImport);

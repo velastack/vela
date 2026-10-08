@@ -6,21 +6,22 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
-import { addTargetOptions, applyEnvRestart, withTarget } from '../../lib/server-command.ts';
-import { readLocalEnvFile, readRemoteEnv, writeRemoteEnv } from '../../lib/remote-env.ts';
+import { readLocalEnvFile } from '../../lib/remote-env.ts';
 import { applyLocalEnvChange, editLocalEnv } from '../../lib/local-env.ts';
 import { upsertEnvVar } from '../../lib/env.ts';
+import { addEnvTargetOptions, applyChange, withEnvScope } from '../../lib/env-command.ts';
+import { importIntoLayer, type ImportOutcome } from '../../lib/env-scopes.ts';
 
-export const envImport = addTargetOptions(
+export const envImport = addEnvTargetOptions(
 	new Command('import')
 		.description('merge a dotenv file into the environment')
 		.argument('<file>', 'dotenv file to read')
-		.configureHelp(helpConfig),
-	'local'
-).action((file: string, raw: unknown) =>
+		.option('--public', 'import as readable values; PUBLIC_* keys are public regardless')
+		.configureHelp(helpConfig)
+).action((file: string, raw: { public?: boolean }) =>
 	runCommand(
 		() =>
-			withTarget(
+			withEnvScope(
 				raw,
 				{
 					local: async (ctx) => {
@@ -39,25 +40,51 @@ export const envImport = addTargetOptions(
 						p.log.success(`${keys.length} variable(s) updated ${pc.dim('(local)')}`);
 						await applyLocalEnvChange(ctx, keys);
 					},
-					remote: async (ctx) => {
+					// Merge: values in the layer that the file does not mention stay put.
+					instance: async (ctx) => {
 						const incoming = read(resolve(file), file);
 						const keys = Object.keys(incoming);
 						if (keys.length === 0) return;
 
 						p.log.step(`Importing ${keys.length} variable(s) from ${pc.cyan(file)}`);
-						// Merge: values on the server that the file does not mention stay put.
-						const existing = await readRemoteEnv(ctx.session, ctx.instance);
-						await writeRemoteEnv(ctx.session, ctx.instance, { ...existing, ...incoming });
+						const outcome = await importIntoLayer(
+							ctx.session,
+							ctx.files,
+							incoming,
+							raw.public === true
+						);
+						report(outcome, ctx.targetName);
+						await applyChange(ctx.workspaceRootDir, ctx, keys);
+					},
+					layer: async (ctx) => {
+						const incoming = read(resolve(file), file);
+						const keys = Object.keys(incoming);
+						if (keys.length === 0) return;
 
-						p.log.success(`${keys.length} variable(s) updated ${pc.dim(`(${ctx.targetName})`)}`);
-						await applyEnvRestart(ctx, keys);
+						p.log.step(`Importing ${keys.length} variable(s) from ${pc.cyan(file)}`);
+						const outcome = await importIntoLayer(
+							ctx.session,
+							ctx.files,
+							incoming,
+							raw.public === true
+						);
+						report(outcome, `${ctx.layer}, ${ctx.server}`);
+						await applyChange(ctx.workspaceRootDir, ctx, keys);
 					}
 				},
-				{ label: 'env import' }
+				{ label: 'env import', ask: true }
 			),
 		'Failed to import the environment.'
 	)
 );
+
+function report(outcome: ImportOutcome, where: string): void {
+	const parts = [
+		outcome.secret.length ? `${outcome.secret.length} secret` : '',
+		outcome.public.length ? `${outcome.public.length} public` : ''
+	].filter(Boolean);
+	p.log.success(`${parts.join(', ')} variable(s) updated ${pc.dim(`(${where})`)}`);
+}
 
 function resolve(file: string): string {
 	return path.resolve(process.cwd(), file);

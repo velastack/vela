@@ -28,7 +28,7 @@ import {
 	packageManagerPrompt,
 	addPnpmBuildDependencies
 } from '../lib/package-manager.ts';
-import { createSuperuser, withPocketbase } from '../lib/pocketbase.ts';
+import { createSuperuser } from '../lib/pocketbase.ts';
 import { writeEnvFile } from '../lib/env.ts';
 import { emailFlag, passwordFlag, promptSuperuser } from '../lib/superuser.ts';
 import pkg from '../../package.json' with { type: 'json' };
@@ -244,18 +244,6 @@ async function createProject(
 
 		p.log.step('Initializing PocketBase...');
 		await createSuperuser(projectPath, email, password);
-
-		await withPocketbase(
-			projectPath,
-			async (pb) => {
-				// PocketBase's own copy of the name, for the emails it sends. The
-				// project's is `src/lib/site.ts`; `vela dev` keeps this one in step.
-				await pb.settings.update({
-					meta: { appName: name, appURL: 'http://localhost:5173' }
-				});
-			},
-			{ email, password }
-		);
 
 		writeEnvFile(
 			projectPath,

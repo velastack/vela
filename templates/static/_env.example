@@ -1,0 +1,2 @@
+# What this app reads from its environment. Copy to .env for development; on a
+# server, `vela env set KEY -t <target>`. Values here are examples, not defaults.

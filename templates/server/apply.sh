@@ -36,7 +36,9 @@ require_release_id "$RELEASE"
 
 APP_NAME=$INSTANCE
 APP_ID=$INSTANCE
+SITE_NAME=""
 ENV_TAG=prod
+PREVIEW=0
 DOMAIN=""
 MANAGED=""
 HEALTH_PATH=/
@@ -54,6 +56,8 @@ while [ $# -gt 0 ]; do
 		--name) APP_NAME=$2; shift 2 ;;
 		--app-id) APP_ID=$2; shift 2 ;;
 		--env) ENV_TAG=$2; shift 2 ;;
+		--site-name) SITE_NAME=$2; shift 2 ;;
+		--preview) PREVIEW=$2; shift 2 ;;
 		--domain) DOMAIN=$2; shift 2 ;;
 		--managed) MANAGED=$2; shift 2 ;;
 		--health-path) HEALTH_PATH=$2; shift 2 ;;
@@ -183,9 +187,21 @@ else
 	PRIMARY_URL="http://127.0.0.1:$WEB_PORT"
 fi
 
-# Production secrets live in $ETC/env and are managed only by `vela env`.
-# Nothing here reads or rewrites that file.
+# The instance's own env layer is managed only by `vela env`. Nothing here
+# reads or rewrites it; the file is created so a first `vela env list` has
+# something to read.
 [ -f "$ETC/env" ] || { : > "$ETC/env"; chmod 0600 "$ETC/env"; chown root:root "$ETC/env"; }
+
+# The shared layers - app-wide, and one for every preview - live under
+# /etc/vela/scopes, and the units are templates on the instance name alone, so
+# they reach those layers through fixed-name symlinks written here. A link to a
+# layer nobody has written yet dangles, which systemd skips like a missing file.
+link_scope "$APP_ID" all "$ETC"
+if [ "$PREVIEW" = "1" ]; then
+	link_scope "$APP_ID" preview "$ETC"
+else
+	rm -f "$ETC/scope.preview.env" "$ETC/scope.preview.public.env"
+fi
 
 runtime_tmp=$(mktemp "$ETC/.runtime.XXXXXX")
 {
@@ -209,6 +225,10 @@ runtime_tmp=$(mktemp "$ETC/.runtime.XXXXXX")
 		printf 'POCKETBASE_URL=http://127.0.0.1:%s\n' "$PB_PORT"
 	fi
 	printf 'VELA_DATA_DIR=%s\n' "$APP_DATA_DIR"
+	# PocketBase names the app in its emails after APP_NAME, and links them to
+	# ORIGIN (above) unless APP_URL says otherwise. The name is the one
+	# src/lib/site.ts declares, so it is set from code on every deploy.
+	[ -z "$SITE_NAME" ] || printf 'APP_NAME=%s\n' "$SITE_NAME"
 	printf 'VELA_APP_ID=%s\n' "$APP_ID"
 	printf 'VELA_APP_NAME=%s\n' "$APP_NAME"
 	printf 'VELA_ENV=%s\n' "$ENV_TAG"
@@ -407,6 +427,13 @@ if [ -n "$LINK_NAME" ]; then
 		|| rm -f "$link_tmp" || true
 fi
 
+# The units come from the same upload as this script, so a server provisioned
+# by an older CLI gets the current ones on its next deploy rather than running
+# the old env file list against new layers nothing reads.
+for unit in vela-web@.service vela-pb@.service; do
+	cmp -s "$SCRIPT_DIR/systemd/$unit" "/etc/systemd/system/$unit" \
+		|| install -m 0644 "$SCRIPT_DIR/systemd/$unit" "/etc/systemd/system/$unit"
+done
 systemctl daemon-reload
 
 if [ "$BACKEND" = "1" ]; then
@@ -462,7 +489,8 @@ state_merge "$INSTANCE" "$(jq -c -n \
 	--arg health "$HEALTH_PATH" --arg pb "$PB_VERSION" \
 	--arg sha "$GIT_SHA" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 	--argjson web "$WEB_PORT" --argjson pbport "$PB_PORT" --argjson backend "$BACKEND" \
-	'{appId: $app, name: $name, env: $env, instance: $instance,
+	--argjson preview "$PREVIEW" \
+	'{appId: $app, name: $name, env: $env, instance: $instance, preview: ($preview == 1),
 	  activeRelease: $release, previousRelease: $previous, domain: $domain,
 	  managed: $managed, url: $url,
 	  healthCheckPath: $health, pocketbaseVersion: $pb, gitSha: $sha,

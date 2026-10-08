@@ -1,5 +1,5 @@
 import process from 'node:process';
-import { readBinding, type VelaAppConfig } from './deploy-config.ts';
+import { readBinding } from './deploy-config.ts';
 
 /**
  * The public origin a build renders absolute URLs against.
@@ -16,15 +16,11 @@ import { readBinding, type VelaAppConfig } from './deploy-config.ts';
  * the failure this exists to end. Null too for a domain naming several hosts,
  * for the reason `buildOrigin` gives.
  */
-export function resolveOrigin(
-	workspaceRootDir: string,
-	envTag: string,
-	config: VelaAppConfig = {}
-): string | null {
+export function resolveOrigin(workspaceRootDir: string, envTag: string): string | null {
 	// The binding records exactly the hosts Caddy serves directly — what
 	// `vela deploy` passed as `--domain` — so it answers "how many" as well as
 	// "which".
-	const domain = readBinding(workspaceRootDir, envTag)?.domain ?? config.deploy?.domain;
+	const domain = readBinding(workspaceRootDir, envTag)?.domain;
 	return buildOrigin(splitHosts(domain), domain, process.env.VELA_ORIGIN);
 }
 

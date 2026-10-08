@@ -12,7 +12,7 @@ import PocketBase from 'pocketbase';
 import { helpConfig } from '../lib/help.ts';
 import { onTerminate } from '../lib/terminate.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
-import { startPocketbaseServe } from '../lib/pocketbase.ts';
+import { firstFreePort, startPocketbaseServe } from '../lib/pocketbase.ts';
 import { createPocketbaseLogFilter } from '../lib/pocketbase-log-filter.ts';
 import { readSite, SITE_FILE } from '../lib/site.ts';
 import { findWorkspaceRoot, hasBackend, localDataDir } from '../lib/workspace.ts';
@@ -64,44 +64,10 @@ export const dev = new Command('dev')
 		process.env.VELA_DATA_DIR ??= localDataDir(cwd);
 		const startTime = performance.now();
 
-		const { createServer, version } = await loadVite(cwd);
+		const { createServer, resolveConfig, version } = await loadVite(cwd);
 
 		const viteMetadataDir = path.join(cwd, 'node_modules', '.vite');
 		const viteMetadataFile = path.join(viteMetadataDir, '_pocketbase_metadata.json');
-
-		let pbProc: ChildProcess | undefined;
-		// A static project has no PocketBase to start, and nothing to sync types from.
-		const backend = hasBackend(cwd);
-		const needsStart = backend && !process.env.POCKETBASE_URL;
-
-		const cleanup = () => {
-			if (pbProc?.pid) pbProc.kill();
-			if (fs.existsSync(viteMetadataFile)) fs.rmSync(viteMetadataFile);
-		};
-
-		if (needsStart) {
-			const dataDir = path.join(cwd, DATA_DIR);
-			const started = await startPocketbaseServe({
-				dataDir,
-				migrationsDir: MIGRATIONS_DIR,
-				hooksDir: path.join(dataDir, 'hooks'),
-				dev: true,
-				stdio: 'pipe'
-			});
-			pbProc = started.proc;
-			process.env.POCKETBASE_URL = started.url;
-
-			// PocketBase echoes every query under --dev, including the token lookup
-			// behind each authenticated request; with a polling worker that one line
-			// buries everything else.
-			if (options.allSql) pbProc.stdout?.pipe(process.stdout);
-			else pbProc.stdout?.pipe(createPocketbaseLogFilter()).pipe(process.stdout);
-			pbProc.stderr?.pipe(process.stderr);
-			pbProc.on('error', (err) => console.error('PocketBase error:', err));
-			pbProc.on('exit', (code) => console.log(`PocketBase exited with code ${code}`));
-
-			onTerminate(cleanup);
-		}
 
 		// Only forward what was actually passed: an explicit `undefined` here would
 		// still be merged over whatever vite.config.ts sets.
@@ -120,6 +86,71 @@ export const dev = new Command('dev')
 			server: serverOptions
 		};
 		if (options.force !== undefined) inlineConfig.forceOptimizeDeps = options.force;
+
+		let pbProc: ChildProcess | undefined;
+		// A static project has no PocketBase to start, and nothing to sync types from.
+		const backend = hasBackend(cwd);
+		const needsStart = backend && !process.env.POCKETBASE_URL;
+
+		const cleanup = () => {
+			if (pbProc?.pid) pbProc.kill();
+			if (fs.existsSync(viteMetadataFile)) fs.rmSync(viteMetadataFile);
+		};
+
+		if (needsStart) {
+			// PocketBase gets the app's name and origin from its environment, the
+			// same way a deployed instance does, so nothing is written to its
+			// settings behind the admin panel's back. The origin is the dev
+			// server's, which has not started yet: its config is resolved as vite
+			// would, the port probed from the configured one, and vite then told
+			// to take exactly that port.
+			const resolved = await resolveConfig(inlineConfig, 'serve');
+			const configuredHost = resolved.server.host;
+			const viteHost =
+				typeof configuredHost === 'string' && !['0.0.0.0', '::'].includes(configuredHost)
+					? configuredHost
+					: 'localhost';
+			const wanted = resolved.server.port ?? 5173;
+			const vitePort = resolved.server.strictPort ? wanted : await firstFreePort(wanted, viteHost);
+			serverOptions.port = vitePort;
+			serverOptions.strictPort = true;
+
+			const site = await readSite(cwd);
+			if (!site?.name) {
+				console.log(
+					pc.dim(
+						`No app name in ${SITE_FILE}, so PocketBase keeps the one it has. Add ` +
+							`\`export const site = { name: '…', url: '…' }\` there to set it from code.`
+					)
+				);
+			}
+
+			const dataDir = path.join(cwd, DATA_DIR);
+			const started = await startPocketbaseServe({
+				dataDir,
+				migrationsDir: MIGRATIONS_DIR,
+				hooksDir: path.join(dataDir, 'hooks'),
+				dev: true,
+				stdio: 'pipe',
+				env: {
+					ORIGIN: `http://${viteHost}:${vitePort}`,
+					...(site?.name && { APP_NAME: site.name })
+				}
+			});
+			pbProc = started.proc;
+			process.env.POCKETBASE_URL = started.url;
+
+			// PocketBase echoes every query under --dev, including the token lookup
+			// behind each authenticated request; with a polling worker that one line
+			// buries everything else.
+			if (options.allSql) pbProc.stdout?.pipe(process.stdout);
+			else pbProc.stdout?.pipe(createPocketbaseLogFilter()).pipe(process.stdout);
+			pbProc.stderr?.pipe(process.stderr);
+			pbProc.on('error', (err) => console.error('PocketBase error:', err));
+			pbProc.on('exit', (code) => console.log(`PocketBase exited with code ${code}`));
+
+			onTerminate(cleanup);
+		}
 
 		const server = await createServer(inlineConfig);
 
@@ -145,24 +176,6 @@ export const dev = new Command('dev')
 					process.env.POCKETBASE_SUPERUSER_EMAIL!,
 					process.env.POCKETBASE_SUPERUSER_PASSWORD!
 				);
-			// PocketBase fills in its own emails from `meta`. The app's name lives
-			// in `src/lib/site.ts`, so it is copied across on every start and a
-			// name set in the admin panel does not outlast the next one.
-			const site = await readSite(cwd);
-			await pb.settings.update({
-				meta: {
-					appURL: `http://${viteHost}:${vitePort}`,
-					...(site?.name && { appName: site.name })
-				}
-			});
-			if (!site?.name) {
-				console.log(
-					pc.dim(
-						`No app name in ${SITE_FILE}, so PocketBase keeps the one it has. Add ` +
-							`\`export const site = { name: '…', url: '…' }\` there to set it from code.`
-					)
-				);
-			}
 
 			await startWatchingTypes(cwd, pb);
 		});

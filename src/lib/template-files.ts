@@ -11,7 +11,8 @@ import { fillTemplatePlaceholders, type TemplateValues } from './package-json.ts
  */
 const PUBLISH_SAFE_NAMES: Record<string, string> = {
 	'.gitignore': '_gitignore',
-	'.npmrc': '_npmrc'
+	'.npmrc': '_npmrc',
+	'.env.example': '_env.example'
 };
 
 /** Template-relative path for a file that must land at `projectRelPath`. */

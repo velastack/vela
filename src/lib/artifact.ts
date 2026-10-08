@@ -4,7 +4,6 @@ import { detect } from 'package-manager-detector';
 import { resolveCommand } from 'package-manager-detector/commands';
 import { spawnCapture } from './ssh.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from './constants.ts';
-import type { VelaDeployConfig } from './deploy-config.ts';
 
 export const DEFAULT_OUTPUT_DIR = 'build';
 
@@ -62,8 +61,8 @@ export async function runBuild(
  * source, no dev dependencies, and deliberately no `.env`: production
  * environment lives on the server and is managed only by `vela env`.
  */
-export function collectArtifact(cwd: string, config: VelaDeployConfig = {}): ArtifactEntry[] {
-	const outputDir = config.outputDir ?? DEFAULT_OUTPUT_DIR;
+export function collectArtifact(cwd: string): ArtifactEntry[] {
+	const outputDir = DEFAULT_OUTPUT_DIR;
 	const entries: ArtifactEntry[] = [];
 	const add = (rel: string, remoteDir = '') => {
 		const localPath = path.join(cwd, rel);
@@ -75,8 +74,7 @@ export function collectArtifact(cwd: string, config: VelaDeployConfig = {}): Art
 		throw new BuildError(
 			`No ${outputDir}/index.js to deploy.\n\n` +
 				`Deploying to a server needs the output of @sveltejs/adapter-node. Check that the\n` +
-				`build ran with it as the adapter (and that \`outputDir\` in velastack.config\n` +
-				`matches where it writes), then deploy again.`
+				`build ran with it as the adapter, then deploy again.`
 		);
 	}
 	entries.push({ localPath: buildPath, remoteDir: '' });
@@ -89,8 +87,6 @@ export function collectArtifact(cwd: string, config: VelaDeployConfig = {}): Art
 	// server, where `data/` is the instance's private database directory.
 	const hooks = path.join(cwd, DATA_DIR, 'hooks');
 	if (fs.existsSync(hooks)) entries.push({ localPath: hooks, remoteDir: 'hooks' });
-
-	for (const extra of config.include ?? []) add(extra);
 
 	return entries;
 }

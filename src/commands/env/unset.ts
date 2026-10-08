@@ -1,22 +1,22 @@
+import process from 'node:process';
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
-import { addTargetOptions, applyEnvRestart, withTarget } from '../../lib/server-command.ts';
-import { readRemoteEnv, writeRemoteEnv } from '../../lib/remote-env.ts';
 import { applyLocalEnvChange, readLocalEnv, unsetLocalEnv } from '../../lib/local-env.ts';
+import { addEnvTargetOptions, applyChange, withEnvScope } from '../../lib/env-command.ts';
+import { unsetInLayer } from '../../lib/env-scopes.ts';
 
-export const envUnset = addTargetOptions(
+export const envUnset = addEnvTargetOptions(
 	new Command('unset')
 		.description('remove an environment variable')
 		.argument('<key>', 'variable name')
-		.configureHelp(helpConfig),
-	'local'
+		.configureHelp(helpConfig)
 ).action((key: string, raw: unknown) =>
 	runCommand(
 		() =>
-			withTarget(
+			withEnvScope(
 				raw,
 				{
 					local: async (ctx) => {
@@ -28,19 +28,26 @@ export const envUnset = addTargetOptions(
 						p.log.success(`${key} removed ${pc.dim('(local)')}`);
 						await applyLocalEnvChange(ctx, [key]);
 					},
-					remote: async (ctx) => {
-						const env = await readRemoteEnv(ctx.session, ctx.instance);
-						if (!(key in env)) {
-							p.log.info(`${key} is not set — nothing to remove.`);
+					// Removed from whichever side it was on; nobody should have to
+					// remember whether a key was public to take it out.
+					instance: async (ctx) => {
+						if (!(await unsetInLayer(ctx.session, ctx.files, key))) {
+							p.log.info(`${key} is not set on ${ctx.targetName} — nothing to remove.`);
 							return;
 						}
-						delete env[key];
-						await writeRemoteEnv(ctx.session, ctx.instance, env);
 						p.log.success(`${key} removed ${pc.dim(`(${ctx.targetName})`)}`);
-						await applyEnvRestart(ctx, [key]);
+						await applyChange(ctx.workspaceRootDir, ctx, [key]);
+					},
+					layer: async (ctx) => {
+						if (!(await unsetInLayer(ctx.session, ctx.files, key))) {
+							p.log.info(`${key} is not set (${ctx.layer}, ${ctx.server}) — nothing to remove.`);
+							return;
+						}
+						p.log.success(`${key} removed ${pc.dim(`(${ctx.layer}, ${ctx.server})`)}`);
+						await applyChange(ctx.workspaceRootDir, ctx, [key]);
 					}
 				},
-				{ label: 'env unset' }
+				{ label: 'env unset', ask: true }
 			),
 		'Failed to remove the variable.'
 	)

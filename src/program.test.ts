@@ -62,8 +62,6 @@ const EXPECTED_ENABLE_SUBCOMMANDS = [
 	'payments',
 	'subscriptions',
 	'notifications',
-	's3',
-	'smtp',
 	'cms',
 	'workflows'
 ];
@@ -80,9 +78,7 @@ const EXPECTED_DISABLE_SUBCOMMANDS = [
 	'notifications',
 	'teams',
 	'payments',
-	'subscriptions',
-	's3',
-	'smtp'
+	'subscriptions'
 ];
 
 const EXPECTED_MIGRATE_SUBCOMMANDS = [
@@ -94,7 +90,7 @@ const EXPECTED_MIGRATE_SUBCOMMANDS = [
 	'sveltekit-3'
 ];
 
-const EXPECTED_ENV_SUBCOMMANDS = ['list', 'set', 'unset', 'import'];
+const EXPECTED_ENV_SUBCOMMANDS = ['list', 'get', 'set', 'unset', 'import'];
 
 const EXPECTED_DESTROY_SUBCOMMANDS = ['form', 'schema', 'resource', 'scaffold', 'deployment'];
 
@@ -280,20 +276,26 @@ describe('target selection', () => {
 		['logs', 'production'],
 		['rollback', 'production'],
 		['destroy deployment', 'production'],
-		['env list', 'local'],
-		['env set', 'local'],
-		['env unset', 'local'],
-		['env import', 'local'],
 		['admin create', 'local'],
 		['backup create', 'production'],
 		['backup list', 'production'],
 		['backup download', 'production'],
 		['backup delete', 'production'],
 		['backup schedule', 'production'],
-		['restore', 'production'],
-		['enable s3', 'local'],
-		['disable s3', 'local']
+		['restore', 'production']
 	];
+
+	// `-t` with no default: told nothing, these ask (or, for `list`, show every
+	// scope) rather than writing to a fallback.
+	test.each(['env list', 'env get', 'env set', 'env unset', 'env import'])(
+		'%s takes -t without a default',
+		(path) => {
+			const option = find(path).options.find((o) => o.long === '--target')!;
+			expect(option).toBeDefined();
+			expect(option.defaultValue).toBeUndefined();
+			expect(find(path).options.map((o) => o.long)).not.toContain('--env');
+		}
+	);
 
 	test.each(TARGET_AWARE)('%s takes -t and no longer takes --env', (path) => {
 		const flags = find(path).options.map((o) => o.long);

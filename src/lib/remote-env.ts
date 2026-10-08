@@ -78,23 +78,36 @@ export function readLocalEnvFile(file: string): EnvRecord {
 	return result;
 }
 
-export async function readRemoteEnv(session: SshSession, instance: string): Promise<EnvRecord> {
-	const content = await session.readFile(remotePaths.env(instance));
+/** One vela-managed env file on the server, or an empty record when there is none. */
+export async function readRemoteEnvFile(session: SshSession, file: string): Promise<EnvRecord> {
+	const content = await session.readFile(file);
 	return content ? parseEnv(content) : {};
 }
 
 /**
- * Replace the instance's env file. The contents travel inside the piped script
- * as base64, so no secret is ever an argument to a remote command.
+ * Replace one vela-managed env file. The contents travel inside the piped
+ * script as base64, so no secret is ever an argument to a remote command.
  */
+export async function writeRemoteEnvFile(
+	session: SshSession,
+	file: string,
+	env: EnvRecord
+): Promise<void> {
+	await session.writeFile(file, serializeEnv(env), '0600');
+	await session.script(`chown root:root "$1" && chmod 0600 "$1"`, { args: [file] });
+}
+
+/** The instance's own secret layer. */
+export async function readRemoteEnv(session: SshSession, instance: string): Promise<EnvRecord> {
+	return readRemoteEnvFile(session, remotePaths.env(instance));
+}
+
 export async function writeRemoteEnv(
 	session: SshSession,
 	instance: string,
 	env: EnvRecord
 ): Promise<void> {
-	const file = remotePaths.env(instance);
-	await session.writeFile(file, serializeEnv(env), '0600');
-	await session.script(`chown root:root "$1" && chmod 0600 "$1"`, { args: [file] });
+	await writeRemoteEnvFile(session, remotePaths.env(instance), env);
 }
 
 /**
