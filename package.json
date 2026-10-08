@@ -51,7 +51,7 @@
 		"picocolors": "^1.1.1",
 		"pocketbase": "^0.28.0",
 		"pocketbase-server": "^0.40.5-beta.5",
-		"stripe": "^22.6.2",
+		"stripe": "^23.0.0",
 		"sv": "~1.0.1",
 		"svelte": "^5.56.10",
 		"tar": "^7.5.22",
