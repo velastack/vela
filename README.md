@@ -19,7 +19,7 @@ That's a running app with a database behind it. No separate PocketBase install, 
 - **CRUD you didn't write.** `vela generate scaffold post title:text body:editor` gives you the model, schema, forms, and pages.
 - **Describe it instead.** Pass `--ai "a blog post with tags and a cover image"` and review the collection it designs before anything is written.
 - **shadcn-svelte components** on tap, and fixtures and seeds for realistic data while you work.
-- **The app's name in code.** Every project keeps its name and public URL in `src/lib/site.ts`; canonical links, Open Graph images and feeds are built from it, and `vela dev` / `vela deploy` copy the name into PocketBase for the emails it sends.
+- **The app's name in code.** Every project keeps its name and public URL in `src/lib/site.ts`; canonical links, Open Graph images and feeds are built from it, and `vela dev` / `vela deploy` hand the name to PocketBase as `APP_NAME` for the emails it sends. Nothing is written into its settings behind the admin panel's back.
 - **Themed templates.** `vela create --template broadsheet` pulls a finished blog design from the template registry; `--template` lists what is available, grouped by category.
 - **Linked from the start.** Logged in to velastack.dev, `vela create` links the new project there (`.vela/project.json`), so `vela deploy` reports to it and a CMS-ready template such as `hearth` reads from the project's free hosted CMS right away. `vela login` first if you are not; `vela link` does the same for a project you already have.
 
@@ -74,7 +74,7 @@ machine again. Every command takes the same selector — `-t local`, `-t product
 
 ```sh
 vela targets                       # what exists, and where
-vela env import .env.production -t production
+vela env set STRIPE_SECRET_KEY -t production
 vela admin create -t production    # a login for the admin panel
 ```
 
@@ -82,7 +82,7 @@ Each deploy uploads an immutable release, runs migrations, restarts the app and 
 
 One deploy runs per target at a time. A second one started from another machine — CI and a laptop, say — waits for the first to finish (up to `--lock-wait` seconds, 300 by default; `0` gives up at once), and a release that is older than the one already live is dropped rather than put back in front of it. Release ids are stamped from the server's clock so every machine agrees on which is newer.
 
-If any of your pages prerender from data, add `--remote-db` so the build renders against the database it is being deployed to, over the same SSH connection. Without it, a build on a fresh machine renders those pages against an empty database and bakes the defaults into your static HTML.
+The build sees exactly what the target will run with: once a target has a database, the build renders against it over the same SSH connection (`--no-remote-db` to use a throwaway local one instead), and it runs with the target's environment rather than your `.env`. A key set only in `.env` is blanked for the build, and a `$env/static` import of one fails the deploy before anything is uploaded.
 
 ```sh
 vela status          # what is running, on which release
@@ -92,8 +92,37 @@ vela rollback        # previous release, with its down migrations
 
 `vela destroy deployment -t staging` removes a copy from its server. Its database and uploads stay behind unless you pass `--purge`, which snapshots them into `/var/lib/vela/trash` on the server (kept two weeks) before deleting. Removing production, or purging anything but a preview, asks you to type the app's name; from a script, pass `--confirm <app-name>` — `--yes` alone is not accepted for either.
 
-These default to `production`; `vela env` and `vela admin` default to `local`,
-because that is the copy you are usually standing in.
+These default to `production`; `vela admin` defaults to `local`, because that is
+the copy you are usually standing in. `vela env` has no default — see below.
+
+## Environment
+
+Everything that differs between environments is an environment variable, for the
+app and for PocketBase alike. Locally that is `.env`, with `.env.example`
+documenting what the app reads. On a server a target's environment is three
+layers, lowest to highest, and a key in a higher layer wins:
+
+```sh
+vela env set VELASTACK_API_KEY -t all        # every target, on every server the app is deployed to
+vela env set WHATSAPP_MODE -t preview        # every preview
+vela env set STRIPE_SECRET_KEY -t production # one target (or -t staging, -t preview:<branch>)
+```
+
+A value is secret by default: written, never read back, shown as `••••`. Pass
+`--public` for one that should read back (`vela env get`, values in `vela env
+list`); `PUBLIC_*` keys are public without asking, since SvelteKit ships them to
+the browser anyway. Setting a key again with or without `--public` moves it.
+Values are always prompted for, never taken as an argument, so none lands in
+shell history; a secret is typed without echo, a public value with. Without `-t`
+the command asks which environment; `vela env list` with no `-t` shows every
+scope at once.
+
+PocketBase reads its own settings from the same environment — `APP_NAME` (from
+`src/lib/site.ts`), `APP_URL` (the deploy's origin unless you say otherwise),
+`PB_SMTP_*`, `PB_S3_*`, `PB_BACKUPS_S3_*`, and the WhatsApp plugin's
+`WHATSAPP_*` / `VELASTACK_*` — and shows them locked in the admin panel. Nothing
+in the repo carries environment but `.env.example`, and there is no project
+config file.
 
 Same thing from CI with [`velastack/action`](https://github.com/velastack/action).
 

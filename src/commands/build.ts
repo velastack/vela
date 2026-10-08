@@ -13,7 +13,6 @@ import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
 import { ensureSuperuser, startPocketbaseServe } from '../lib/pocketbase.ts';
 import { findWorkspaceRoot, hasBackend } from '../lib/workspace.ts';
 import { applyBuildEnv } from '../lib/build-env.ts';
-import { loadDeployConfig } from '../lib/deploy-config.ts';
 import { bindingKey, parseTarget, PRODUCTION_TARGET } from '../lib/target.ts';
 import { resolveOrigin } from '../lib/origin.ts';
 import { warnIfKit2 } from '../lib/kit-version.ts';
@@ -121,12 +120,10 @@ async function originForBuild(cwd: string, target: string | undefined): Promise<
 		// `local` is this machine, where `url.origin` is already the dev server's.
 		if (parsed.kind === 'local') return null;
 		// A preview's hostname is minted per branch by velastack.dev and handed
-		// to the build as VELA_ORIGIN by `vela deploy`; the binding and the
-		// config only know production's.
-		if (parsed.kind === 'preview') return resolveOrigin(workspaceRootDir, bindingKey(parsed), {});
-
-		const config = await loadDeployConfig(workspaceRootDir);
-		return resolveOrigin(workspaceRootDir, parsed.envTag, config);
+		// to the build as VELA_ORIGIN by `vela deploy`; the binding only knows
+		// production's.
+		if (parsed.kind === 'preview') return resolveOrigin(workspaceRootDir, bindingKey(parsed));
+		return resolveOrigin(workspaceRootDir, parsed.envTag);
 	} catch {
 		return null;
 	}

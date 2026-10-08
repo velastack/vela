@@ -23,9 +23,8 @@ import {
 } from '../lib/server-command.ts';
 import { instanceId, normalizeEnvTag, releaseId } from '../lib/instance.ts';
 import { ensureSuperuser, findFreePort, pocketbaseVersion } from '../lib/pocketbase.ts';
-import { copiedMeta, readLocalMeta, syncRemoteMeta } from '../lib/pocketbase-settings.ts';
 import { buildOrigin, normalizeOrigin, splitHosts } from '../lib/origin.ts';
-import { isLocalUrl, readSite, SITE_FILE } from '../lib/site.ts';
+import { readSite } from '../lib/site.ts';
 import { createDeployReporter, reportEnvironmentDestroyed } from '../lib/deploy-report.ts';
 import { TARGET_REMOVED_EXIT, TargetRemovedError } from '../lib/errors.ts';
 import {
@@ -56,6 +55,9 @@ import {
 	ssrExternalProblem
 } from '../lib/ssr-external.ts';
 import { readRemoteEnv } from '../lib/remote-env.ts';
+import { resolveStack } from '../lib/env-scopes.ts';
+import { buildStack } from '../lib/build-stack.ts';
+import { nudgeMissingEnv } from '../lib/env-nudge.ts';
 
 const OptionsSchema = v.object({
 	...SSH_OPTION_SCHEMA,
@@ -128,7 +130,7 @@ export const deploy = addLockWaitOption(
 				raw,
 				{
 					remote: async (ctx) => {
-						const { session, instance, workspaceRootDir, config } = ctx;
+						const { session, instance, workspaceRootDir } = ctx;
 						p.log.info(
 							`${pc.cyan(ctx.appName)} ${pc.dim('→')} ${pc.cyan(ctx.targetName)} ${pc.dim(`(${ctx.server})`)}`
 						);
@@ -143,21 +145,18 @@ export const deploy = addLockWaitOption(
 						// apply.sh refuses one that would take the site backwards.
 						const release = releaseId(await serverTimeOrLocal(session));
 						const isPreview = ctx.target.kind === 'preview';
-						// The binding outranks the config file: one `deploy.domain` cannot
-						// serve production and staging at once. A preview inherits neither —
-						// the binding is shared by every branch and `deploy.domain` is the
-						// live site — only what its own instance already had.
+						// A preview does not inherit the binding's domain — that is shared by
+						// every branch and names the live site — only what its own instance
+						// already had.
 						const configured =
 							options.domain ??
-							(isPreview
-								? existing?.domain
-								: (ctx.binding.domain ?? config.deploy?.domain ?? existing?.domain)) ??
+							(isPreview ? existing?.domain : (ctx.binding.domain ?? existing?.domain)) ??
 							'';
 						// Rendering against the database being deployed to is the default
 						// once there is one to render against. Left off, a build quietly
 						// used a throwaway local database instead, which is how prerendered
 						// pages shipped with a developer's own data baked into them.
-						const askedForRemoteDb = options.remoteDb ?? config.deploy?.buildAgainstRemote;
+						const askedForRemoteDb = options.remoteDb;
 						const remoteDb = askedForRemoteDb ?? instanceHasBackend(existing);
 
 						// The backend is detected from the project, not remembered: a
@@ -172,11 +171,39 @@ export const deploy = addLockWaitOption(
 							);
 						}
 
+						// What the target will run with, from its three env layers. Read
+						// before the build so the build can see it. A brand new instance is
+						// also told which documented keys it lacks, and offered them —
+						// before the build, so one set here is in the build too. Once only:
+						// a project's own .env.example is full of keys it means to leave
+						// unset, and a warning on every deploy is one nobody reads.
+						let stack = await resolveStack(session, ctx.appId, instance, isPreview);
+						if (!existing) {
+							const nudged = await nudgeMissingEnv(
+								workspaceRootDir,
+								{
+									session,
+									appId: ctx.appId,
+									instance,
+									targetName: ctx.targetName,
+									preview: isPreview
+								},
+								Object.keys(stack.entries)
+							);
+							if (nudged.length > 0) {
+								stack = await resolveStack(session, ctx.appId, instance, isPreview);
+							}
+						}
+
+						const sha = await gitSha(workspaceRootDir);
+						// The app's name goes to the server as APP_NAME, which PocketBase
+						// names its emails after. Read once here: it is code, so it is
+						// set from code on every deploy and never from the admin panel.
+						const site = await readSite(workspaceRootDir);
 						// Announce the deploy before building. The answer carries the
 						// hostnames velastack.dev has for this environment — including a
 						// managed velastack.app one once the server is registered — and the
 						// build renders its absolute URLs against the primary one.
-						const sha = await gitSha(workspaceRootDir);
 						const reporter = createDeployReporter(workspaceRootDir);
 						const server = await reporter.identifyServer(session);
 						const started = await reporter.start({
@@ -229,7 +256,7 @@ export const deploy = addLockWaitOption(
 								// empty VELA_ORIGIN rather than none at all: unset, `vela build`
 								// would read the binding and bake a host in after all.
 								const origin = buildOrigin(directHosts, primaryUrl, process.env.VELA_ORIGIN);
-								let buildEnv: Record<string, string | undefined> = {
+								let derived: Record<string, string | undefined> = {
 									VELA_ORIGIN: origin ?? ''
 								};
 								let tunnel: Tunnel | null = null;
@@ -249,7 +276,7 @@ export const deploy = addLockWaitOption(
 								}
 
 								if (tunnel) {
-									buildEnv = { ...buildEnv, ...tunnel.env };
+									derived = { ...derived, ...tunnel.env };
 									p.log.info(
 										`Building against the ${pc.cyan(ctx.targetName)} database on ${ctx.server} ${pc.dim(`(port ${tunnel.pbPort})`)}`
 									);
@@ -260,15 +287,30 @@ export const deploy = addLockWaitOption(
 									await ensureSuperuser(workspaceRootDir);
 								}
 
+								// The build sees exactly what the server will: the target's
+								// layers, secret and public, read into this process and no
+								// further; what vela derives; and nothing of the developer's
+								// own `.env` that the target does not have.
+								const { env: buildEnv, blanked } = buildStack(workspaceRootDir, {
+									stack: { ...stack.secrets, ...stack.values },
+									derived,
+									tunnel: tunnel !== null
+								});
+								if (blanked.length > 0) {
+									p.log.info(
+										`Building without ${blanked.join(', ')} — set in .env but not for ${pc.cyan(ctx.targetName)}.`
+									);
+								}
+
 								p.log.step('Building');
 								try {
-									await runBuild(workspaceRootDir, config.deploy?.buildCommand, buildEnv);
+									await runBuild(workspaceRootDir, undefined, buildEnv);
 								} finally {
 									if (tunnel) await tunnel.close();
 								}
 							}
 
-							const entries = collectArtifact(workspaceRootDir, config.deploy ?? {});
+							const entries = collectArtifact(workspaceRootDir);
 
 							p.log.step(`Uploading release ${pc.dim(release)}`);
 							await uploadRelease(session, instance, release, entries);
@@ -289,18 +331,21 @@ export const deploy = addLockWaitOption(
 									ctx.appId,
 									'--env',
 									ctx.envTag,
+									'--preview',
+									isPreview ? '1' : '0',
+									...(site?.name ? ['--site-name', site.name] : []),
 									'--domain',
 									domain,
 									'--managed',
 									managed,
 									'--health-path',
-									options.healthPath ?? config.deploy?.healthCheckPath ?? '/',
+									options.healthPath ?? '/',
 									'--keep',
-									options.keep ?? String(config.deploy?.keepReleases ?? 5),
+									options.keep ?? '5',
 									'--backend',
 									backend ? '1' : '0',
 									'--pb-version',
-									options.pbVersion ?? config.deploy?.pocketbaseVersion ?? pocketbaseVersion(),
+									options.pbVersion ?? pocketbaseVersion(),
 									'--git-sha',
 									sha,
 									...lockWaitArgs(options.lockWait)
@@ -341,7 +386,6 @@ export const deploy = addLockWaitOption(
 								? { server: ctx.server }
 								: { server: ctx.server, domain: domain || undefined }
 						);
-						if (!existing) await reportEmptyEnvironment(session, instance, workspaceRootDir);
 
 						const url = result?.url ?? '';
 						await reporter.finish({
@@ -371,25 +415,14 @@ export const deploy = addLockWaitOption(
 						// Created by the server on the first deploy of a backend instance, and
 						// never printed: the app reads it from the environment, and a human who
 						// wants the admin UI sets their own with `vela env set`.
-						const site = await readSite(workspaceRootDir);
 						if (result?.superuserCreated) {
-							await seedNewDatabase(
-								session,
-								instance,
-								workspaceRootDir,
-								primaryHost ? (result?.url ?? '') : '',
-								site?.name
-							);
 							p.log.info(
 								`Created the PocketBase superuser this app authenticates as.\n\n` +
 									`Its credentials are stored in the environment on the server. To use\n` +
 									`your own instead, ${pc.cyan('vela env set POCKETBASE_SUPERUSER_PASSWORD')}\n` +
 									`and deploy again.`
 							);
-						} else if (backend) {
-							await syncAppName(session, instance, site?.name, primaryHost);
 						}
-						reportSiteUrl(site?.url, primaryUrl, isPreview);
 
 						if (!primaryHost) {
 							p.log.warn(
@@ -502,103 +535,6 @@ export function ssrExternalPreflight(root: string): void {
 	if (problem) throw new Error(problem);
 	const notice = ssrExternalAllNotice(check);
 	if (notice) p.log.warn(notice);
-}
-
-/**
- * Keep a deployment's PocketBase calling the app what `src/lib/site.ts` does,
- * for the emails it sends, and point out an `appURL` that no longer matches
- * the domain being deployed to.
- *
- * The name is code, so every deploy sets it. `appURL` is seeded once and
- * belongs to the deployed admin panel from then on, which is deliberate — it
- * is how an app serves one canonical domain while being deployed to another.
- * That also makes it the one setting that can quietly go stale after a domain
- * change, taking password-reset emails and every other link PocketBase renders
- * with it. Reported rather than corrected, so the override keeps working.
- */
-async function syncAppName(
-	session: SshSession,
-	instance: string,
-	appName: string | undefined,
-	domain: string
-): Promise<void> {
-	if (!appName && !domain) return;
-	let result: Awaited<ReturnType<typeof syncRemoteMeta>>;
-	try {
-		result = await syncRemoteMeta(session, instance, { appName });
-	} catch (err) {
-		if (appName) {
-			p.log.warn(
-				`Could not set this app's name in its PocketBase settings, which its emails use.\n` +
-					`${pc.dim(String(err))}`
-			);
-		}
-		return;
-	}
-	if (result.written.length > 0) {
-		p.log.success(`Named the app ${pc.cyan(appName ?? '')} in PocketBase, from ${SITE_FILE}`);
-	}
-
-	const expected = normalizeOrigin(domain);
-	if (!expected || !result.appURL || normalizeOrigin(result.appURL) === expected) return;
-	p.log.warn(
-		`This app's PocketBase ${pc.cyan('appURL')} is ${pc.dim(result.appURL)}, but it is served on ${pc.dim(expected)}.\n\n` +
-			`Emails and anything else PocketBase links to will use the former. Update it in\n` +
-			`the admin panel if that is not deliberate.`
-	);
-}
-
-/**
- * Give a database this deploy created what PocketBase's emails need: the app's
- * name from `src/lib/site.ts`, the URL it is served on, and the sender the
- * project's own database has. Best-effort by design: the deploy has already
- * succeeded, so nothing here is worth failing it over.
- */
-async function seedNewDatabase(
-	session: SshSession,
-	instance: string,
-	workspaceRootDir: string,
-	appURL: string,
-	appName: string | undefined
-): Promise<void> {
-	const local = await readLocalMeta(workspaceRootDir);
-	try {
-		const { written } = await syncRemoteMeta(session, instance, {
-			...copiedMeta(local),
-			appURL,
-			appName
-		});
-		if (written.length > 0) p.log.success(`Set ${written.join(', ')} in the new database`);
-	} catch (err) {
-		p.log.warn(
-			`Could not set up this app's PocketBase settings.\n` +
-				`Set its name and sender in the admin panel instead. ${pc.dim(String(err))}`
-		);
-	}
-}
-
-/**
- * Point out a `site.url` that is not where this deploy serves the app: the
- * canonical links, Open Graph images and feeds it built are made from it. A
- * preview is expected to point at production, so only an address that was
- * never set is worth a word there.
- */
-function reportSiteUrl(url: string | undefined, primaryUrl: string, isPreview: boolean): void {
-	const expected = normalizeOrigin(primaryUrl);
-	if (!url || !expected) return;
-	if (isLocalUrl(url)) {
-		p.log.warn(
-			`${SITE_FILE} still says the site is at ${pc.dim(url)}. Canonical links, Open Graph\n` +
-				`images and feeds are built from it; set ${pc.cyan('url')} to ${pc.cyan(expected)} and deploy again.`
-		);
-		return;
-	}
-	if (isPreview || normalizeOrigin(url) === expected) return;
-	p.log.warn(
-		`${SITE_FILE} says the site is at ${pc.dim(url)}, but this deploy serves ${pc.dim(expected)}.\n` +
-			`Canonical links, Open Graph images and feeds point at the former. Update ${pc.cyan('url')}\n` +
-			`if that is not deliberate.`
-	);
 }
 
 interface Tunnel {
@@ -747,27 +683,6 @@ function isDirectory(target: string): boolean {
 	} catch {
 		return false;
 	}
-}
-
-/**
- * A brand new instance starts with an empty production environment. Say so once,
- * rather than quietly shipping an app that cannot reach anything — but never
- * upload the local `.env`, which is a development file.
- */
-async function reportEmptyEnvironment(
-	session: SshSession,
-	instance: string,
-	workspaceRootDir: string
-): Promise<void> {
-	const remote = await readRemoteEnv(session, instance);
-	if (Object.keys(remote).length > 0) return;
-	if (!fs.existsSync(path.join(workspaceRootDir, '.env'))) return;
-
-	p.log.warn(
-		`This app has no production environment variables yet.\n\n` +
-			`Local ${pc.cyan('.env')} values are not uploaded by a deploy. Set them with\n` +
-			`${pc.cyan('vela env set KEY')}, or copy a file across with ${pc.cyan('vela env import .env.production')}.`
-	);
 }
 
 /**

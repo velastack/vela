@@ -64,6 +64,38 @@ expect_ok "bare id sorts before suffixed id of the same second" order_ok 2026091
 expect_die "same id is not later" order_ok 20260910T120000Z-aaaa 20260910T120000Z-aaaa
 expect_die "earlier second is not later" order_ok 20260910T120001Z-0000 20260910T120000Z-ffff
 
+# ---------------------------------------------------------- env layers
+#
+# The shared layers live beside, not under, the app directories: production's
+# instance is named after the app id, so apps/<id> is production's. An
+# instance reaches them through fixed-name symlinks the units list.
+
+scope_app=zdyly4bg3wuwr5x
+[ "$(scope_dir "$scope_app" all)" = "$VELA_ETC/scopes/$scope_app/all" ] \
+	&& ok "scope_dir: app-wide layer under scopes/<app>/all" || bad "scope_dir: app-wide layer"
+[ "$(scope_dir "$scope_app" preview)" = "$VELA_ETC/scopes/$scope_app/preview" ] \
+	&& ok "scope_dir: preview layer under scopes/<app>/preview" || bad "scope_dir: preview layer"
+
+scope_etc="$VELA_ETC/apps/$scope_app--preview--x"; mkdir -p "$scope_etc"
+link_scope "$scope_app" all "$scope_etc"
+link_scope "$scope_app" preview "$scope_etc"
+[ "$(readlink "$scope_etc/scope.all.env")" = "$VELA_ETC/scopes/$scope_app/all/env" ] \
+	&& ok "link_scope: scope.all.env points at the layer's secret file" || bad "link_scope: scope.all.env" "$(readlink "$scope_etc/scope.all.env")"
+[ "$(readlink "$scope_etc/scope.all.public.env")" = "$VELA_ETC/scopes/$scope_app/all/env.public" ] \
+	&& ok "link_scope: scope.all.public.env points at the layer's public file" || bad "link_scope: scope.all.public.env"
+[ "$(readlink "$scope_etc/scope.preview.env")" = "$VELA_ETC/scopes/$scope_app/preview/env" ] \
+	&& ok "link_scope: scope.preview.env" || bad "link_scope: scope.preview.env"
+[ ! -e "$scope_etc/.scope.tmp" ] && ok "link_scope: leaves no temp link behind" || bad "link_scope: temp link left"
+# Linking twice replaces rather than nests (ln -s into an existing symlink to a
+# directory would otherwise create a link inside the target).
+link_scope "$scope_app" all "$scope_etc"
+[ "$(readlink "$scope_etc/scope.all.env")" = "$VELA_ETC/scopes/$scope_app/all/env" ] \
+	&& ok "link_scope: relinking is idempotent" || bad "link_scope: relinking"
+mkdir -p "$VELA_ETC/scopes/$scope_app/all"
+printf 'FROM_ALL="yes"\n' > "$VELA_ETC/scopes/$scope_app/all/env"
+[ "$(cat "$scope_etc/scope.all.env")" = 'FROM_ALL="yes"' ] \
+	&& ok "link_scope: a layer written later is read through the link" || bad "link_scope: read through"
+
 # ---------------------------------------------------------- runtime.env
 
 etc="$SCRATCH/etc/apps/x"; mkdir -p "$etc"

@@ -10,6 +10,28 @@ import { resolveCommand } from 'package-manager-detector/commands';
 import { x } from 'tinyexec';
 import { DATA_DIR, MIGRATIONS_DIR } from './constants.ts';
 
+/**
+ * The first free port at or after `start`, probed the way vite does before it
+ * listens. Used to know the dev server's port before anything that needs it
+ * (PocketBase's `ORIGIN`) is started, by then passing the answer to vite with
+ * `strictPort`.
+ */
+export async function firstFreePort(start: number, host = 'localhost'): Promise<number> {
+	for (let port = start; port < start + 100; port++) {
+		if (await portIsFree(port, host)) return port;
+	}
+	throw new Error(`No free port between ${start} and ${start + 99} on ${host}`);
+}
+
+function portIsFree(port: number, host: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		const server = net.createServer();
+		server.unref();
+		server.once('error', () => resolve(false));
+		server.listen(port, host, () => server.close(() => resolve(true)));
+	});
+}
+
 export function findFreePort(host = 'localhost'): Promise<number> {
 	return new Promise((resolve, reject) => {
 		const server = net.createServer();
@@ -75,6 +97,8 @@ export interface StartPocketbaseServeOptions {
 	stdio?: 'inherit' | 'pipe' | 'ignore';
 	host?: string;
 	maxAttempts?: number;
+	/** Extra variables for the PocketBase process, on top of this one's. */
+	env?: Record<string, string>;
 }
 
 export async function startPocketbaseServe(opts: StartPocketbaseServeOptions): Promise<{
@@ -102,7 +126,10 @@ export async function startPocketbaseServe(opts: StartPocketbaseServeOptions): P
 			'--http',
 			`${host}:${port}`
 		];
-		const proc = spawn(binaryPath, args, { stdio });
+		const proc = spawn(binaryPath, args, {
+			stdio,
+			...(opts.env ? { env: { ...process.env, ...opts.env } } : {})
+		});
 
 		try {
 			await waitForReadyOrExit(proc, `http://${host}:${port}`);

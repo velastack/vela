@@ -32,6 +32,8 @@ export interface InstanceState {
 	name: string;
 	env: string;
 	instance: string;
+	/** A preview of one branch, which the preview env layer applies to. */
+	preview?: boolean;
 	activeRelease?: string;
 	previousRelease?: string;
 	domain?: string;
@@ -277,7 +279,16 @@ export const remotePaths = {
 	/** Where an archive uploaded from this machine waits, outside pb_data. */
 	restoreStage: (instance: string) => `${VELA_ROOT}/apps/${instance}/shared/.restore`,
 	env: (instance: string) => `${VELA_ETC}/apps/${instance}/env`,
+	publicEnv: (instance: string) => `${VELA_ETC}/apps/${instance}/env.public`,
 	runtimeEnv: (instance: string) => `${VELA_ETC}/apps/${instance}/runtime.env`,
+	/**
+	 * An env layer shared by several instances. Its own tree because the
+	 * production instance is named after the app id, so `apps/<appId>` is
+	 * production's directory, not the app's.
+	 */
+	scopeEnv: (appId: string, layer: 'all' | 'preview') => `${VELA_ETC}/scopes/${appId}/${layer}/env`,
+	scopePublicEnv: (appId: string, layer: 'all' | 'preview') =>
+		`${VELA_ETC}/scopes/${appId}/${layer}/env.public`,
 	caddy: (instance: string) => `${VELA_ETC}/caddy/${instance}.caddy`,
 	route: (instance: string) => `${VELA_ETC}/caddy/routes/${instance}.route`,
 	webUnit: (instance: string) => `vela-web@${instance}.service`,

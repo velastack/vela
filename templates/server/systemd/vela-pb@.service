@@ -10,7 +10,15 @@ User=vela
 Group=vela
 WorkingDirectory=/var/lib/vela/apps/%i
 
+# Three layers, each secret and public, then what vela derives. Later wins.
+# The scope.* names are symlinks apply.sh writes into the app-wide and preview
+# layers under /etc/vela/scopes; a layer that does not exist is skipped.
+EnvironmentFile=-/etc/vela/apps/%i/scope.all.env
+EnvironmentFile=-/etc/vela/apps/%i/scope.all.public.env
+EnvironmentFile=-/etc/vela/apps/%i/scope.preview.env
+EnvironmentFile=-/etc/vela/apps/%i/scope.preview.public.env
 EnvironmentFile=-/etc/vela/apps/%i/env
+EnvironmentFile=-/etc/vela/apps/%i/env.public
 EnvironmentFile=/etc/vela/apps/%i/runtime.env
 
 ExecStart=/var/lib/vela/apps/%i/bin/pocketbase \

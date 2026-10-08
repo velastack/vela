@@ -1,0 +1,7 @@
+# What this app reads from its environment. Copy to .env for development; on a
+# server, `vela env set KEY -t <target>`. Values here are examples, not defaults.
+
+# PocketBase superuser the app authenticates as. `vela create` writes these to
+# .env; a deploy creates its own on the server the first time.
+POCKETBASE_SUPERUSER_EMAIL=admin@example.com
+POCKETBASE_SUPERUSER_PASSWORD=change-me

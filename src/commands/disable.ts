@@ -11,9 +11,7 @@ import { i18n } from './disable/i18n.ts';
 import { notifications } from './disable/notifications.ts';
 import { teams } from './disable/teams.ts';
 import { payments } from './disable/payments.ts';
-import { s3 } from './disable/s3.ts';
 import { subscriptions } from './disable/subscriptions.ts';
-import { smtp } from './disable/smtp.ts';
 
 export const disable = new Command('disable')
 	.description('disable features')
@@ -29,6 +27,4 @@ export const disable = new Command('disable')
 	.addCommand(notifications)
 	.addCommand(teams)
 	.addCommand(payments)
-	.addCommand(subscriptions)
-	.addCommand(s3)
-	.addCommand(smtp);
+	.addCommand(subscriptions);

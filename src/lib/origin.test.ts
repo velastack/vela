@@ -100,26 +100,13 @@ describe('resolveOrigin', () => {
 		expect(resolveOrigin(root, 'staging')).toBe('https://staging.velastack.dev');
 	});
 
-	test('the binding outranks the config file', () => {
-		writeProject({
-			appId: 'zdyly4bg3wuwr5x',
-			targets: { prod: { server: 'root@1.2.3.4', domain: 'velastack.dev' } }
-		});
-
-		expect(resolveOrigin(root, 'prod', { deploy: { domain: 'example.com' } })).toBe(
-			'https://velastack.dev'
-		);
-	});
-
-	test('falls back to the config file when the target has no domain', () => {
+	test('is null for a target bound without a domain', () => {
 		writeProject({
 			appId: 'zdyly4bg3wuwr5x',
 			targets: { staging: { server: 'root@1.2.3.4' } }
 		});
 
-		expect(resolveOrigin(root, 'staging', { deploy: { domain: 'example.com' } })).toBe(
-			'https://example.com'
-		);
+		expect(resolveOrigin(root, 'staging')).toBeNull();
 	});
 
 	test('VELA_ORIGIN wins, so CI can say what the build is for', () => {
@@ -136,7 +123,6 @@ describe('resolveOrigin', () => {
 		writeProject({ appId: 'zdyly4bg3wuwr5x' });
 
 		expect(resolveOrigin(root, 'prod')).toBeNull();
-		expect(resolveOrigin(root, 'prod', {})).toBeNull();
 	});
 
 	test('a binding serving several hosts bakes in no origin', () => {

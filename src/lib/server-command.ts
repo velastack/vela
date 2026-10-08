@@ -6,13 +6,11 @@ import pc from 'picocolors';
 import { getWorkspace } from './workspace.ts';
 import {
 	defaultProjectName,
-	loadDeployConfig,
 	readBinding,
 	readAppIdentity,
 	resolveAppIdentity,
 	writeBinding,
-	type TargetBinding,
-	type VelaAppConfig
+	type TargetBinding
 } from './deploy-config.ts';
 import { branchToEnvTag, instanceId } from './instance.ts';
 import { currentBranch } from './artifact.ts';
@@ -78,7 +76,6 @@ export function addTargetOptions(command: Command, fallback: TargetFallback): Co
 interface BaseContext {
 	workspaceRootDir: string;
 	appName: string;
-	config: VelaAppConfig;
 }
 
 export interface LocalContext extends BaseContext {
@@ -143,8 +140,6 @@ export async function withTarget(
 		const branch = await currentBranch(workspaceRootDir);
 		target = { kind: 'preview', branch, envTag: branchToEnvTag(branch) };
 	}
-	const config = await loadDeployConfig(workspaceRootDir);
-	const identityConfig = { ...config, project: run.project ?? config.project };
 
 	if (target.kind === 'local') {
 		if (!handlers.local) {
@@ -157,10 +152,9 @@ export async function withTarget(
 		// leave a `.vela/project.json` behind.
 		await handlers.local({
 			workspaceRootDir,
-			config,
 			appName:
-				readAppIdentity(workspaceRootDir, identityConfig)?.name ??
-				identityConfig.project ??
+				readAppIdentity(workspaceRootDir, run.project)?.name ??
+				run.project ??
 				defaultProjectName(workspaceRootDir),
 			kind: 'local',
 			envFile: envFilePath(workspaceRootDir)
@@ -175,7 +169,7 @@ export async function withTarget(
 	// Minting the app id here rather than demanding a prior deploy is what lets
 	// `vela env import` run before the first `vela deploy`, which is the order
 	// that gets an app its secrets before it ever serves a request.
-	const app = resolveAppIdentity(workspaceRootDir, identityConfig);
+	const app = resolveAppIdentity(workspaceRootDir, run.project);
 
 	const binding = await ensureBinding(workspaceRootDir, target, {
 		server: options.server,
@@ -190,7 +184,6 @@ export async function withTarget(
 		await syncServerScripts(session);
 		await handlers.remote!({
 			workspaceRootDir,
-			config,
 			appName: app.name,
 			kind: 'remote',
 			session,

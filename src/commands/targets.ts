@@ -4,7 +4,7 @@ import pc from 'picocolors';
 import { helpConfig } from '../lib/help.ts';
 import { runCommand } from '../lib/run.ts';
 import { getWorkspace } from './../lib/workspace.ts';
-import { loadDeployConfig, readAppIdentity, readBindings } from '../lib/deploy-config.ts';
+import { readAppIdentity, readBindings } from '../lib/deploy-config.ts';
 import { instanceId } from '../lib/instance.ts';
 import { addSshOptions, sshOptionsFrom, SSH_OPTION_SCHEMA } from '../lib/ssh-options.ts';
 import { parseOptions } from '../lib/options.ts';
@@ -39,10 +39,9 @@ export const targets = addSshOptions(
 		runCommand(async () => {
 			const options = parseOptions(OptionsSchema, raw);
 			const { workspaceRootDir } = await getWorkspace();
-			const config = await loadDeployConfig(workspaceRootDir);
 			// Listing must never mint an app id — that is a side effect nobody asks
 			// for by running `vela targets`.
-			const app = readAppIdentity(workspaceRootDir, config);
+			const app = readAppIdentity(workspaceRootDir);
 			const bindings = readBindings(workspaceRootDir);
 
 			const metadata = getPocketbaseMetadata(workspaceRootDir);

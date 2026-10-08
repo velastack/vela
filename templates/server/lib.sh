@@ -10,6 +10,19 @@ VELA_PORT_RANGE=${VELA_PORT_RANGE:-900}
 
 app_dir() { printf '%s/apps/%s' "$VELA_ROOT" "$1"; }
 etc_dir() { printf '%s/apps/%s' "$VELA_ETC" "$1"; }
+# scope_dir <app-id> <all|preview> - an env layer shared by several instances.
+# Its own tree because the production instance is named after the app id, so
+# /etc/vela/apps/<app-id> is production's directory, not the app's.
+scope_dir() { printf '%s/scopes/%s/%s' "$VELA_ETC" "$1" "$2"; }
+# link_scope <app-id> <all|preview> <etc-dir> - point an instance's fixed-name
+# scope.<layer>.env and scope.<layer>.public.env at that layer's files.
+# `-n` replaces an existing link rather than following it; the targets are files,
+# so there is never a directory for a plain `ln -sf` to descend into.
+link_scope() {
+	local dir; dir=$(scope_dir "$1" "$2")
+	ln -sfn "$dir/env" "$3/scope.$2.env"
+	ln -sfn "$dir/env.public" "$3/scope.$2.public.env"
+}
 state_file() { printf '%s/apps/%s/state.json' "$VELA_ROOT" "$1"; }
 
 log() { printf '  %s\n' "$*" >&2; }
