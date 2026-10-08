@@ -20,6 +20,8 @@ export interface Features {
 	cms: boolean;
 	/** The workflow runtime; in the base template since 0.13, so older projects lack it. */
 	workflows: boolean;
+	/** WhatsApp sign-in on the auth pages (`vela enable whatsapp`). */
+	whatsapp: boolean;
 	/** The component kit generators can assume; `plain` means native elements. */
 	ui: Ui;
 }
@@ -195,6 +197,9 @@ function detectFeatures(
 		contentNegotiation: hasDep('sveltekit-negotiate'),
 		cms: hasDep('@velastack/cms'),
 		workflows: has('src/lib/server/workflows.ts'),
+		// The code page, not src/lib/server/whatsapp.ts, which goes once the
+		// PocketBase SDK has WhatsApp.
+		whatsapp: has('src/routes/(public)/(auth)/whatsapp'),
 		ui: detectUi(root)
 	};
 }

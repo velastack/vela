@@ -63,7 +63,8 @@ const EXPECTED_ENABLE_SUBCOMMANDS = [
 	'subscriptions',
 	'notifications',
 	'cms',
-	'workflows'
+	'workflows',
+	'whatsapp'
 ];
 
 const EXPECTED_DISABLE_SUBCOMMANDS = [
@@ -78,7 +79,8 @@ const EXPECTED_DISABLE_SUBCOMMANDS = [
 	'notifications',
 	'teams',
 	'payments',
-	'subscriptions'
+	'subscriptions',
+	'whatsapp'
 ];
 
 const EXPECTED_MIGRATE_SUBCOMMANDS = [

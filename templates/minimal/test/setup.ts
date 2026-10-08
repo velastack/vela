@@ -8,7 +8,12 @@ const pb = new PocketBase(process.env.POCKETBASE_URL!) as App.Locals['pb'];
 
 const testUserPassword = 'password';
 
-async function authenticateUser(agent: Agent, user: { email: string }) {
+async function authenticateUser(agent: Agent, user: { email?: string }) {
+	// Logs in with the password, so it needs the email (made optional by
+	// enable-whatsapp, for accounts that sign in with a phone number).
+	if (!user.email) {
+		throw new Error('authenticateUser needs a user with an email');
+	}
 	await agent.post('/login').type('form').send({
 		type: 'password',
 		email: user.email,
@@ -31,13 +36,14 @@ beforeEach(async (context: TestContext) => {
 	context.agent = supertest.agent(process.env.VITE_TEST_URL!) as TestContext['agent'];
 	context.admin = admin;
 	context.pb = pb;
+	const email = `test-${Math.random().toString(36).slice(2)}@example.com`;
 	context.user = await context.admin.collection('users').create({
-		email: `test-${Math.random().toString(36).slice(2)}@example.com`,
+		email,
 		password: testUserPassword,
 		passwordConfirm: testUserPassword
 	});
 	context.agent.authenticateUser = () => authenticateUser(context.agent, context.user);
-	await context.pb.collection('users').authWithPassword(context.user.email, testUserPassword);
+	await context.pb.collection('users').authWithPassword(email, testUserPassword);
 });
 
 afterEach(async (context: TestContext) => {
