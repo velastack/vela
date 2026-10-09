@@ -116,7 +116,11 @@ export const testServer = new Command('test:server')
 		vite = await createServer({
 			mode: 'test',
 			plugins: [stubPagesPlugin()],
-			optimizeDeps: { noDiscovery: true }
+			optimizeDeps: { noDiscovery: true },
+			// This config differs from `vela dev`'s, so sharing node_modules/.vite
+			// would make Vite re-optimize dependencies under a running dev server,
+			// which then loads two copies of Svelte and fails reading `page`.
+			cacheDir: 'node_modules/.vite-test'
 		});
 		const vitePort = await findFreePort();
 		await vite.listen(vitePort);
