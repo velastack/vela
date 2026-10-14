@@ -21,7 +21,7 @@ import {
 import pkg from '../../package.json' with { type: 'json' };
 import { createSuperuser } from '../lib/pocketbase.ts';
 import { writeEnvFile } from '../lib/env.ts';
-import { emailFlag, passwordFlag, promptSuperuser } from '../lib/superuser.ts';
+import { emailFlag, passwordFlag, requireSuperuser } from '../lib/superuser.ts';
 import { ensureShadcnImport } from '../lib/app-css.ts';
 import { componentsJsonHints, readComponentsJson } from '../lib/components-json.ts';
 import {
@@ -54,10 +54,14 @@ import { templateName } from '../lib/template-files.ts';
  * frontend-only template has nothing to bless a project with. Read per run so
  * the list can't drift from the templates directory.
  */
-function optionsSchema() {
+export function optionsSchema() {
 	const templates = projectTemplateNames({ backend: true });
 	return v.strictObject({
-		install: v.union([v.boolean(), v.picklist(AGENT_NAMES)], 'must be a package manager'),
+		// Unset when neither `--install` nor `--no-install` is passed (commander 15).
+		install: v.optional(
+			v.union([v.boolean(), v.picklist(AGENT_NAMES)], 'must be a package manager'),
+			true
+		),
 		template: v.optional(v.picklist(templates, `must be one of: ${templates.join(', ')}`)),
 		email: emailFlag,
 		password: passwordFlag,
@@ -139,7 +143,7 @@ async function blessProject(cwdArg: string | undefined, options: Options) {
 
 	const templateDir = findProjectTemplate(options.template ?? DEFAULT_TEMPLATE).dir;
 
-	const { email, password } = await promptSuperuser(options, () => {
+	const { email, password } = await requireSuperuser(options, {}, () => {
 		p.cancel('Operation cancelled.');
 		process.exit(0);
 	});
