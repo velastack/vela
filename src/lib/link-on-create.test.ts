@@ -94,6 +94,42 @@ describe('linkNextSteps', () => {
 		expect(steps).toEqual([expect.stringContaining(`${linked.dashboardUrl}/cms/editors`)]);
 	});
 
+	test('a seeded CMS template says the content is already there', () => {
+		const linkedCms = {
+			...base,
+			linked,
+			templateCms: true,
+			cmsEndpoint: 'https://velastack.dev/v1/projects/p/cms',
+			cmsSource: 'linked' as const,
+			loggedIn: true
+		};
+		for (const seed of [
+			{ status: 'seeded' as const, locales: ['en', 'es'], layouts: 2, pages: 6, site: true },
+			{ status: 'already-seeded' as const }
+		]) {
+			const steps = linkNextSteps({ ...linkedCms, seed });
+			expect(steps).toHaveLength(2);
+			expect(steps[0]).toContain('already in its CMS');
+			expect(steps[1]).toContain('/cms/editors');
+			expect(steps.join(' ')).not.toContain('fallback');
+		}
+	});
+
+	test('a failed seed says where to retry, and that the built-in copy shows until then', () => {
+		const steps = linkNextSteps({
+			...base,
+			linked,
+			templateCms: true,
+			cmsEndpoint: 'https://velastack.dev/v1/projects/p/cms',
+			cmsSource: 'linked',
+			loggedIn: true,
+			seed: { status: 'failed', error: 'Velastack API error (500): boom' }
+		});
+		expect(steps[0]).toContain(`${linked.dashboardUrl}/cms/settings`);
+		expect(steps[0]).toContain('boom');
+		expect(steps[1]).toContain('/cms/editors');
+	});
+
 	test('a linked plain template points at deploy', () => {
 		expect(linkNextSteps({ ...base, linked, loggedIn: true })).toEqual([
 			expect.stringContaining('`vela deploy`')
@@ -108,7 +144,9 @@ describe('linkNextSteps', () => {
 				cmsEndpoint: 'https://cms.example/v1/projects/p/cms',
 				cmsSource: 'flag'
 			})
-		).toEqual(['Open any page with `?edit` and sign in from the admin bar.']);
+		).toEqual([
+			'Open any page with `?edit` and sign in from the admin bar. The site shows its fallback copy until content is published to that CMS.'
+		]);
 	});
 
 	test('a CMS template left blind says where to get one', () => {
