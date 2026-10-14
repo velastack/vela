@@ -1,6 +1,7 @@
 import process from 'node:process';
 import * as v from 'valibot';
 import * as p from '@clack/prompts';
+import { isInteractive } from './providers.ts';
 
 /** `--email`, validated identically wherever a command accepts one. */
 export const emailFlag = v.optional(v.pipe(v.string(), v.email('must be a valid email address')));
@@ -66,6 +67,23 @@ export function decideSuperuser(
 			`Pass ${missing.join(' and ')} for the PocketBase admin user. ` +
 			'There is no terminal to ask on.'
 	};
+}
+
+/**
+ * The superuser a command is about to create: from the flags (or `env`) when
+ * they name both halves, prompted for at a terminal otherwise. Off a terminal
+ * the missing flags are named instead, since a prompt there never resolves:
+ * stdin is closed and the process would end, exit code 0, having done nothing.
+ */
+export async function requireSuperuser(
+	flags: PartialCredentials,
+	env: PartialCredentials,
+	onCancel: () => void
+): Promise<Credentials> {
+	const decision = decideSuperuser(flags, env, isInteractive());
+	if (decision.kind === 'error') throw new Error(decision.message);
+	if (decision.kind === 'use') return decision.credentials;
+	return promptSuperuser(decision.known, onCancel);
 }
 
 /** The superuser credentials already in the environment, whether from `.env` or the shell. */

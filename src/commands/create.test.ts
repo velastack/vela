@@ -5,7 +5,14 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import * as tar from 'tar';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { checkFlagsForTemplate, optionsSchema, resolveCreatableTemplate } from './create.ts';
+import type { Command } from 'commander';
+import {
+	checkFlagsForTemplate,
+	create,
+	optionsSchema,
+	resolveCreatableTemplate
+} from './create.ts';
+import { bless, optionsSchema as blessOptionsSchema } from './bless.ts';
 import { parseOptions } from '../lib/options.ts';
 import { findTemplate, listAllTemplates, type TemplateListing } from '../lib/templates.ts';
 
@@ -48,6 +55,39 @@ describe('create options', () => {
 		expect(() => parseOptions(optionsSchema(offline), { install: true, template: 'vue' })).toThrow(
 			'could not reach the template registry: offline'
 		);
+	});
+});
+
+/** The option values commander hands an action for `argv`, leaving the command as it was. */
+function flagsFrom(command: Command, argv: string[]): Record<string, unknown> {
+	command.saveStateBeforeParse();
+	try {
+		command.parseOptions(argv);
+		return { ...command.opts() };
+	} finally {
+		command.restoreStateBeforeParse();
+	}
+}
+
+// Parsed through the real commands, not handed to the schema: commander 15
+// stopped defaulting `--no-install` once `--install <pm>` shares its key, and a
+// schema-only test could not see that.
+describe('--install and --no-install through commander', () => {
+	test.each([
+		[[], true],
+		[['--no-install'], false],
+		[['--install', 'pnpm'], 'pnpm']
+	])('create %j installs %j', (argv, install) => {
+		const flags = flagsFrom(create, ['my-app', '--template', 'minimal', ...argv]);
+		expect(parseOptions(optionsSchema(listing), flags).install).toBe(install);
+	});
+
+	test.each([
+		[[], true],
+		[['--no-install'], false],
+		[['--install', 'bun'], 'bun']
+	])('bless %j installs %j', (argv, install) => {
+		expect(parseOptions(blessOptionsSchema(), flagsFrom(bless, argv)).install).toBe(install);
 	});
 });
 

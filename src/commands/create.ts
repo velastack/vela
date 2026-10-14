@@ -31,7 +31,7 @@ import {
 } from '../lib/package-manager.ts';
 import { createSuperuser } from '../lib/pocketbase.ts';
 import { writeEnvFile } from '../lib/env.ts';
-import { emailFlag, passwordFlag, promptSuperuser } from '../lib/superuser.ts';
+import { emailFlag, passwordFlag, requireSuperuser } from '../lib/superuser.ts';
 import pkg from '../../package.json' with { type: 'json' };
 import { applyTemplateFiles } from '../lib/template-files.ts';
 import { reportResult } from '../lib/result-report.ts';
@@ -69,7 +69,13 @@ export function optionsSchema(listing: TemplateListing) {
 		choices += ` (could not reach the template registry: ${listing.registryError})`;
 	}
 	return v.strictObject({
-		install: v.union([v.boolean(), v.picklist(AGENT_NAMES)], 'must be a package manager'),
+		// `--no-install` and `--install <pm>` share a key, and commander 15 leaves it
+		// unset when neither is passed: installing with the detected package
+		// manager is the default.
+		install: v.optional(
+			v.union([v.boolean(), v.picklist(AGENT_NAMES)], 'must be a package manager'),
+			true
+		),
 		template: v.optional(v.picklist(names, choices)),
 		name: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1, 'must not be empty'))),
 		email: emailFlag,
@@ -291,9 +297,12 @@ async function scaffoldProject(
 	resolved: ResolvedTemplate,
 	onCancel: () => void
 ) {
+	const interactive = isInteractive();
 	let directory: string;
 	if (cwdArg) {
 		directory = path.resolve(cwdArg);
+	} else if (!interactive) {
+		throw new Error('Pass the directory to create the project in, e.g. `vela create my-app`.');
 	} else {
 		const answer = await p.text({
 			message: 'Where would you like your project to be created?',
@@ -308,6 +317,7 @@ async function scaffoldProject(
 		fs.existsSync(directory) &&
 		fs.readdirSync(directory).filter((f) => !f.startsWith('.git')).length > 0
 	) {
+		if (!interactive) throw new Error(`${directory} is not empty.`);
 		const force = await p.confirm({
 			message: 'Directory not empty. Continue?',
 			initialValue: false
@@ -321,6 +331,8 @@ async function scaffoldProject(
 		{
 			name: () => {
 				if (options.name) return Promise.resolve(options.name);
+				// Off a terminal, the name the prompt would have offered.
+				if (!interactive) return Promise.resolve(dirName || 'SvelteKit');
 				return p.text({
 					message: 'App name (written to src/lib/site.ts)',
 					initialValue: dirName || 'SvelteKit',
@@ -331,7 +343,7 @@ async function scaffoldProject(
 		{ onCancel }
 	);
 
-	const credentials = template.backend ? await promptSuperuser(options, onCancel) : undefined;
+	const credentials = template.backend ? await requireSuperuser(options, {}, onCancel) : undefined;
 
 	// Before any file is written: a failed copy leaves at most an orphan row on
 	// velastack.dev, where a half-written project would be the worse leftover.
