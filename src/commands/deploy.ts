@@ -141,7 +141,7 @@ export const deploy = addLockWaitOption(
 						const drift = nodeMajorDrift(serverNode, process.version);
 						if (drift) {
 							p.log.warn(
-								`${ctx.server} runs Node ${drift.server}, but this build uses Node ${drift.build}. ` +
+								`${ctx.server} runs Node ${drift.server}, but this deploy runs Node ${drift.build}. ` +
 									`The server's npm can reject a lockfile this one accepts.\n` +
 									`Run ${pc.cyan(`vela provision ${ctx.server}`)} to bring it up to ${drift.build}.`
 							);
@@ -728,7 +728,7 @@ async function requireServerNode(session: SshSession, server: string): Promise<s
 }
 
 /**
- * The two Node majors when the server's is older than the build's, else null.
+ * The two Node majors when the server's is older than the deploying one's, else null.
  *
  * Not fatal: the release may well run. But npm ships with Node, and the server's
  * `npm ci --omit=dev` can reject a lockfile the build's newer npm wrote ("Missing:
