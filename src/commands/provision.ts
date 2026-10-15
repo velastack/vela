@@ -11,7 +11,10 @@ import { pocketbaseVersion } from '../lib/pocketbase.ts';
 import { readServerInfo, runServerScript, syncServerScripts } from '../lib/remote.ts';
 import { sshOptionsFrom, SSH_OPTION_SCHEMA, addSshOptions } from '../lib/ssh-options.ts';
 
-/** The Node line new servers get. Apps need 22.17 or later; 24 is an LTS line. */
+/**
+ * The Node line servers are brought up to: the one releases are built with (the
+ * action's default too), so the server's npm accepts the build's lockfile.
+ */
 const NODE_MAJOR = '24';
 
 const OptionsSchema = v.object({
@@ -27,11 +30,10 @@ export const provision = addSshOptions(
 		.configureHelp(helpConfig)
 )
 	.option('--pb-version <version>', 'PocketBase version to install')
-	// Only for a server with no Node or one older than 22; one on 22.x short of
-	// the 22.17 floor is upgraded within its own line (see provision.sh).
+	// A server already on a later major keeps it (see provision.sh).
 	.option(
 		'--node-major <version>',
-		'Node.js major version to install on a server with none, or one older than 22',
+		'Node.js major version to bring the server up to (match the one you build with)',
 		NODE_MAJOR
 	)
 	.action((target: string, raw: unknown) =>
