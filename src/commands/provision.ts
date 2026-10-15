@@ -22,7 +22,9 @@ const OptionsSchema = v.object({
 	pbVersion: v.optional(v.string()),
 	// A number: provision.sh compares it with the server's major, so a line
 	// name like `lts` would never count as reached.
-	nodeMajor: v.optional(v.pipe(v.string(), v.regex(/^\d+$/, 'must be a major version number, like 24')))
+	nodeMajor: v.optional(
+		v.pipe(v.string(), v.regex(/^\d+$/, 'must be a major version number, like 24'))
+	)
 });
 
 export const provision = addSshOptions(
