@@ -137,7 +137,15 @@ export const deploy = addLockWaitOption(
 
 						// Before anything is announced or built: a server that cannot run
 						// the release is not worth a failed deploy on the dashboard.
-						await requireServerNode(session, ctx.server);
+						const serverNode = await requireServerNode(session, ctx.server);
+						const drift = nodeMajorDrift(serverNode, process.version);
+						if (drift) {
+							p.log.warn(
+								`${ctx.server} runs Node ${drift.server}, but this deploy runs Node ${drift.build}. ` +
+									`The server's npm can reject a lockfile this one accepts.\n` +
+									`Run ${pc.cyan(`vela provision ${ctx.server}`)} to bring it up to ${drift.build}.`
+							);
+						}
 
 						const [existing] = await readInstanceStates(session, instance);
 						// Stamped from the server's clock, so a laptop and a CI runner
@@ -706,16 +714,35 @@ export function nodeVersionAtLeast(version: string, major: number, minor: number
  * Servers provisioned before SvelteKit 3 have Node 20 or an early 22, which
  * `vela provision` upgrades in place. Asked over the connection that is already
  * open, so the answer comes before a build rather than after an upload.
+ * Returns the server's `node -v`.
  */
-async function requireServerNode(session: SshSession, server: string): Promise<void> {
+async function requireServerNode(session: SshSession, server: string): Promise<string> {
 	const { major, minor } = SERVER_NODE_FLOOR;
 	const result = await session.script('node -v 2>/dev/null || true', { check: false });
 	const version = result.stdout.trim();
-	if (nodeVersionAtLeast(version, major, minor)) return;
+	if (nodeVersionAtLeast(version, major, minor)) return version;
 	throw new Error(
 		`${server} ${version ? `runs Node ${version}` : 'has no Node'}, and this app needs ${major}.${minor} or later.\n\n` +
 			`Run ${pc.cyan(`vela provision ${server}`)} to upgrade it, then deploy again.`
 	);
+}
+
+/**
+ * The two Node majors when the server's is older than the deploying one's, else null.
+ *
+ * Not fatal: the release may well run. But npm ships with Node, and the server's
+ * `npm ci --omit=dev` can reject a lockfile the build's newer npm wrote ("Missing:
+ * ... from lock file"), which reads as a lockfile problem rather than this one.
+ */
+export function nodeMajorDrift(
+	serverVersion: string,
+	buildVersion: string
+): { server: number; build: number } | null {
+	const major = (version: string) => Number(/^v?(\d+)\./.exec(version.trim())?.[1] ?? NaN);
+	const server = major(serverVersion);
+	const build = major(buildVersion);
+	if (Number.isNaN(server) || Number.isNaN(build) || server >= build) return null;
+	return { server, build };
 }
 
 /** The server's clock, or this machine's with a warning when it cannot be read. */

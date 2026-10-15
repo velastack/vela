@@ -253,17 +253,25 @@ fi
 # pin the same dependencies: redeploys of unchanged dependencies skip the
 # install entirely, and a rollback still finds the tree its own lockfile
 # described.
+#
+# The key also carries the Node ABI and npm's major. Native modules
+# (better-sqlite3, argon2) are compiled for one ABI, so a tree installed before
+# `vela provision` moved Node to a new major would fail to load after it; and
+# npm majors disagree on what a lockfile has to contain. Either change installs
+# afresh.
 
 install_deps() {
 	local lock="$RELEASE_DIR/package-lock.json"
-	local key foreign="" name
+	local key foreign="" name runtime
 	local -a install_cmd
+	runtime="abi$(node -p process.versions.modules 2>/dev/null)-npm$(npm -v 2>/dev/null | cut -d. -f1)"
+	[[ $runtime =~ ^abi[0-9]+-npm[0-9]+$ ]] || die "could not read the Node and npm versions ($runtime)"
 	# `--no-engine-strict`: vela projects set engine-strict for development, but a
 	# production install takes only `dependencies` - a dev tool that wants a newer
 	# Node than the server runs is not a reason to refuse the deploy.
 	local -a flags=(--omit=dev --no-audit --no-fund --no-engine-strict --loglevel=error)
 	if [ -f "$lock" ]; then
-		key=$(sha256sum "$lock" | cut -c1-16)
+		key=$({ printf '%s\n' "$runtime"; cat "$lock"; } | sha256sum | cut -c1-16)
 		install_cmd=(npm ci "${flags[@]}")
 	elif [ -f "$RELEASE_DIR/package.json" ]; then
 		# A project pinned by pnpm, yarn or bun: npm cannot replay the lockfile, so
@@ -272,7 +280,8 @@ install_deps() {
 		for name in pnpm-lock.yaml yarn.lock bun.lock bun.lockb; do
 			if [ -f "$RELEASE_DIR/$name" ]; then foreign="$RELEASE_DIR/$name"; break; fi
 		done
-		key=$(cat "$RELEASE_DIR/package.json" ${foreign:+"$foreign"} | sha256sum | cut -c1-16)
+		key=$({ printf '%s\n' "$runtime"; cat "$RELEASE_DIR/package.json" ${foreign:+"$foreign"}; } \
+			| sha256sum | cut -c1-16)
 		install_cmd=(npm install "${flags[@]}")
 	else
 		log "no package.json in release - skipping dependency install"
@@ -280,7 +289,11 @@ install_deps() {
 	fi
 
 	local deps="$APP/deps/$key"
-	if [ ! -d "$deps/node_modules" ]; then
+	# Written only once npm has finished: an install that died part-way leaves a
+	# node_modules behind, and the next deploy with the same key must not take
+	# it for a complete tree.
+	local done_marker="$deps/.vela-installed"
+	if [ ! -f "$done_marker" ]; then
 		log "installing dependencies ($key)"
 		rm -rf "$deps"
 		mkdir -p "$deps"
@@ -311,6 +324,7 @@ install_deps() {
 		( cd "$deps" && runuser -u "$VELA_USER" -- env \
 			HOME="$deps" npm_config_cache="$VELA_ROOT/cache/npm" \
 			"${install_cmd[@]}" >&2 8>&- ) || die "dependency install failed"
+		: > "$done_marker"
 	else
 		log "dependencies already installed ($key)"
 	fi

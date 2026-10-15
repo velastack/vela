@@ -2,7 +2,23 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import { nodeVersionAtLeast, ssrExternalPreflight } from './deploy.ts';
+import { nodeMajorDrift, nodeVersionAtLeast, ssrExternalPreflight } from './deploy.ts';
+
+describe('nodeMajorDrift', () => {
+	test('a server on an older major than the build drifts', () => {
+		expect(nodeMajorDrift('v22.22.2\n', 'v24.21.0')).toEqual({ server: 22, build: 24 });
+	});
+
+	test('the same major, or a newer one on the server, does not', () => {
+		expect(nodeMajorDrift('v24.1.0', 'v24.21.0')).toBeNull();
+		expect(nodeMajorDrift('v25.0.0', 'v24.21.0')).toBeNull();
+	});
+
+	test('an unreadable version is not reported as drift', () => {
+		expect(nodeMajorDrift('', 'v24.21.0')).toBeNull();
+		expect(nodeMajorDrift('bash: node: command not found', 'v24.21.0')).toBeNull();
+	});
+});
 
 describe('nodeVersionAtLeast', () => {
 	test('compares the minor within the same major', () => {
