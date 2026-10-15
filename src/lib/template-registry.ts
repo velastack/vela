@@ -72,6 +72,15 @@ const entrySchema = v.object({
 	instantDeploy: v.optional(v.boolean()),
 	/** Hosted forms velastack.dev creates, by `key`, in a project made from this template. */
 	forms: v.optional(formsSchema),
+	/** The locales its published content ships, the default first; the seed enables them all. */
+	locales: v.optional(
+		v.pipe(
+			v.array(v.unknown()),
+			v.transform((items) => items.filter((item): item is string => typeof item === 'string'))
+		)
+	),
+	/** The schema.org type its JSON-LD describes (`ProfessionalService`, `Restaurant`, …). */
+	schemaType: v.optional(v.string()),
 	/** Tarball location, relative to the index URL. */
 	file: v.string(),
 	sha256: v.pipe(v.string(), v.regex(/^[0-9a-f]{64}$/)),

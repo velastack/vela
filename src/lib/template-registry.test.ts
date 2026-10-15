@@ -107,6 +107,19 @@ describe('parseTemplateIndex', () => {
 		expect(parsed).not.toHaveProperty('futureField');
 	});
 
+	test('keeps the locales and schemaType a content-manifest template publishes', () => {
+		const text = JSON.stringify({
+			schemaVersion: 1,
+			templates: [{ ...entry, locales: ['en', 'es', 3], schemaType: 'ProfessionalService' }]
+		});
+		const index = parseTemplateIndex(text, indexUrl);
+		expect(index.skipped).toBe(0);
+		expect(index.templates[0]).toMatchObject({
+			locales: ['en', 'es'],
+			schemaType: 'ProfessionalService'
+		});
+	});
+
 	test('keeps valid forms and drops a malformed one without skipping the entry', () => {
 		const contact = {
 			key: 'contact',
