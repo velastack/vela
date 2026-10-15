@@ -649,7 +649,7 @@ describe('vela steps', () => {
 			'@sveltejs/kit': '^3.0.0',
 			'@sveltejs/adapter-node': '^6.0.0',
 			'@velastack/kit': '^0.4.0',
-			'@velastack/pocketbase': '^0.4.0',
+			'@velastack/pocketbase': '^0.4.2',
 			'sveltekit-superforms': '3.0.0-next.1',
 			'sveltekit-flash-message': '3.0.0-next.0',
 			svelte: '^5.57.1',
