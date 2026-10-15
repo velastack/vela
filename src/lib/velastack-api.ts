@@ -229,15 +229,23 @@ export async function startSiteDeploy(apiKey: string, projectId: string): Promis
 	});
 }
 
+/** The template's hosted forms, by key; an older server leaves this out. */
+export interface SiteSeedForms {
+	created: string[];
+	existing: string[];
+}
+
 /**
  * What `POST /v1/projects/:id/site/seed` did: the template's published
  * content went into the project's CMS, the template published none (its
  * components carry the copy inline), or the project already had content.
+ * Forms are created whichever it was.
  */
-export type SiteSeedOutcome =
+export type SiteSeedOutcome = (
 	| { status: 'seeded'; locales: string[]; layouts: number; pages: number; site: boolean }
 	| { status: 'no-content' }
-	| { status: 'already-seeded' };
+	| { status: 'already-seeded' }
+) & { forms?: SiteSeedForms };
 
 /**
  * Fill a linked project's hosted CMS from its template's content manifest,

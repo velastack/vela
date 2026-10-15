@@ -107,6 +107,34 @@ describe('parseTemplateIndex', () => {
 		expect(parsed).not.toHaveProperty('futureField');
 	});
 
+	test('keeps valid forms and drops a malformed one without skipping the entry', () => {
+		const contact = {
+			key: 'contact',
+			name: 'Contact',
+			fields: [
+				{ name: 'email', type: 'email', required: true },
+				{ name: 'message', type: 'textarea' }
+			]
+		};
+		const text = JSON.stringify({
+			schemaVersion: 1,
+			templates: [
+				{
+					...entry,
+					forms: [
+						{ ...contact, futureField: 1 },
+						{ key: 'Bad Key', name: 'Bad', fields: [] },
+						{ key: 'quote', name: 'Quote', fields: [{ name: 'budget', type: 'number' }] },
+						'nope'
+					]
+				}
+			]
+		});
+		const index = parseTemplateIndex(text, indexUrl);
+		expect(index.skipped).toBe(0);
+		expect(index.templates[0]!.forms).toEqual([contact]);
+	});
+
 	test('rejects an index this CLI cannot read', () => {
 		expect(() => parseTemplateIndex('{"schemaVersion":2,"templates":[]}', 'x')).toThrow(
 			'unsupported format'

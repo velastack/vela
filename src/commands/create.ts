@@ -43,6 +43,7 @@ import {
 	PROJECT_ID_RE,
 	cmsEndpointFor,
 	decideLink,
+	formsCreatedMessage,
 	linkNextSteps,
 	normalizeCmsUrl,
 	type CreateLinkOutcome,
@@ -507,6 +508,8 @@ async function seedCms(
 	} else if (seed.status === 'failed') {
 		p.log.warn(`Could not load the template's content into the CMS: ${seed.error}`);
 	}
+	const forms = formsCreatedMessage(seed);
+	if (forms) p.log.success(forms);
 	return seed;
 }
 

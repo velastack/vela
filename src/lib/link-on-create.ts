@@ -91,6 +91,18 @@ export interface LinkedProject {
 /** How seeding the linked project's CMS went; `failed` never fails `create`. */
 export type SeedReport = SiteSeedOutcome | { status: 'failed'; error: string };
 
+/** Keys of the hosted forms the seed created; none for a failed seed or an older server. */
+export function createdForms(seed: SeedReport | undefined): string[] {
+	return seed && 'forms' in seed ? (seed.forms?.created ?? []) : [];
+}
+
+/** The log line for the forms a seed created, or `undefined` when it created none. */
+export function formsCreatedMessage(seed: SeedReport | undefined): string | undefined {
+	const keys = createdForms(seed);
+	if (keys.length === 0) return undefined;
+	return `${keys.length === 1 ? 'Hosted form' : 'Hosted forms'} created: ${keys.join(', ')}`;
+}
+
 export interface CreateLinkOutcome {
 	linked?: LinkedProject;
 	/** Set when `create` asked velastack.dev to seed the linked project's CMS. */
@@ -118,6 +130,9 @@ export function linkNextSteps(outcome: CreateLinkOutcome): string[] {
 			steps.push(
 				`Loading the template's content into the CMS failed (${seed.error}). Retry with "Load template content" at ${linked.dashboardUrl}/cms/settings; until then the site shows the copy built into its components.`
 			);
+		}
+		if (createdForms(seed).length > 0) {
+			steps.push(`Form submissions arrive at ${linked.dashboardUrl}/forms.`);
 		}
 		steps.push(
 			`Add an editor at ${linked.dashboardUrl}/cms/editors, then open any page with \`?edit\` and sign in from the admin bar.`
