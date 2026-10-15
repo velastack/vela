@@ -23,6 +23,18 @@ describe('seedLinkedProject', () => {
 		expect(new Headers(init.headers).get('Authorization')).toBe('Bearer key');
 	});
 
+	test('passes the forms the seed created through', async () => {
+		const forms = { created: ['contact'], existing: [] };
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => Response.json({ status: 'no-content', forms }))
+		);
+		expect(await seedLinkedProject('key', 'p1', { name: 'hearth' })).toEqual({
+			status: 'no-content',
+			forms
+		});
+	});
+
 	test('passes already-seeded through', async () => {
 		vi.stubGlobal(
 			'fetch',

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
 	cmsEndpointFor,
 	decideLink,
+	formsCreatedMessage,
 	linkNextSteps,
 	normalizeCmsUrl,
 	type CreateLinkOutcome
@@ -115,6 +116,32 @@ describe('linkNextSteps', () => {
 		}
 	});
 
+	test('a seed that created forms points at the forms page, whatever its status', () => {
+		const linkedCms = {
+			...base,
+			linked,
+			templateCms: true,
+			cmsEndpoint: 'https://velastack.dev/v1/projects/p/cms',
+			cmsSource: 'linked' as const,
+			loggedIn: true
+		};
+		const forms = { created: ['contact'], existing: [] };
+		for (const seed of [
+			{ status: 'seeded' as const, locales: ['en'], layouts: 1, pages: 4, site: true, forms },
+			{ status: 'already-seeded' as const, forms },
+			{ status: 'no-content' as const, forms }
+		]) {
+			const steps = linkNextSteps({ ...linkedCms, seed });
+			expect(steps.filter((step) => step.includes(`${linked.dashboardUrl}/forms`))).toHaveLength(1);
+		}
+
+		const existing = linkNextSteps({
+			...linkedCms,
+			seed: { status: 'already-seeded', forms: { created: [], existing: ['contact'] } }
+		});
+		expect(existing.join(' ')).not.toContain('/forms');
+	});
+
 	test('a failed seed says where to retry, and that the built-in copy shows until then', () => {
 		const steps = linkNextSteps({
 			...base,
@@ -158,5 +185,31 @@ describe('linkNextSteps', () => {
 	test('a logged-out user at a terminal learns about vela login', () => {
 		expect(linkNextSteps(base)).toEqual([expect.stringContaining('`vela login`')]);
 		expect(linkNextSteps({ ...base, interactive: false })).toEqual([]);
+	});
+});
+
+describe('formsCreatedMessage', () => {
+	test('names the forms a seed created', () => {
+		expect(
+			formsCreatedMessage({ status: 'no-content', forms: { created: ['contact'], existing: [] } })
+		).toBe('Hosted form created: contact');
+		expect(
+			formsCreatedMessage({
+				status: 'already-seeded',
+				forms: { created: ['contact', 'quote'], existing: ['newsletter'] }
+			})
+		).toBe('Hosted forms created: contact, quote');
+	});
+
+	test('says nothing when no form was created', () => {
+		expect(formsCreatedMessage(undefined)).toBeUndefined();
+		expect(formsCreatedMessage({ status: 'already-seeded' })).toBeUndefined();
+		expect(
+			formsCreatedMessage({ status: 'seeded', locales: ['en'], layouts: 1, pages: 4, site: true })
+		).toBeUndefined();
+		expect(
+			formsCreatedMessage({ status: 'no-content', forms: { created: [], existing: ['contact'] } })
+		).toBeUndefined();
+		expect(formsCreatedMessage({ status: 'failed', error: 'boom' })).toBeUndefined();
 	});
 });

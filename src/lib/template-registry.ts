@@ -27,6 +27,35 @@ export const INDEX_CACHE_TTL_MS = 60 * 60 * 1000;
 
 const DEFAULT_TIMEOUT_MS = 5000;
 
+const formFieldSchema = v.object({
+	name: v.pipe(v.string(), v.regex(/^[a-z][a-z0-9_]{0,39}$/)),
+	type: v.picklist(['text', 'email', 'tel', 'textarea']),
+	required: v.optional(v.boolean())
+});
+
+const formSchema = v.object({
+	key: v.pipe(v.string(), v.regex(/^[a-z][a-z0-9-]{0,39}$/)),
+	name: v.string(),
+	fields: v.array(formFieldSchema)
+});
+
+export type TemplateFormField = v.InferOutput<typeof formFieldSchema>;
+export type TemplateForm = v.InferOutput<typeof formSchema>;
+
+/**
+ * A form this CLI cannot read is dropped on its own, so it never costs the
+ * whole entry (and with it the template) a place in the listing.
+ */
+const formsSchema = v.pipe(
+	v.array(v.unknown()),
+	v.transform((items) =>
+		items.flatMap((item) => {
+			const form = v.safeParse(formSchema, item);
+			return form.success ? [form.output] : [];
+		})
+	)
+);
+
 const entrySchema = v.object({
 	name: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9-]*$/)),
 	description: v.string(),
@@ -41,6 +70,8 @@ const entrySchema = v.object({
 	cms: v.optional(v.boolean()),
 	/** A prebuilt static build is published for velastack.dev's instant deploys. */
 	instantDeploy: v.optional(v.boolean()),
+	/** Hosted forms velastack.dev creates, by `key`, in a project made from this template. */
+	forms: v.optional(formsSchema),
 	/** Tarball location, relative to the index URL. */
 	file: v.string(),
 	sha256: v.pipe(v.string(), v.regex(/^[0-9a-f]{64}$/)),
