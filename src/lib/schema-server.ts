@@ -39,6 +39,14 @@ export interface SchemaServerOptions {
 	project?: string;
 	/** Called after each successful apply with the files it wrote. */
 	onApplied?: (written: string[]) => void;
+	/** Whole-schema AI edits; absent when the project is not linked or the user not signed in. */
+	ai?: (body: {
+		prompt: string;
+		schema: Schema;
+		history?: { role: 'user' | 'assistant'; content: string }[];
+	}) => Promise<unknown>;
+	/** Why `ai` is absent, shown in the editor. */
+	aiUnavailable?: string;
 	host?: string;
 }
 
@@ -186,6 +194,37 @@ export function createSchemaHandler(deps: HandlerDeps): http.RequestListener {
 					} finally {
 						applying = false;
 					}
+				}
+				if (req.method === 'POST' && url.pathname === '/api/ai') {
+					if (!deps.ai) {
+						json(res, 409, {
+							message: deps.aiUnavailable ?? 'AI is not available for this project.'
+						});
+						return;
+					}
+					const body = JSON.parse(await readBody(req)) as {
+						prompt?: unknown;
+						schema?: Schema;
+						history?: { role: 'user' | 'assistant'; content: string }[];
+					};
+					if (typeof body.prompt !== 'string' || !body.prompt.trim() || !body.schema?.collections) {
+						json(res, 400, { message: 'Expected { prompt, schema }' });
+						return;
+					}
+					try {
+						json(
+							res,
+							200,
+							await deps.ai({
+								prompt: body.prompt,
+								schema: body.schema,
+								...(body.history ? { history: body.history } : {})
+							})
+						);
+					} catch (error) {
+						json(res, 502, { message: error instanceof Error ? error.message : String(error) });
+					}
+					return;
 				}
 				json(res, 404, { message: 'Not found' });
 			} catch (error) {

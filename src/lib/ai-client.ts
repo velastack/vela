@@ -1,5 +1,5 @@
 import { API_URL } from './constants.ts';
-import { requireApiKey } from './config.ts';
+import { readApiKey, requireApiKey } from './config.ts';
 import { readProjectConfig } from './project-config.ts';
 
 export interface AiTurn {
@@ -54,11 +54,23 @@ interface AiFormRequest {
 	context: { model: CollectionSpec };
 }
 
+export interface AiSchemaEditRequest {
+	prompt: string;
+	schema: unknown;
+	history?: AiTurn[];
+}
+
+export interface AiSchemaEditResponse {
+	schema: unknown;
+	summary: string;
+	turn: AiTurn[];
+}
+
 async function aiPost<T>(
 	workspaceRootDir: string,
-	endpoint: 'schema' | 'form',
-	body: AiSchemaRequest | AiFormRequest
-): Promise<AiResult<T>> {
+	endpoint: 'schema' | 'form' | 'schema-edit',
+	body: AiSchemaRequest | AiFormRequest | AiSchemaEditRequest
+): Promise<T> {
 	const apiKey = requireApiKey();
 	const project = readProjectConfig(workspaceRootDir);
 	if (!project) {
@@ -87,11 +99,29 @@ async function aiPost<T>(
 		const msg = await res.text().catch(() => '');
 		throw new Error(`Velastack API error (${res.status}): ${msg || res.statusText}`);
 	}
-	return (await res.json()) as AiResult<T>;
+	return (await res.json()) as T;
 }
 
 export const aiSchema = (workspaceRootDir: string, body: AiSchemaRequest) =>
-	aiPost<CollectionSpec>(workspaceRootDir, 'schema', body);
+	aiPost<AiResult<CollectionSpec>>(workspaceRootDir, 'schema', body);
 
 export const aiForm = (workspaceRootDir: string, body: AiFormRequest) =>
-	aiPost<FormLayout>(workspaceRootDir, 'form', body);
+	aiPost<AiResult<FormLayout>>(workspaceRootDir, 'form', body);
+
+/** The visual schema editor's request: the whole schema plus words, the whole schema back. */
+export const aiSchemaEdit = (workspaceRootDir: string, body: AiSchemaEditRequest) =>
+	aiPost<AiSchemaEditResponse>(workspaceRootDir, 'schema-edit', body);
+
+/**
+ * Why the AI cannot be used from here, or null when it can: the editor shows
+ * this instead of a working button.
+ */
+export function aiUnavailableReason(workspaceRootDir: string): string | null {
+	if (!readProjectConfig(workspaceRootDir)) {
+		return 'AI needs a project linked to velastack.dev: run `vela link` first.';
+	}
+	if (!readApiKey()) {
+		return 'AI needs you signed in: run `vela login` first.';
+	}
+	return null;
+}
