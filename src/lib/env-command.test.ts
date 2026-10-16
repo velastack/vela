@@ -158,10 +158,11 @@ describe('applyLayerRestart', () => {
 describe('shadowWarning', () => {
 	test('names the layer that wins and how to stop it', () => {
 		const prod = { appId: 'a', instance: 'a', env: 'prod' } as InstanceState;
-		expect(shadowWarning(prod, 'all', { KEY: 'instance' })).toBe(
-			'prod sets KEY itself, which wins over all.\n' +
-				`To use the all value there: ${'vela env unset KEY -t production'}`
-		);
+		// The hint is colored, so the text is checked in pieces.
+		const warning = shadowWarning(prod, 'all', { KEY: 'instance' });
+		expect(warning).toContain('prod sets KEY itself, which wins over all.\n');
+		expect(warning).toContain('To use the all value there: ');
+		expect(warning).toContain('vela env unset KEY -t production');
 		const staging = { ...prod, env: 'staging' };
 		expect(shadowWarning(staging, 'all', { A: 'instance', B: 'instance' })).toContain(
 			'vela env unset <key> -t staging'
