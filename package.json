@@ -40,7 +40,7 @@
 		"@velastack/patterns": "^0.4.2",
 		"@velastack/pocketbase-codegen": "^0.1.0",
 		"@velastack/schema": "^0.2.0",
-		"@velastack/schema-ui": "^0.2.0",
+		"@velastack/schema-ui": "^0.2.1",
 		"annotate-json-schema": "^0.1.1",
 		"commander": "^15.0.0",
 		"cross-spawn": "^7.0.6",
