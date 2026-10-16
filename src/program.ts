@@ -154,6 +154,9 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 	}
 
 	if (SELF_CREDENTIALED_COMMANDS.has(path)) return;
+	// The visual schema editor runs on a throwaway database with its own
+	// superuser; the project's credentials are not read.
+	if (path === 'generate migration' && actionCommand.opts().ai) return;
 
 	if (!process.env.POCKETBASE_SUPERUSER_EMAIL || !process.env.POCKETBASE_SUPERUSER_PASSWORD) {
 		p.log.error(
