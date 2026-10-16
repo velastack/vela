@@ -17,6 +17,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import PocketBase from 'pocketbase';
 import type { CollectionsClient, PocketBaseCollection } from '@velastack/schema';
+import { aiSchemaEdit, aiUnavailableReason } from './ai-client.ts';
 import { MIGRATIONS_DIR } from './constants.ts';
 import { authWithRetries, getPocketbaseMetadata, launchPocketbase } from './pocketbase.ts';
 import { startSchemaServer } from './schema-server.ts';
@@ -87,10 +88,12 @@ export async function runSchemaEditor({ cwd, noOpen = false }: SchemaEditorOptio
 		const pb = new PocketBase(launched.url);
 		await authWithRetries(pb, email, password);
 
+		const aiReason = aiUnavailableReason(cwd);
 		const server = await startSchemaServer({
 			client: sdkClient(pb),
 			migrationsDir,
 			project: path.basename(cwd),
+			...(aiReason ? { aiUnavailable: aiReason } : { ai: (body) => aiSchemaEdit(cwd, body) }),
 			onApplied: (written) => {
 				p.log.success(
 					`Wrote ${written.length} migration ${written.length === 1 ? 'file' : 'files'}:\n` +

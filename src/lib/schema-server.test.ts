@@ -207,6 +207,49 @@ describe('schema server', () => {
 		expect(fake.collections.map((c) => c.name)).toEqual(['users']);
 	});
 
+	it('answers 409 with the reason when the server has no AI', async () => {
+		const response = await api('/api/ai', {
+			method: 'POST',
+			body: JSON.stringify({ prompt: 'x', schema: { collections: [] } })
+		});
+		expect(response.status).toBe(409);
+		expect(((await response.json()) as { message: string }).message).toContain('AI');
+	});
+
+	it('proxies an AI edit and turns its failure into a 502', async () => {
+		await server.close();
+		let seen: unknown;
+		server = await startSchemaServer({
+			client: fake.client,
+			migrationsDir: path.join(dir, 'migrations'),
+			appDir,
+			ai: async (body) => {
+				seen = body;
+				if (body.prompt === 'fail') throw new Error('upstream said no');
+				return { schema: body.schema, summary: 'done', turn: [] };
+			}
+		});
+		const ok = await api('/api/ai', {
+			method: 'POST',
+			body: JSON.stringify({
+				prompt: 'add x',
+				schema: { collections: [] },
+				history: [{ role: 'user', content: 'hi' }]
+			})
+		});
+		expect(ok.status).toBe(200);
+		expect(((await ok.json()) as { summary: string }).summary).toBe('done');
+		expect((seen as { history: unknown[] }).history).toHaveLength(1);
+		const bad = await api('/api/ai', {
+			method: 'POST',
+			body: JSON.stringify({ prompt: 'fail', schema: { collections: [] } })
+		});
+		expect(bad.status).toBe(502);
+		expect(
+			(await api('/api/ai', { method: 'POST', body: JSON.stringify({ prompt: '' }) })).status
+		).toBe(400);
+	});
+
 	it('reports a refused step without losing the ones before it', async () => {
 		const { base } = (await (await api('/api/schema')).json()) as {
 			base: { collections: unknown[] };
