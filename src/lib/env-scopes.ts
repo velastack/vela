@@ -209,6 +209,31 @@ export async function resolveStack(
 	return { values, secrets, entries };
 }
 
+/**
+ * Which of `keys` an instance will not take from a shared layer, because a
+ * layer above it on that instance defines the key too: the preview layer for a
+ * preview, or the instance's own. Keyed by name, naming the layer that wins.
+ * Only names are read; no value leaves the files.
+ */
+export async function shadowedKeys(
+	session: SshSession,
+	appId: string,
+	state: InstanceState,
+	layer: 'all' | 'preview',
+	keys: string[]
+): Promise<Record<string, Layer>> {
+	const stack = layersFor(appId, state.instance, state.preview === true);
+	const above = stack.slice(stack.findIndex((entry) => entry.layer === layer) + 1);
+	const shadowed: Record<string, Layer> = {};
+	for (const entry of above) {
+		const contents = await readLayer(session, entry.files);
+		for (const key of keys) {
+			if (key in contents.secret || key in contents.public) shadowed[key] = entry.layer;
+		}
+	}
+	return shadowed;
+}
+
 /** The instances of this app on a server that a shared layer applies to. */
 export function reachedInstances(
 	states: InstanceState[],

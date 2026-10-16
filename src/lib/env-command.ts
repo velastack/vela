@@ -11,7 +11,13 @@ import { parseOptions } from './options.ts';
 import { withSsh, type SshSession } from './ssh.ts';
 import { readInstanceStates, requireProvisioned, type InstanceState } from './remote.ts';
 import { restartInstance, touchesSuperuser } from './remote-env.ts';
-import { layerFiles, reachedInstances, type LayerFiles } from './env-scopes.ts';
+import {
+	layerFiles,
+	reachedInstances,
+	shadowedKeys,
+	type Layer,
+	type LayerFiles
+} from './env-scopes.ts';
 import { isInteractive } from './providers.ts';
 import { staticEnvImports } from './static-env.ts';
 import {
@@ -275,6 +281,16 @@ export async function applyLayerRestart(ctx: LayerContext, changed: string[]): P
 		return;
 	}
 	for (const state of ctx.reached) {
+		// A layer above this one wins, so an instance that sets the key itself
+		// keeps its own value through the restart. Say so, and do not restart
+		// an instance the change cannot reach — "restarted" would be a lie.
+		const shadowed = await shadowedKeys(ctx.session, ctx.appId, state, ctx.layer, changed);
+		const reach = changed.filter((key) => !(key in shadowed));
+		if (Object.keys(shadowed).length > 0) p.log.warn(shadowWarning(state, ctx.layer, shadowed));
+		if (reach.length === 0) {
+			p.log.info(`${state.env} not restarted ${pc.dim(`(${ctx.server})`)}`);
+			continue;
+		}
 		const outcome = await restartInstance(ctx.session, state.instance);
 		if (!outcome.deployed) continue;
 		if (outcome.restarted) p.log.success(`${state.env} restarted ${pc.dim(`(${ctx.server})`)}`);
@@ -286,6 +302,43 @@ export async function applyLayerRestart(ctx: LayerContext, changed: string[]): P
 			);
 		}
 	}
+}
+
+/**
+ * Why an instance keeps its own value: the layer that holds it, and the
+ * command that would make it follow the shared one. A preview instance's own
+ * layer has no `-t` spelling that can be recovered from its env tag, so that
+ * case names the layer and leaves the hint out.
+ */
+export function shadowWarning(
+	state: InstanceState,
+	layer: 'all' | 'preview',
+	shadowed: Record<string, Layer>
+): string {
+	const lines: string[] = [];
+	const byLayer = new Map<Layer, string[]>();
+	for (const [key, above] of Object.entries(shadowed)) {
+		byLayer.set(above, [...(byLayer.get(above) ?? []), key]);
+	}
+	for (const [above, keys] of byLayer) {
+		const list = keys.join(', ');
+		const plural = keys.length > 1;
+		if (above === 'preview') {
+			lines.push(
+				`The preview layer sets ${list} too, and wins over ${layer} for ${state.env}.`,
+				`To use the ${layer} value${plural ? 's' : ''} there: ${pc.cyan(`vela env unset ${plural ? '<key>' : list} -t preview`)}`
+			);
+		} else if (state.preview) {
+			lines.push(`${state.env} sets ${list} itself, which wins over ${layer}.`);
+		} else {
+			const target = state.env === PROD_ENV ? PRODUCTION_TARGET : state.env;
+			lines.push(
+				`${state.env} sets ${list} itself, which wins over ${layer}.`,
+				`To use the ${layer} value${plural ? 's' : ''} there: ${pc.cyan(`vela env unset ${plural ? '<key>' : list} -t ${target}`)}`
+			);
+		}
+	}
+	return lines.join('\n');
 }
 
 /**

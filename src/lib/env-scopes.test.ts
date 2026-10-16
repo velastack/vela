@@ -7,6 +7,7 @@ import {
 	reachedInstances,
 	resolveStack,
 	setInLayer,
+	shadowedKeys,
 	unsetInLayer,
 	visibilityFor
 } from './env-scopes.ts';
@@ -156,5 +157,51 @@ describe('reachedInstances', () => {
 			'preview--x'
 		]);
 		expect(reachedInstances(states, APP, 'preview').map((s) => s.env)).toEqual(['preview--x']);
+	});
+});
+
+describe('shadowedKeys', () => {
+	const prod = { appId: APP, instance: APP, env: 'prod' } as InstanceState;
+	const preview = {
+		appId: APP,
+		instance: `${APP}--preview--x`,
+		env: 'preview--x',
+		preview: true
+	} as InstanceState;
+	const all = layerFiles(APP, 'all');
+	const previewLayer = layerFiles(APP, 'preview');
+
+	test('a key the instance sets itself, on either side, shadows the shared one', async () => {
+		const own = layerFiles(APP, 'instance', APP);
+		const { session } = fakeSession({
+			[all.secret]: { KEY: 'shared', OTHER: 'shared', FREE: 'shared' },
+			[own.secret]: { KEY: 'mine' },
+			[own.public]: { OTHER: 'mine' }
+		});
+		expect(await shadowedKeys(session, APP, prod, 'all', ['KEY', 'OTHER', 'FREE'])).toEqual({
+			KEY: 'instance',
+			OTHER: 'instance'
+		});
+	});
+
+	test('the preview layer shadows all for a preview only', async () => {
+		const { session } = fakeSession({
+			[all.secret]: { KEY: 'shared' },
+			[previewLayer.secret]: { KEY: 'previews' }
+		});
+		expect(await shadowedKeys(session, APP, preview, 'all', ['KEY'])).toEqual({ KEY: 'preview' });
+		expect(await shadowedKeys(session, APP, prod, 'all', ['KEY'])).toEqual({});
+	});
+
+	test('the instance wins over preview, and nothing is above the instance', async () => {
+		const own = layerFiles(APP, 'instance', preview.instance);
+		const { session } = fakeSession({
+			[previewLayer.secret]: { KEY: 'previews' },
+			[own.secret]: { KEY: 'mine' }
+		});
+		expect(await shadowedKeys(session, APP, preview, 'all', ['KEY'])).toEqual({ KEY: 'instance' });
+		expect(await shadowedKeys(session, APP, preview, 'preview', ['KEY'])).toEqual({
+			KEY: 'instance'
+		});
 	});
 });
