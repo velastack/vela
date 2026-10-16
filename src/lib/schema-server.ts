@@ -100,7 +100,8 @@ const readBody = (req: http.IncomingMessage, limit = 8 * 1024 * 1024): Promise<s
 		req.on('error', reject);
 	});
 
-const listMigrations = (dir: string): string[] =>
+/** The migration files in a directory, sorted; the names PocketBase's automigrate writes. */
+export const listMigrations = (dir: string): string[] =>
 	fs.existsSync(dir)
 		? fs
 				.readdirSync(dir)
