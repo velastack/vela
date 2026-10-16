@@ -34,6 +34,7 @@ import { writeEnvFile } from '../lib/env.ts';
 import { emailFlag, passwordFlag, requireSuperuser } from '../lib/superuser.ts';
 import pkg from '../../package.json' with { type: 'json' };
 import { applyTemplateFiles } from '../lib/template-files.ts';
+import { applyGallerySchema, findGallerySchema, gallerySlugs } from '../lib/schema-create.ts';
 import { reportResult } from '../lib/result-report.ts';
 import { readApiKey, requireApiKey } from '../lib/config.ts';
 import { isInteractive } from '../lib/providers.ts';
@@ -78,6 +79,7 @@ export function optionsSchema(listing: TemplateListing) {
 			true
 		),
 		template: v.optional(v.picklist(names, choices)),
+		schema: v.optional(v.picklist(gallerySlugs(), `must be one of: ${gallerySlugs().join(', ')}`)),
 		name: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1, 'must not be empty'))),
 		email: emailFlag,
 		password: passwordFlag,
@@ -108,6 +110,11 @@ export function checkFlagsForTemplate(template: TemplateInfo, options: Options):
 			`--email and --password don't apply to the ${template.name} template — it has no backend.`
 		);
 	}
+	if (options.schema && !template.backend) {
+		throw new Error(
+			`--schema doesn't apply to the ${template.name} template — it has no backend to hold the collections.`
+		);
+	}
 	if (options.cms !== undefined && !template.cms) {
 		throw new Error(
 			`--cms doesn't apply to the ${template.name} template — it reads no copy from a CMS.`
@@ -122,6 +129,10 @@ export const create = new Command('create')
 	.description('scaffold a new velastack project')
 	.argument('[path]', 'where the project will be created')
 	.option('--template <type>', 'template to scaffold (built-in or from the registry)', 'minimal')
+	.option(
+		'--schema <slug>',
+		'start from a schema in the gallery (https://velastack.dev/schemas), e.g. gym-memberships'
+	)
 	.option('--no-install', 'skip installing dependencies')
 	.option('--name <name>', 'app name, written to src/lib/site.ts')
 	.option('--email <email>', 'email of the admin user')
@@ -202,6 +213,7 @@ async function createProject(
 ) {
 	const template = findTemplate(listing, options.template ?? DEFAULT_TEMPLATE);
 	checkFlagsForTemplate(template, options);
+	const gallerySchema = options.schema ? findGallerySchema(options.schema) : undefined;
 
 	const resolved = await resolveCreatableTemplate(template);
 	const onCancel = () => {
@@ -264,6 +276,19 @@ async function createProject(
 		);
 
 		p.log.success('PocketBase initialized');
+
+		if (gallerySchema) {
+			if (!installed) {
+				throw new Error(
+					'--schema needs the dependencies installed so PocketBase can run; create without --no-install, or run `vela generate migration --ai` after installing.'
+				);
+			}
+			p.log.step(`Creating the ${gallerySchema.title} schema...`);
+			const applied = await applyGallerySchema(projectPath, gallerySchema, { email, password });
+			p.log.success(
+				`Created ${applied.collections} collections (${applied.written.length} migration files)`
+			);
+		}
 	}
 
 	return { directory: projectPath, packageManager, installed, migrated, name, template, link };
