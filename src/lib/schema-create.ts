@@ -7,8 +7,17 @@
  */
 import path from 'node:path';
 import PocketBase from 'pocketbase';
-import { apply, diff, hasErrors, lint, plan, schemaFromPocketBase } from '@velastack/schema';
-import { gallery, galleryBySlug, withUsers, type GallerySchema } from '@velastack/schema/registry';
+import {
+	apply,
+	diff,
+	hasErrors,
+	lint,
+	plan,
+	schemaFromPocketBase,
+	type Plan,
+	type Schema
+} from '@velastack/schema';
+import { gallery, galleryBySlug, type GallerySchema } from '@velastack/schema/registry';
 import { DATA_DIR, MIGRATIONS_DIR } from './constants.ts';
 import { authWithRetries, startPocketbaseServe } from './pocketbase.ts';
 import { sdkClient } from './schema-editor.ts';
@@ -24,6 +33,26 @@ export function findGallerySchema(slug: string): GallerySchema {
 		);
 	}
 	return entry;
+}
+
+/**
+ * The plan that adds a gallery schema to a project as it is: everything the
+ * database already holds stays, the gallery's collections join it. Throws
+ * when the two do not fit (a name already taken, a lint error).
+ */
+export function planGallerySchema(base: Schema, entry: GallerySchema): Plan {
+	const next: Schema = { collections: [...base.collections, ...entry.schema.collections] };
+	const changes = diff(base, next);
+	const issues = lint(base, next, changes);
+	if (hasErrors(issues)) {
+		throw new Error(
+			`The ${entry.slug} schema does not fit this project: ${issues
+				.filter((i) => i.level === 'error')
+				.map((i) => i.message)
+				.join(' ')}`
+		);
+	}
+	return plan(base, next, changes);
 }
 
 export interface ApplyGalleryResult {
@@ -48,18 +77,7 @@ export async function applyGallerySchema(
 		await authWithRetries(pb, credentials.email, credentials.password);
 		const client = sdkClient(pb);
 		const base = schemaFromPocketBase(await client.list());
-		const next = withUsers(entry);
-		const changes = diff(base, next);
-		const issues = lint(base, next, changes);
-		if (hasErrors(issues)) {
-			throw new Error(
-				`The ${entry.slug} schema does not fit this project: ${issues
-					.filter((i) => i.level === 'error')
-					.map((i) => i.message)
-					.join(' ')}`
-			);
-		}
-		const steps = plan(base, next, changes);
+		const steps = planGallerySchema(base, entry);
 		const before = listMigrations(migrationsDir);
 		const result = await apply(client, steps);
 		if (result.failed) {
