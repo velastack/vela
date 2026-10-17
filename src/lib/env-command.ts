@@ -19,7 +19,7 @@ import {
 	type LayerFiles
 } from './env-scopes.ts';
 import { isInteractive } from './providers.ts';
-import { staticEnvImports } from './static-env.ts';
+import { staticEnv } from './static-env.ts';
 import {
 	parseTarget,
 	PRODUCTION_TARGET,
@@ -256,10 +256,13 @@ async function promptScope(workspaceRootDir: string, label: string): Promise<Env
 	return parseEnvScope(choice)!;
 }
 
-/** Whether a project can only see a key's new value after a deploy. */
-export function readAtBuildTime(workspaceRootDir: string, keys: string[]): string[] {
-	const names = staticEnvImports(workspaceRootDir);
-	return keys.filter((key) => names.has(key));
+/** The keys a project can only see a new value for after a deploy, and why. */
+export function readAtBuildTime(
+	workspaceRootDir: string,
+	keys: string[]
+): { baked: string[]; how: string } {
+	const fixed = staticEnv(workspaceRootDir);
+	return { baked: keys.filter((key) => fixed.names.has(key)), how: fixed.how };
 }
 
 /**
@@ -350,10 +353,10 @@ export async function applyChange(
 	ctx: InstanceEnvContext | LayerContext,
 	changed: string[]
 ): Promise<void> {
-	const baked = readAtBuildTime(workspaceRootDir, changed);
+	const { baked, how } = readAtBuildTime(workspaceRootDir, changed);
 	if (baked.length > 0) {
 		p.log.info(
-			`${baked.join(', ')} ${baked.length === 1 ? 'is' : 'are'} read at build time (${pc.cyan('$env/static')}); ` +
+			`${baked.join(', ')} ${baked.length === 1 ? 'is' : 'are'} read at build time (${pc.cyan(how)}); ` +
 				`redeploy to apply.`
 		);
 		const rest = changed.filter((key) => !baked.includes(key));

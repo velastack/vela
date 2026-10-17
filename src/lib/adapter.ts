@@ -1,7 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+	Node,
+	Project,
 	SyntaxKind,
+	type Expression,
 	type ImportDeclaration,
 	type ObjectLiteralExpression,
 	type SourceFile
@@ -13,7 +16,7 @@ import {
 	formatLikeSource,
 	inspectViteSveltekit
 } from './config-target.ts';
-import { KIT3_MIGRATE_COMMAND } from './kit-version.ts';
+import { KIT3_MIGRATE_COMMAND, kitMajor } from './kit-version.ts';
 import { readPackageJson, sortKeys, writePackageJson, type PkgJson } from './package-json.ts';
 import { getUserAgent, installDependencies, isInstalled } from './package-manager.ts';
 
@@ -65,38 +68,53 @@ export class AdapterError extends Error {
 interface KitTarget {
 	sourceFile: SourceFile;
 	filePath: string;
-	/** The inline `sveltekit({...})` argument, where SvelteKit 3 keeps `adapter`. */
-	kit: ObjectLiteralExpression;
+	/**
+	 * Where `adapter` lives: the inline `sveltekit({...})` argument, or `kit` in
+	 * a svelte.config. Null only for a svelte.config with no `kit` at all, which
+	 * has no adapter and is never edited.
+	 */
+	kit: ObjectLiteralExpression | null;
 	/** A `{}` argument was created on a bare `sveltekit()` - the one case the file is reformatted. */
 	created: boolean;
 	originalText: string;
+	/**
+	 * A `svelte.config.*`, which is a SvelteKit 2 project. Read so a project
+	 * already on adapter-node deploys; never written, since the switch would
+	 * be Kit 2 code vela no longer generates.
+	 */
+	readOnly: boolean;
 }
 
 /**
- * The inline `sveltekit({...})` argument in vite.config, the only place
- * SvelteKit 3 reads its config from; a bare `sveltekit()` gets an argument
- * created. A leftover svelte.config means a SvelteKit 2 project: Kit 3 refuses
- * to start with one, and switching its adapter would not make it deployable.
+ * Where the project's SvelteKit config is. An inline `sveltekit({...})`
+ * argument in vite.config wins on either major: it is the only place Kit 3
+ * reads from, and Kit 2 ignores a svelte.config beside one. Otherwise a
+ * SvelteKit 2 project's svelte.config is read, not written. A Kit 3 project
+ * that still has one cannot start, so it is sent to the migration instead.
+ * A bare `sveltekit()` with no svelte.config gets an argument created.
  */
 function resolveKitTarget(root: string): KitTarget {
 	const svelteConfig = findSvelteConfig(root);
-	if (svelteConfig) {
+	const major = kitMajor(root);
+	if (svelteConfig && major !== null && major >= 3) {
 		throw new AdapterError(
-			`${path.basename(svelteConfig)} found: this looks like a SvelteKit 2 project, and\n` +
-				`SvelteKit 3 reads its config only from sveltekit({...}) in vite.config.\n\n` +
+			`${path.basename(svelteConfig)} found: SvelteKit 3 reads its config only from\n` +
+				`sveltekit({...}) in vite.config and will not start while this file exists.\n\n` +
 				`Migrate it first:`,
 			KIT3_MIGRATE_COMMAND
 		);
 	}
 
 	const vite = inspectViteSveltekit(root);
+	if (!vite?.inlineArg && svelteConfig) return resolveSvelteConfigTarget(svelteConfig);
 	if (vite?.inlineArg) {
 		return {
 			sourceFile: vite.sourceFile,
 			filePath: vite.filePath,
 			kit: vite.inlineArg,
 			created: false,
-			originalText: vite.sourceFile.getFullText()
+			originalText: vite.sourceFile.getFullText(),
+			readOnly: false
 		};
 	}
 
@@ -114,11 +132,73 @@ function resolveKitTarget(root: string): KitTarget {
 			filePath: vite.filePath,
 			kit,
 			created: true,
-			originalText
+			originalText,
+			readOnly: false
 		};
 	}
 
 	throw new AdapterError(`No vite.config with a sveltekit() plugin found in ${root}.`);
+}
+
+/**
+ * The `kit` object of a svelte.config: `export default { kit: {...} }`, or
+ * `const config = { kit: {...} }; export default config;` as `sv create`
+ * wrote it. Read-only. A shape vela cannot read is reported as such, with
+ * the snippet to apply by hand.
+ */
+function resolveSvelteConfigTarget(filePath: string): KitTarget {
+	const name = path.basename(filePath);
+	const unreadable = () =>
+		new AdapterError(
+			`${name}: vela cannot read the adapter from this config.\n\n` +
+				`vela deploy runs the app as a Node server, which needs ${ADAPTER_NODE}:`
+		);
+	let sourceFile: SourceFile;
+	try {
+		const project = new Project({
+			compilerOptions: { allowJs: true },
+			skipFileDependencyResolution: true
+		});
+		sourceFile = project.addSourceFileAtPath(filePath);
+	} catch {
+		throw unreadable();
+	}
+	const exported = sourceFile.getExportAssignment((a) => !a.isExportEquals());
+	let value = unwrapExpression(exported?.getExpression());
+	if (value && Node.isIdentifier(value)) {
+		value = unwrapExpression(sourceFile.getVariableDeclaration(value.getText())?.getInitializer());
+	}
+	if (!value || !Node.isObjectLiteralExpression(value)) throw unreadable();
+	const kitProp = value.getProperty('kit');
+	let kit: ObjectLiteralExpression | null = null;
+	if (kitProp) {
+		const init = Node.isPropertyAssignment(kitProp)
+			? unwrapExpression(kitProp.getInitializer())
+			: undefined;
+		if (!init || !Node.isObjectLiteralExpression(init)) throw unreadable();
+		kit = init;
+	}
+	return {
+		sourceFile,
+		filePath,
+		kit,
+		created: false,
+		originalText: sourceFile.getFullText(),
+		readOnly: true
+	};
+}
+
+function unwrapExpression(expr: Expression | undefined): Expression | undefined {
+	let current = expr;
+	while (
+		current &&
+		(Node.isParenthesizedExpression(current) ||
+			Node.isAsExpression(current) ||
+			Node.isSatisfiesExpression(current))
+	) {
+		current = current.getExpression();
+	}
+	return current;
 }
 
 function classify(specifier: string): AdapterKind {
@@ -149,7 +229,7 @@ interface AdapterProperty {
  */
 function inspectAdapter(target: KitTarget): AdapterProperty {
 	const base = { file: target.filePath };
-	const prop = target.kit.getProperty('adapter');
+	const prop = target.kit?.getProperty('adapter');
 	if (!prop) return { info: { ...base, kind: 'none' } };
 
 	if (prop.getKind() !== SyntaxKind.PropertyAssignment) {
@@ -214,6 +294,19 @@ export async function ensureNodeAdapter(
 		removedDeps: [],
 		packageJsonChanged: false
 	};
+
+	if (target.readOnly) {
+		// A SvelteKit 2 project. Already on adapter-node, it deploys as it is:
+		// package.json is left alone too, since the adapter-node vela would add
+		// is the Kit 3 major. Anything else is a switch vela makes only on Kit 3.
+		if (info.kind === 'node') return outcome;
+		throw new AdapterError(
+			`${name} found: this is a SvelteKit 2 project, and vela only changes the adapter\n` +
+				`of a SvelteKit 3 one. vela deploy runs the app as a Node server, which needs\n` +
+				`${ADAPTER_NODE}. Add it to ${name} yourself, or migrate the project with\n\n` +
+				`  ${KIT3_MIGRATE_COMMAND}\n`
+		);
+	}
 
 	switch (info.kind) {
 		case 'node':
@@ -285,10 +378,17 @@ export async function installAdapterDependencies(root: string): Promise<AgentNam
 	return agent;
 }
 
+/** The object the write paths edit: always there, since only an inline vite.config target is written. */
+function editableKit(target: KitTarget): ObjectLiteralExpression {
+	if (target.readOnly || !target.kit)
+		throw new AdapterError(`${path.basename(target.filePath)} is not a config vela edits.`);
+	return target.kit;
+}
+
 /** adapter-auto → adapter-node on the existing import; the call takes no arguments either way. */
 function switchImport(target: KitTarget, importDecl: ImportDeclaration): void {
 	importDecl.setModuleSpecifier(ADAPTER_NODE);
-	const prop = target.kit
+	const prop = editableKit(target)
 		.getPropertyOrThrow('adapter')
 		.asKindOrThrow(SyntaxKind.PropertyAssignment);
 	const call = prop.getInitializerIfKindOrThrow(SyntaxKind.CallExpression);
@@ -306,7 +406,7 @@ function switchImport(target: KitTarget, importDecl: ImportDeclaration): void {
 const ADAPTER_AUTO_COMMENT = /adapter-auto|svelte\.dev\/docs\/kit\/adapters|switch out the adapter/;
 
 function dropAdapterAutoComments(target: KitTarget): void {
-	const prop = target.kit.getPropertyOrThrow('adapter');
+	const prop = editableKit(target).getPropertyOrThrow('adapter');
 	const ranges = prop.getLeadingCommentRanges();
 	if (ranges.length === 0 || !ranges.every((r) => ADAPTER_AUTO_COMMENT.test(r.getText()))) return;
 
@@ -333,7 +433,7 @@ function addAdapter(target: KitTarget): void {
 		defaultImport: 'adapter',
 		moduleSpecifier: ADAPTER_NODE
 	});
-	target.kit.addPropertyAssignment({ name: 'adapter', initializer: 'adapter()' });
+	editableKit(target).addPropertyAssignment({ name: 'adapter', initializer: 'adapter()' });
 }
 
 /** Write the file only if the edit changed it; format only when an argument was created from nothing. */

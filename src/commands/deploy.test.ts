@@ -111,4 +111,13 @@ export default defineConfig({
 		const dir = project('@sveltejs/adapter-node', `[...process.env.X]`, 'devDependencies');
 		expect(() => ssrExternalPreflight(dir)).not.toThrow();
 	});
+
+	test('a SvelteKit 2 project passes: adapter-node 5 bundles ssr.external into the server', () => {
+		const dir = project('@sveltejs/adapter-node', LIST, 'devDependencies');
+		const pkgPath = path.join(dir, 'package.json');
+		const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+		pkg.devDependencies['@sveltejs/kit'] = '^2.70.3';
+		fs.writeFileSync(pkgPath, JSON.stringify(pkg));
+		expect(() => ssrExternalPreflight(dir)).not.toThrow();
+	});
 });

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readLocalEnvFile, type EnvRecord } from './remote-env.ts';
-import { staticEnvImports } from './static-env.ts';
+import { staticEnv } from './static-env.ts';
 
 /**
  * Keys a build against a throwaway local database needs from the developer's
@@ -35,8 +35,9 @@ export interface BuildStack {
  * Vite's `loadEnv` lets a key already in `process.env` win over the files, and
  * SvelteKit reads `.env` from the project root at build whatever vela does, so
  * blanking is how a dev-only value is kept out of a production bundle. Without
- * it, a `$env/static` import that production has no value for would be baked
- * with the developer's, which is the quietest wrong a deploy can be.
+ * it, a build-time variable (`static: true` in src/env.ts) that production has
+ * no value for would be baked with the developer's, which is the quietest
+ * wrong a deploy can be.
  */
 export function buildStack(root: string, input: BuildStackInput): BuildStack {
 	const env: Record<string, string | undefined> = { ...input.stack, ...input.derived };
@@ -51,15 +52,16 @@ export function buildStack(root: string, input: BuildStackInput): BuildStack {
 		blanked.push(key);
 	}
 
-	// A static import of a blanked key gets '' where the target's build would have
-	// failed outright. Fail here instead, before anything is built or uploaded.
-	const imports = staticEnvImports(root);
-	const baked = blanked.filter((key) => imports.has(key));
+	// A build-time variable among the blanked keys gets '' where the target's
+	// build would have failed outright. Fail here instead, before anything is
+	// built or uploaded.
+	const fixed = staticEnv(root);
+	const baked = blanked.filter((key) => fixed.names.has(key));
 	if (baked.length > 0) {
 		throw new DevOnlyEnvError(
-			`${baked.join(', ')} ${baked.length === 1 ? 'is' : 'are'} imported from $env/static but set only in your .env.\n\n` +
+			`${baked.join(', ')} ${baked.length === 1 ? 'is' : 'are'} ${fixed.how} but set only in your .env.\n\n` +
 				`The build would bake in your development value. Set ${baked.length === 1 ? 'it' : 'them'} for the target\n` +
-				`(vela env set KEY -t <target>) or remove the import.`
+				`(vela env set KEY -t <target>) or ${fixed.remedy}.`
 		);
 	}
 

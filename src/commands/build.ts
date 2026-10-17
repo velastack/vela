@@ -15,7 +15,7 @@ import { findWorkspaceRoot, hasBackend } from '../lib/workspace.ts';
 import { applyBuildEnv } from '../lib/build-env.ts';
 import { bindingKey, parseTarget, PRODUCTION_TARGET } from '../lib/target.ts';
 import { resolveOrigin } from '../lib/origin.ts';
-import { warnIfKit2 } from '../lib/kit-version.ts';
+import { kitMajor, warnIfKit2 } from '../lib/kit-version.ts';
 import { onTerminate, stopChild } from '../lib/terminate.ts';
 import { detectAdapter } from '../lib/adapter.ts';
 import {
@@ -91,9 +91,12 @@ export const build = new Command('build')
  * Builds fine, then 500s on the server: a devDependency in `ssr.external` is a
  * bare import adapter-node 6 leaves for a production install that lacks it.
  * A warning here; `vela deploy` refuses it. `ssr.external: true`, which
- * adapter-node 6 overrides, is pointed out too.
+ * adapter-node 6 overrides, is pointed out too. SvelteKit 2's adapter-node 5
+ * re-bundles the server, so there the list is harmless and nothing is said.
  */
 function warnIfSsrExternalMissing(root: string): void {
+	const major = kitMajor(root);
+	if (major !== null && major < 3) return;
 	try {
 		if (detectAdapter(root).kind !== 'node') return;
 	} catch {
