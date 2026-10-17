@@ -9,7 +9,7 @@ import { helpConfig } from '../lib/help.ts';
 import { runCommand } from '../lib/run.ts';
 import { parseOptions } from '../lib/options.ts';
 import { findWorkspaceRoot, getWorkspace, hasBackend } from '../lib/workspace.ts';
-import { assertKit3 } from '../lib/kit-version.ts';
+import { kitMajor } from '../lib/kit-version.ts';
 import { RemoteCommandError, withSsh, type SshSession } from '../lib/ssh.ts';
 import { addSshOptions, SSH_OPTION_SCHEMA, sshOptionsFrom } from '../lib/ssh-options.ts';
 import { writeBinding } from '../lib/deploy-config.ts';
@@ -107,9 +107,6 @@ export const deploy = addLockWaitOption(
 
 			// Local preflight, before a server is named or a deploy announced:
 			// a project that cannot build for a server has nothing to deploy.
-			// Even with --no-build: the server side (adapter-node 6, the origin
-			// handling, Node 22.17) is SvelteKit 3's.
-			assertKit3(findWorkspaceRoot() ?? process.cwd(), 'vela deploy');
 			if (options.build !== false) {
 				const { workspaceRootDir } = await getWorkspace();
 				await prepareAdapter(workspaceRootDir);
@@ -478,7 +475,15 @@ async function prepareAdapter(workspaceRootDir: string): Promise<void> {
 	} catch {
 		// Unreadable here is unreadable below, where it is reported properly.
 	}
-	if (current && (current.kind === 'auto' || current.kind === 'none') && isInteractive()) {
+	// A svelte.config (SvelteKit 2) is never edited: ensureNodeAdapter says so
+	// below, with the by-hand instruction, so there is nothing to ask first.
+	const editable = current !== undefined && !/^svelte\.config\./.test(path.basename(current.file));
+	if (
+		current &&
+		editable &&
+		(current.kind === 'auto' || current.kind === 'none') &&
+		isInteractive()
+	) {
 		const has =
 			current.kind === 'auto' ? `is on ${ADAPTER_AUTO}` : 'has no SvelteKit adapter configured';
 		const confirmed = await p.confirm({
@@ -528,9 +533,12 @@ async function prepareAdapter(workspaceRootDir: string): Promise<void> {
  * installs: a devDependency named in `ssr.external`. adapter-node 6 leaves
  * those imports bare, and the release installs production dependencies only,
  * so every page that reaches one would 500 with ERR_MODULE_NOT_FOUND. Only for
- * adapter-node; a config vela cannot read passes.
+ * adapter-node on SvelteKit 3: adapter-node 5 re-bundles the server, so on a
+ * Kit 2 project the same list is harmless. A config vela cannot read passes.
  */
 export function ssrExternalPreflight(root: string): void {
+	const major = kitMajor(root);
+	if (major !== null && major < 3) return;
 	let adapter: AdapterInfo;
 	try {
 		adapter = detectAdapter(root);

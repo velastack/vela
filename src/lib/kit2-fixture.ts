@@ -6,11 +6,13 @@ import { execFileSync } from 'node:child_process';
 import { restoreTemplateNames } from './template-files.ts';
 
 /**
- * Test-only: the `vela create` output of vela 0.14.5 (SvelteKit 2), trimmed of
- * node_modules, databases, `.env` and large assets, kept under
- * `test-fixtures/kit2`. `.gitignore`/`.npmrc` are stored under their
- * publish-safe names, as templates are, so the fixture's own ignore rules do
- * not hide its files from this repository.
+ * Test-only SvelteKit 2 projects under `test-fixtures/kit2`: `minimal` and
+ * `static` are the `vela create` output of vela 0.14.5, trimmed of
+ * node_modules, databases, `.env` and large assets; `vanilla` is what
+ * `sv create` (minimal, TypeScript) wrote for Kit 2, with adapter-node in
+ * place of adapter-auto and no vela in it at all. `.gitignore`/`.npmrc` are
+ * stored under their publish-safe names, as templates are, so the fixture's
+ * own ignore rules do not hide its files from this repository.
  */
 export const KIT2_FIXTURES = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -18,7 +20,10 @@ export const KIT2_FIXTURES = path.resolve(
 );
 
 /** A fresh copy of a Kit 2 fixture in a temp dir, optionally committed to a new git repo. */
-export function copyKit2Fixture(name: 'minimal' | 'static', { git = false } = {}): string {
+export function copyKit2Fixture(
+	name: 'minimal' | 'static' | 'vanilla',
+	{ git = false } = {}
+): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), `vela-kit2-${name}-`));
 	fs.cpSync(path.join(KIT2_FIXTURES, name), dir, { recursive: true });
 	restoreTemplateNames(dir);

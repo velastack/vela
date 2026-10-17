@@ -105,19 +105,62 @@ describe('detectAdapter', () => {
 		});
 	});
 
-	test('a svelte.config is a SvelteKit 2 project, refused with the migrate command', () => {
+	test('a svelte.config beside a bare sveltekit() is a SvelteKit 2 project, and its kit.adapter counts', () => {
+		write('vite.config.ts', BARE_VITE_CONFIG);
+		write(
+			'svelte.config.js',
+			`import adapter from '@sveltejs/adapter-node';\nexport default { kit: { adapter: adapter() } };\n`
+		);
+		expect(detectAdapter(tmp)).toEqual({
+			kind: 'node',
+			file: path.join(tmp, 'svelte.config.js'),
+			specifier: '@sveltejs/adapter-node'
+		});
+	});
+
+	test('an inline sveltekit({...}) argument wins over a svelte.config, as Kit 2 itself reads them', () => {
 		write('vite.config.ts', INLINE_VITE_CONFIG);
 		write(
 			'svelte.config.js',
 			`import adapter from '@sveltejs/adapter-node';\nexport default { kit: { adapter: adapter() } };\n`
 		);
-		expect(() => detectAdapter(tmp)).toThrow(AdapterError);
-		expect(() => detectAdapter(tmp)).toThrow(/svelte\.config\.js found/);
+		expect(detectAdapter(tmp)).toMatchObject({
+			kind: 'auto',
+			file: path.join(tmp, 'vite.config.ts')
+		});
+	});
+
+	test('a SvelteKit 3 project with a leftover svelte.config is sent to the migration', () => {
+		write('vite.config.ts', BARE_VITE_CONFIG);
+		write('svelte.config.js', `export default { kit: {} };\n`);
+		pkg({ '@sveltejs/kit': '^3.0.0' });
+		expect(() => detectAdapter(tmp)).toThrow(/svelte\.config\.js found: SvelteKit 3/);
 		try {
 			detectAdapter(tmp);
 		} catch (err) {
 			expect((err as AdapterError).snippet).toBe('npx vela@^0.15 migrate sveltekit-3');
 		}
+	});
+
+	test('reads the sv layout of a svelte.config: a named config object, exported after', () => {
+		write(
+			'svelte.config.js',
+			`import adapter from '@sveltejs/adapter-auto';\n` +
+				`/** @type {import('@sveltejs/kit').Config} */\n` +
+				`const config = { kit: { adapter: adapter() } };\n\nexport default config;\n`
+		);
+		expect(detectAdapter(tmp)).toMatchObject({ kind: 'auto', specifier: '@sveltejs/adapter-auto' });
+	});
+
+	test('a svelte.config with no kit object has no adapter', () => {
+		write('svelte.config.js', `export default { preprocess: [] };\n`);
+		expect(detectAdapter(tmp)).toEqual({ kind: 'none', file: path.join(tmp, 'svelte.config.js') });
+	});
+
+	test('a svelte.config vela cannot read is reported as unreadable, with the snippet', () => {
+		write('svelte.config.js', `export default makeConfig();\n`);
+		expect(() => detectAdapter(tmp)).toThrow(AdapterError);
+		expect(() => detectAdapter(tmp)).toThrow(/svelte\.config\.js: vela cannot read the adapter/);
 	});
 
 	test('classifies by module specifier, not by the local name', () => {
@@ -215,16 +258,29 @@ export default defineConfig({
 		);
 	});
 
-	test('refuses a svelte.config project before touching anything', async () => {
-		write('vite.config.ts', SV_VITE_CONFIG);
+	test('never edits a svelte.config project: anything but adapter-node is refused', async () => {
+		write('vite.config.ts', BARE_VITE_CONFIG);
 		write('svelte.config.js', `export default { kit: {} };\n`);
 		pkg({ '@sveltejs/adapter-auto': '^7.0.1' });
 
 		await expect(ensureNodeAdapter(tmp, { install: false })).rejects.toThrow(
-			/svelte\.config\.js found/
+			/svelte\.config\.js found: this is a SvelteKit 2 project[^]*Add it to svelte\.config\.js yourself/
 		);
-		expect(read('vite.config.ts')).toBe(SV_VITE_CONFIG);
+		expect(read('vite.config.ts')).toBe(BARE_VITE_CONFIG);
+		expect(read('svelte.config.js')).toBe(`export default { kit: {} };\n`);
 		expect(devDeps()).toEqual({ '@sveltejs/adapter-auto': '^7.0.1' });
+	});
+
+	test('a svelte.config project already on adapter-node deploys as it is, package.json included', async () => {
+		const config = `import adapter from '@sveltejs/adapter-node';\nexport default { kit: { adapter: adapter() } };\n`;
+		write('svelte.config.js', config);
+		// No adapter-node listed: the ^6 vela would add is the Kit 3 major, so it is not.
+		pkg({ '@sveltejs/kit': '^2.70.3' });
+
+		const outcome = await ensureNodeAdapter(tmp, { install: false });
+		expect(outcome).toEqual({ previous: 'node', removedDeps: [], packageJsonChanged: false });
+		expect(read('svelte.config.js')).toBe(config);
+		expect(devDeps()).toEqual({ '@sveltejs/kit': '^2.70.3' });
 	});
 
 	test('a project already on adapter-node is left byte-identical', async () => {
