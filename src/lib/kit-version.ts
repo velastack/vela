@@ -8,9 +8,10 @@ import { minVersion, type PkgJson } from './package-json.ts';
  *
  * vela 0.15 writes Kit 3 code only: `#lib`, `$app/env`, config inline in
  * `sveltekit({...})`. Run against a Kit 2 project it would leave that project
- * half migrated, so the commands that write code refuse one and name the way
- * forward. A Kit 2 app pins `vela ^0.14`, and a caret on 0.x never moves it to
- * 0.15, so it only meets this guard when someone runs a newer vela by hand.
+ * half migrated, so the commands that write code (`enable`, `generate`,
+ * `bless`) refuse one and name the way forward. The commands that only run or
+ * ship the project's own code (`dev`, `build`, `deploy`, `env`) work on
+ * either, and pick the Kit 2 or Kit 3 rule where one differs (`kitMajor`).
  */
 
 const KIT = '@sveltejs/kit';
@@ -72,23 +73,32 @@ export function declaredMajor(range: string): number | null {
  */
 export function assertKit3(root: string, label: string): void {
 	const status = kitStatus(root);
-	const installed = installedMajor(status.installedVersion);
+	const major = kitMajor(root, status);
 	const why =
-		status.declaredMajor !== null && status.declaredMajor < 3
-			? `package.json declares ${KIT} ${status.declaredMajor}.x.`
-			: status.declaredMajor === null && installed !== null && installed < 3
-				? `It has ${KIT} ${status.installedVersion} installed.`
-				: status.svelteConfig
-					? `It still has ${path.basename(status.svelteConfig)}, which SvelteKit 3 no longer reads.`
-					: null;
+		major !== null && major < 3
+			? status.declaredMajor !== null
+				? `package.json declares ${KIT} ${status.declaredMajor}.x.`
+				: `It has ${KIT} ${status.installedVersion} installed.`
+			: status.svelteConfig
+				? `It still has ${path.basename(status.svelteConfig)}, which SvelteKit 3 no longer reads.`
+				: null;
 	if (!why) return;
 
 	throw new KitVersionError(
 		`${label}: SvelteKit 2 project detected. ${why}\n\n` +
-			`vela 0.15 supports SvelteKit 3 only. Upgrade the project with\n\n` +
+			`vela 0.15 generates SvelteKit 3 code only. Upgrade the project with\n\n` +
 			`  ${KIT3_MIGRATE_COMMAND}\n\n` +
-			`or stay on vela@0.14, which keeps working with SvelteKit 2.`
+			`or stay on vela@0.14, which keeps generating for SvelteKit 2.`
 	);
+}
+
+/**
+ * The SvelteKit major a project is on: what package.json declares, or when the
+ * range says nothing, what is installed. Null when neither says. The one
+ * reading every Kit-version decision shares, so no two can disagree.
+ */
+export function kitMajor(root: string, status: KitStatus = kitStatus(root)): number | null {
+	return status.declaredMajor ?? installedMajor(status.installedVersion);
 }
 
 function installedMajor(version: string | undefined): number | null {
@@ -109,8 +119,8 @@ let warned = false;
 /**
  * One line, once per process, for the commands that only run the project's
  * own toolchain (`dev`, `build`, `preview`, `test:server`): they work on
- * whatever SvelteKit the project has, but vela 0.15's generators and deploy
- * will not, so a Kit 2 project hears about it early. Never throws.
+ * whatever SvelteKit the project has, but vela 0.15's generators will not, so
+ * a Kit 2 project hears about it early. Never throws.
  */
 export function warnIfKit2(root: string, warn: (message: string) => void): void {
 	if (warned) return;
@@ -120,7 +130,7 @@ export function warnIfKit2(root: string, warn: (message: string) => void): void 
 		if (!(e instanceof KitVersionError)) return;
 		warned = true;
 		warn(
-			`SvelteKit 2 project: vela 0.15 generators and deploy need SvelteKit 3. Upgrade with \`${KIT3_MIGRATE_COMMAND}\`, or pin vela@^0.14.`
+			`SvelteKit 2 project: vela 0.15 generators (enable, generate, bless) need SvelteKit 3. Upgrade with \`${KIT3_MIGRATE_COMMAND}\`, or pin vela@^0.14.`
 		);
 	}
 }

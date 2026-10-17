@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { buildStack, DevOnlyEnvError } from './build-stack.ts';
-import { staticEnvImports } from './static-env.ts';
+import { staticEnv, staticEnvImports } from './static-env.ts';
+import { readAtBuildTime } from './env-command.ts';
 import { missingFromExample } from './env-nudge.ts';
 
 let root: string;
@@ -45,6 +46,76 @@ describe('staticEnvImports', () => {
 	});
 });
 
+const KIT3 = JSON.stringify({ devDependencies: { '@sveltejs/kit': '^3.0.0' } });
+const KIT2 = JSON.stringify({ devDependencies: { '@sveltejs/kit': '^2.0.0' } });
+
+const ENV_TS = `import { defineEnvVars } from '@sveltejs/kit/env';
+const isProd = true;
+export const variables = defineEnvVars({
+	POCKETBASE_URL: { schema: (value) => value ?? '' },
+	STRIPE_SECRET_KEY: { static: true },
+	'PUBLIC_CMS_URL': { public: true, 'static': true },
+	AI_MODEL: { static: isProd },
+	COMPUTED: { static: (true) as boolean }
+});
+`;
+
+describe('staticEnv', () => {
+	test('on Kit 3, a variable is static when src/env.ts literally says so', () => {
+		write('package.json', KIT3);
+		write('src/env.ts', ENV_TS);
+		// A leftover alias import says nothing about a runtime variable.
+		write('src/lib/pb.ts', `import { POCKETBASE_URL } from '$env/static/private';\n`);
+		const result = staticEnv(root);
+		expect(result.rule).toBe('declarations');
+		expect(result.how).toBe('declared static: true in src/env.ts');
+		expect([...result.names].sort()).toEqual(['COMPUTED', 'PUBLIC_CMS_URL', 'STRIPE_SECRET_KEY']);
+	});
+
+	test('reads src/env.js and a plain object literal too', () => {
+		write('package.json', KIT3);
+		write(
+			'src/env.js',
+			`const variables = { A: { static: true }, B: {} };\nexport { variables };\n`
+		);
+		const result = staticEnv(root);
+		expect([...result.names]).toEqual(['A']);
+		expect(result.how).toBe('declared static: true in src/env.js');
+	});
+
+	test('on Kit 3 with no src/env.ts, nothing is static', () => {
+		write('package.json', KIT3);
+		write('src/lib/ai.ts', `import { ANTHROPIC_API_KEY } from '$env/static/private';\n`);
+		expect(staticEnv(root).names.size).toBe(0);
+	});
+
+	test('a project that declares no SvelteKit is read by the Kit 3 rule', () => {
+		write('src/env.ts', ENV_TS);
+		write('src/lib/pb.ts', `import { POCKETBASE_URL } from '$env/static/private';\n`);
+		expect(staticEnv(root).names.has('POCKETBASE_URL')).toBe(false);
+		expect(staticEnv(root).names.has('STRIPE_SECRET_KEY')).toBe(true);
+	});
+
+	test('on Kit 2 the import path decides, and src/env.ts is not consulted', () => {
+		write('package.json', KIT2);
+		write('src/env.ts', ENV_TS);
+		write('src/lib/pb.ts', `import { POCKETBASE_URL } from '$env/static/private';\n`);
+		const result = staticEnv(root);
+		expect(result.rule).toBe('imports');
+		expect(result.how).toBe('imported from $env/static');
+		expect([...result.names]).toEqual(['POCKETBASE_URL']);
+	});
+
+	test('readAtBuildTime filters the changed keys and names the rule', () => {
+		write('package.json', KIT3);
+		write('src/env.ts', ENV_TS);
+		expect(readAtBuildTime(root, ['STRIPE_SECRET_KEY', 'AI_MODEL', 'POCKETBASE_URL'])).toEqual({
+			baked: ['STRIPE_SECRET_KEY'],
+			how: 'declared static: true in src/env.ts'
+		});
+	});
+});
+
 describe('buildStack', () => {
 	test('the target wins, vela derives on top, and dev-only keys are blanked', () => {
 		write('.env', 'STRIPE_SECRET_KEY=sk_test\nAI_MODEL=small\nPOCKETBASE_URL=http://localhost:1\n');
@@ -74,14 +145,37 @@ describe('buildStack', () => {
 		expect('POCKETBASE_SUPERUSER_EMAIL' in env).toBe(false);
 	});
 
-	test('a static import of a dev-only key fails before the build', () => {
+	test('a static declaration of a dev-only key fails before the build', () => {
+		write('package.json', KIT3);
 		write('.env', 'ANTHROPIC_API_KEY=sk-ant\n');
-		write('src/lib/ai.ts', `import { ANTHROPIC_API_KEY } from '$env/static/private';\n`);
+		write(
+			'src/env.ts',
+			`import { defineEnvVars } from '@sveltejs/kit/env';\nexport const variables = defineEnvVars({ ANTHROPIC_API_KEY: { static: true } });\n`
+		);
 		expect(() => buildStack(root, { stack: {}, derived: {}, tunnel: true })).toThrow(
 			DevOnlyEnvError
 		);
 		expect(() => buildStack(root, { stack: {}, derived: {}, tunnel: true })).toThrow(
-			/ANTHROPIC_API_KEY is imported from \$env\/static but set only in your \.env/
+			/ANTHROPIC_API_KEY is declared static: true in src\/env\.ts but set only in your \.env[^]*or drop static: true/
+		);
+	});
+
+	test('on Kit 3 a leftover $env/static import of a runtime key does not fail the build', () => {
+		write('package.json', KIT3);
+		write('.env', 'ANTHROPIC_API_KEY=sk-ant\n');
+		write('src/env.ts', `export const variables = { ANTHROPIC_API_KEY: {} };\n`);
+		write('src/lib/ai.ts', `import { ANTHROPIC_API_KEY } from '$env/static/private';\n`);
+		expect(buildStack(root, { stack: {}, derived: {}, tunnel: true }).blanked).toEqual([
+			'ANTHROPIC_API_KEY'
+		]);
+	});
+
+	test('on Kit 2 a static import of a dev-only key fails before the build', () => {
+		write('package.json', KIT2);
+		write('.env', 'ANTHROPIC_API_KEY=sk-ant\n');
+		write('src/lib/ai.ts', `import { ANTHROPIC_API_KEY } from '$env/static/private';\n`);
+		expect(() => buildStack(root, { stack: {}, derived: {}, tunnel: true })).toThrow(
+			/ANTHROPIC_API_KEY is imported from \$env\/static but set only in your \.env[^]*or remove the import/
 		);
 	});
 

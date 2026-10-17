@@ -120,7 +120,7 @@ describe('assertKit3', () => {
 		}
 		expect(message).toContain('vela bless');
 		expect(message).toContain('SvelteKit 2 project detected');
-		expect(message).toContain('vela 0.15 supports SvelteKit 3 only');
+		expect(message).toContain('vela 0.15 generates SvelteKit 3 code only');
 		expect(message).toContain('npx vela@^0.15 migrate sveltekit-3');
 		expect(message).toContain('vela@0.14');
 		expect(message).toContain('@sveltejs/kit 2.x');
