@@ -36,6 +36,7 @@ Off a terminal nothing is created on velastack.dev unless `--link new` or `--lin
 
 ```sh
 vela enable auth                                     # sign-in, sessions, OAuth scaffold
+vela enable whatsapp                                 # sign in with a code on WhatsApp, next to email
 vela generate scaffold post title:text body:editor   # model, forms, list and detail pages
 vela migrate up                                      # schema, versioned and in git
 vela ui add button card dialog                       # shadcn-svelte components, into your project

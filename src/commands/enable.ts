@@ -15,6 +15,7 @@ import { cms } from './enable/cms.ts';
 import { blog } from './enable/blog.ts';
 import { contentNegotiation } from './enable/content-negotiation.ts';
 import { workflows } from './enable/workflows.ts';
+import { whatsapp } from './enable/whatsapp.ts';
 
 export const enable = new Command('enable')
 	.description('enable features')
@@ -33,4 +34,5 @@ export const enable = new Command('enable')
 	.addCommand(notifications)
 	.addCommand(cms)
 	.addCommand(blog)
-	.addCommand(workflows);
+	.addCommand(workflows)
+	.addCommand(whatsapp);
