@@ -197,7 +197,7 @@ export const create = new Command('create')
 				nextSteps.push('Run `vela ui add <component>` to add UI components.');
 			}
 			nextSteps.push(...linkNextSteps(link));
-			nextSteps.push('Stuck? Visit https://docs.velastack.dev');
+			nextSteps.push('Stuck? Visit https://velastack.dev/docs');
 
 			reportResult({
 				summary: `Created ${name} at ${directory}.`,
