@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import * as p from '@clack/prompts';
 import { bySlug, type Pattern, type Slug } from '@velastack/patterns';
@@ -7,6 +8,7 @@ import { reportResult, type ReportFailure } from './result-report.ts';
 import { checkProviderInput } from './providers.ts';
 import { assertShadcn } from './require-ui.ts';
 import { assertKit3 } from './kit-version.ts';
+import { MIGRATIONS_DIR } from './constants.ts';
 
 export interface PatternReport {
 	summary?: string;
@@ -38,6 +40,40 @@ interface ResultFile {
 }
 
 const isSuccess = (f: ResultFile) => (f.status ?? 'success') === 'success';
+
+/** The file names in the project's `migrations/` (none when it doesn't exist). */
+export function listMigrations(root: string): Set<string> {
+	try {
+		return new Set(fs.readdirSync(path.join(root, MIGRATIONS_DIR)));
+	} catch {
+		return new Set();
+	}
+}
+
+/**
+ * Splits a pattern's successful files into created and modified.
+ *
+ * PocketBase writes a migration to `migrations/` as soon as a pattern changes
+ * the schema, so by the time the pattern writes its formatted copy the file is
+ * already there and comes back among the modifies. A migration that was not
+ * in `migrations/` before the run (`migrationsBefore`) was created by it.
+ */
+export function splitCreated<F extends ResultFile>(
+	creates: F[],
+	modifies: F[],
+	root: string,
+	migrationsBefore: Set<string>
+): { created: F[]; modified: F[] } {
+	const isNewMigration = (f: F) => {
+		const rel = path.normalize(toRelative(root, f.path));
+		return path.dirname(rel) === MIGRATIONS_DIR && !migrationsBefore.has(path.basename(rel));
+	};
+	const modified = modifies.filter(isSuccess);
+	return {
+		created: [...creates.filter(isSuccess), ...modified.filter(isNewMigration)],
+		modified: modified.filter((f) => !isNewMigration(f))
+	};
+}
 
 export async function runPattern(
 	slug: Slug,
@@ -71,6 +107,8 @@ export async function runPattern(
 	if (pattern.requires.ui === 'shadcn' && features.ui !== 'shadcn') {
 		assertShadcn(`vela ${pattern.command.base.replace(/^vela /, '')}`, workspaceRootDir);
 	}
+
+	const migrationsBefore = listMigrations(workspaceRootDir);
 
 	const log = p.taskLog({ title: report.task.title });
 
@@ -125,8 +163,12 @@ export async function runPattern(
 			message: f.message
 		}));
 
-	const created = result.creates.filter(isSuccess);
-	const modified = result.modifies.filter(isSuccess);
+	const { created, modified } = splitCreated(
+		result.creates,
+		result.modifies,
+		workspaceRootDir,
+		migrationsBefore
+	);
 	const deleted = result.deletes.filter(isSuccess);
 
 	const totalChanges =
