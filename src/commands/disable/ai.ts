@@ -5,7 +5,6 @@ import { runCommand, runDisable } from './_shared.ts';
 export const ai = new Command('ai')
 	.description('disable AI chat')
 	.option('-y, --yes', 'skip confirmation prompt')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts, cmd) =>

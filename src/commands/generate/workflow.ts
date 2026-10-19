@@ -7,7 +7,6 @@ export const workflow = new Command('workflow')
 	.description('generate a background workflow in src/lib/workflows')
 	.argument('<name>', 'workflow name, e.g. send-welcome-email')
 	.option('--cron <schedule>', 'run on a schedule, e.g. "*/5 * * * *"')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((name: string, options: { cron?: string }, cmd) =>

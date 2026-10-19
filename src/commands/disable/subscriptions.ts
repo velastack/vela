@@ -5,7 +5,6 @@ import { runCommand, runDisable } from './_shared.ts';
 export const subscriptions = new Command('subscriptions')
 	.description('disable Stripe subscriptions')
 	.option('-y, --yes', 'skip confirmation prompt')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts, cmd) =>

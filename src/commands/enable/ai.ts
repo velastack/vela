@@ -9,7 +9,6 @@ import { collectProviderEnv, missingEnvKeys, resolveProvider } from '../../lib/p
 export const ai = new Command('ai')
 	.description('enable AI chat with the Vercel AI SDK (Vercel AI Gateway, OpenAI or Anthropic)')
 	.option('--provider <provider>', 'AI provider: gateway, openai or anthropic')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts: { provider?: string }, cmd) =>

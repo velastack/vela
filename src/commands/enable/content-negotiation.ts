@@ -7,7 +7,6 @@ import { findWorkspaceRoot, hasDependency } from '../../lib/workspace.ts';
 
 export const contentNegotiation = new Command('content-negotiation')
 	.description('enable content negotiation (sveltekit-negotiate)')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((_opts, cmd) =>

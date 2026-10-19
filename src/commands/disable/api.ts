@@ -5,7 +5,6 @@ import { runCommand, runDisable } from './_shared.ts';
 export const api = new Command('api')
 	.description('disable the REST API')
 	.option('-y, --yes', 'skip confirmation prompt')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts, cmd) =>

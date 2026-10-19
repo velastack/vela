@@ -7,7 +7,6 @@ export const resource = new Command('resource')
 	.description('generate a resource (model + CRUD pages)')
 	.argument('<model>', 'model name')
 	.argument('[fields...]', 'field definitions')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((model: string, fields: string[]) =>

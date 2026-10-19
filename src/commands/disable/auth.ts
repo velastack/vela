@@ -5,7 +5,6 @@ import { runCommand, runDisable } from './_shared.ts';
 export const auth = new Command('auth')
 	.description('disable authentication')
 	.option('-y, --yes', 'skip confirmation prompt')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts, cmd) =>
