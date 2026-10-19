@@ -5,7 +5,6 @@ import { runPattern } from '../../lib/pattern-runner.ts';
 
 export const apiKeys = new Command('api-keys')
 	.description('enable API key management')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((_opts, cmd) =>

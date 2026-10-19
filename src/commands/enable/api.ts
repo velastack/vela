@@ -5,7 +5,6 @@ import { runPattern } from '../../lib/pattern-runner.ts';
 
 export const api = new Command('api')
 	.description('enable the PocketBase REST API')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((_opts, cmd) =>

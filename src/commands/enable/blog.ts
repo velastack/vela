@@ -5,7 +5,6 @@ import { runPattern } from '../../lib/pattern-runner.ts';
 
 export const blog = new Command('blog')
 	.description('enable an mdsvex blog with posts, tags, and RSS')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((_opts, cmd) =>

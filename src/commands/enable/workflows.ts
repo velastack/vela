@@ -5,7 +5,6 @@ import { runPattern } from '../../lib/pattern-runner.ts';
 
 export const workflows = new Command('workflows')
 	.description('add background workflows to a project created before they were built in')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((_opts, cmd) =>

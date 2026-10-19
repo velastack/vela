@@ -5,7 +5,6 @@ import { runCommand, runDisable } from './_shared.ts';
 export const apiKeys = new Command('api-keys')
 	.description('disable API key management')
 	.option('-y, --yes', 'skip confirmation prompt')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts, cmd) =>

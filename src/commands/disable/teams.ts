@@ -5,7 +5,6 @@ import { runCommand, runDisable } from './_shared.ts';
 export const teams = new Command('teams')
 	.description('disable teams')
 	.option('-y, --yes', 'skip confirmation prompt')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts, cmd) =>

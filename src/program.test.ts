@@ -322,69 +322,69 @@ describe('target selection', () => {
 	});
 });
 
-describe('pattern argv forwarding', () => {
+describe('pattern commands', () => {
 	function walk(cmd: Command): Command[] {
 		return [cmd, ...cmd.commands.flatMap(walk)];
 	}
 
-	// Private commander state, read the same way `registeredArguments` is above.
-	const forwarding = walk(program).filter(
-		(c) => (c as unknown as { _allowUnknownOption: boolean })._allowUnknownOption
-	);
+	const FAMILIES = ['enable', 'disable', 'generate', 'destroy'];
+	const patternCommands = program.commands
+		.filter((c) => FAMILIES.includes(c.name()))
+		.flatMap((family) => family.commands.flatMap(walk));
 
-	test('at least the enable/disable/generate/destroy families forward argv', () => {
-		expect(forwarding.map((c) => c.name())).toContain('cms');
-	});
-
-	test.each(forwarding.map((c) => [`${c.parent?.name() ?? ''} ${c.name()}`.trim(), c] as const))(
-		'%s accepts an unknown option and its value',
-		(_path, cmd) => {
-			// Commander appends unknown options to `args` and then counts them as
-			// excess positionals, so `enable cms --endpoint <url>` failed with "too
-			// many arguments" until the command also allowed excess arguments.
-			expect((cmd as unknown as { _allowExcessArguments: boolean })._allowExcessArguments).toBe(
-				true
-			);
-		}
-	);
-
-	test('enable cms parses --endpoint <url> as its own option', async () => {
-		const enable = program.commands.find((c) => c.name() === 'enable')!;
-		const cms = enable.commands.find((c) => c.name() === 'cms')!;
-		const url = 'https://velastack.dev/v1/projects/2tj321uzke7k7fn/cms';
-		const original = (cms as unknown as { _actionHandler: unknown })._actionHandler;
-		let seen: { endpoint?: string; args: string[] } | undefined;
-		cms.exitOverride().action((opts: { endpoint?: string }, c: Command) => {
-			seen = { endpoint: opts.endpoint, args: c.args };
+	/** Runs `argv` against `cmd` with its action swapped out; returns what the action saw. */
+	async function parseWith(cmd: Command, argv: string[]) {
+		const original = (cmd as unknown as { _actionHandler: unknown })._actionHandler;
+		let seen: { opts: Record<string, unknown>; args: string[] } | undefined;
+		cmd.exitOverride().action((opts: Record<string, unknown>, c: Command) => {
+			seen = { opts, args: c.args };
 		});
 		try {
-			await program.parseAsync(['enable', 'cms', '--endpoint', url, '--other'], { from: 'user' });
+			await program.parseAsync(argv, { from: 'user' });
 		} finally {
-			(cms as unknown as { _actionHandler: unknown })._actionHandler = original;
+			(cmd as unknown as { _actionHandler: unknown })._actionHandler = original;
 		}
-		// The endpoint is a declared option so it can lift the static-site guard;
-		// anything else still passes through to the pattern.
-		expect(seen).toEqual({ endpoint: url, args: ['--other'] });
+		return seen;
+	}
+
+	const find = (family: string, name: string) =>
+		program.commands.find((c) => c.name() === family)!.commands.find((c) => c.name() === name)!;
+
+	test('covers the enable/disable/generate/destroy families', () => {
+		expect(patternCommands.length).toBeGreaterThan(30);
+	});
+
+	// Unknown flags used to be appended to the pattern's argv, where nothing
+	// read them: `vela enable auth --remote` silently generated the form-action
+	// variant. Every flag a pattern reads is now a declared option, so a typo
+	// or an unsupported flag stops the command instead.
+	test.each(
+		patternCommands.map((c) => [`${c.parent?.name() ?? ''} ${c.name()}`.trim(), c] as const)
+	)('%s refuses an unknown option', async (path, cmd) => {
+		cmd.exitOverride().configureOutput({ writeErr: () => {} });
+		await expect(
+			program.parseAsync([...path.split(' '), 'x', '--not-a-flag'], { from: 'user' })
+		).rejects.toMatchObject({ code: 'commander.unknownOption' });
+	});
+
+	test('enable cms parses --endpoint <url> as its own option', async () => {
+		const url = 'https://velastack.dev/v1/projects/2tj321uzke7k7fn/cms';
+		const seen = await parseWith(find('enable', 'cms'), ['enable', 'cms', '--endpoint', url]);
+		expect(seen?.opts.endpoint).toBe(url);
+		expect(seen?.args).toEqual([]);
 	});
 
 	test('enable analytics parses --provider <id> as its own option', async () => {
-		const enable = program.commands.find((c) => c.name() === 'enable')!;
-		const analytics = enable.commands.find((c) => c.name() === 'analytics')!;
-		const original = (analytics as unknown as { _actionHandler: unknown })._actionHandler;
-		let seen: { provider?: string; args: string[] } | undefined;
-		analytics.exitOverride().action((opts: { provider?: string }, c: Command) => {
-			seen = { provider: opts.provider, args: c.args };
-		});
-		try {
-			await program.parseAsync(['enable', 'analytics', '--provider', 'plausible', '--other'], {
-				from: 'user'
-			});
-		} finally {
-			(analytics as unknown as { _actionHandler: unknown })._actionHandler = original;
-		}
-		// The provider is consumed here and handed to the pattern as input, so it
-		// never reaches the argv the generic --provider guard inspects.
-		expect(seen).toEqual({ provider: 'plausible', args: ['--other'] });
+		const seen = await parseWith(find('enable', 'analytics'), [
+			'enable',
+			'analytics',
+			'--provider',
+			'plausible'
+		]);
+		// Consumed here and handed to the pattern as input, so it never reaches
+		// the argv the generic --provider guard inspects.
+		expect(seen?.opts.provider).toBe('plausible');
+		expect(seen?.args).toEqual([]);
 	});
 });
 
@@ -445,7 +445,9 @@ describe('backend gate', () => {
 		['enable', 'i18n'],
 		['disable', 'i18n']
 	])('%s %s runs in a project without a backend', async (name, sub) => {
-		expect(await runs([name, sub, 'contact', '--yes'])).toBe(true);
+		// only the destroy commands take --yes; anywhere else it is now an error
+		const yes = name === 'destroy' ? ['--yes'] : [];
+		expect(await runs([name, sub, 'contact', ...yes])).toBe(true);
 	});
 
 	// A static project is migrated too, and a Kit 2 one's .env may predate vela.

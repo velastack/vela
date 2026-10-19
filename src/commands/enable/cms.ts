@@ -57,7 +57,6 @@ export const cms = new Command('cms')
 		'--endpoint <url>',
 		'read from a hosted CMS at this URL instead of installing the backend in this app'
 	)
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts: { endpoint?: string }, cmd) =>

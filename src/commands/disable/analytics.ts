@@ -5,7 +5,6 @@ import { runCommand, runDisable } from './_shared.ts';
 export const analytics = new Command('analytics')
 	.description('disable web analytics')
 	.option('-y, --yes', 'skip confirmation prompt')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts, cmd) =>

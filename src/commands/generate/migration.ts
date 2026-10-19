@@ -12,7 +12,6 @@ export const migration = new Command('migration')
 	.argument('[args...]', 'operation arguments (e.g. "birthday:date")')
 	.option('--ai', 'open the visual schema editor in a browser instead')
 	.option('--no-open', 'with --ai: print the editor URL without opening a browser')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action(

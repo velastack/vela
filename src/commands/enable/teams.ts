@@ -5,7 +5,6 @@ import { runPattern } from '../../lib/pattern-runner.ts';
 
 export const teams = new Command('teams')
 	.description('enable team / multi-tenant support')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((_opts, cmd) =>

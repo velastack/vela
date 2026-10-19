@@ -5,7 +5,6 @@ import { runCommand, runDisable } from './_shared.ts';
 export const backend = new Command('backend')
 	.description('disable the PocketBase backend')
 	.option('-y, --yes', 'skip confirmation prompt')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts, cmd) =>

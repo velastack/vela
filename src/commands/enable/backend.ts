@@ -29,7 +29,6 @@ export const backend = new Command('backend')
 	.description('enable the PocketBase backend')
 	.option('--email <email>', 'email of the admin user')
 	.option('--password <password>', 'password of the admin user')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((rawOpts, cmd) =>

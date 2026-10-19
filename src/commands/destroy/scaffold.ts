@@ -10,7 +10,6 @@ export const scaffold = new Command('scaffold')
 		'--route <route>',
 		'custom route the scaffold was generated at (must match the --route used at generation)'
 	)
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((model: string, opts: { yes?: boolean; route?: string }) =>

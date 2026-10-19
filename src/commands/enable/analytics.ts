@@ -7,7 +7,6 @@ import { collectProviderEnv, missingEnvKeys, resolveProvider } from '../../lib/p
 export const analytics = new Command('analytics')
 	.description('enable web analytics (Plausible, Google Analytics or PostHog)')
 	.option('--provider <provider>', 'analytics provider: plausible, google or posthog')
-	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts: { provider?: string }, cmd) =>

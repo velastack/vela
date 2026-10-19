@@ -5,18 +5,25 @@ import { runPattern } from '../../lib/pattern-runner.ts';
 
 export const auth = new Command('auth')
 	.description('enable authentication (email/password + OAuth scaffold)')
-	.allowUnknownOption(true)
+	.option(
+		'--remote',
+		'generate the auth forms with SvelteKit remote functions instead of form actions and superforms'
+	)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
-	.action((_opts, cmd) =>
+	.action((options: { remote?: boolean }, cmd) =>
 		runCommand(
 			() =>
+				// Same pages and flows either way; `--remote` picks the variant whose
+				// forms post to `form.remote.ts` files, like `generate form --remote`.
 				runPattern(
-					'enable-auth',
+					options.remote ? 'enable-auth-remote' : 'enable-auth',
 					cmd.args,
 					{},
 					{
-						summary: 'Enabled authentication.',
+						summary: options.remote
+							? 'Enabled authentication with remote functions.'
+							: 'Enabled authentication.',
 						nextSteps: [
 							'Run `vela dev` and visit /login to try the new sign-in flow.',
 							'Customize sign-in copy and providers in src/routes/(public)/(auth)/.',
