@@ -1,6 +1,6 @@
 [Unit]
 Description=vela PocketBase %i
-Documentation=https://docs.velastack.dev
+Documentation=https://velastack.dev/docs
 After=network-online.target
 Wants=network-online.target
 

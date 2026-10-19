@@ -1,6 +1,6 @@
 [Unit]
 Description=vela app %i
-Documentation=https://docs.velastack.dev
+Documentation=https://velastack.dev/docs
 After=network-online.target vela-pb@%i.service
 Wants=network-online.target
 

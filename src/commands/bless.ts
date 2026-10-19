@@ -512,7 +512,7 @@ function printNextSteps(projectPath: string, packageManager: ReturnType<typeof g
 	nextSteps.push(
 		'Run `vela enable auth` to layer on sign-in flows, or `vela generate scaffold <model>` to scaffold a CRUD page.'
 	);
-	nextSteps.push('Stuck? Visit https://docs.velastack.dev');
+	nextSteps.push('Stuck? Visit https://velastack.dev/docs');
 
 	reportResult({
 		summary: `Blessed project at ${projectPath}.`,

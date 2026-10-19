@@ -28,7 +28,7 @@
 
 			<div class="mt-8 flex items-center justify-center gap-3">
 				<a
-					href="https://docs.velastack.dev"
+					href="https://velastack.dev/docs"
 					class="bg-primary text-primary-foreground inline-flex items-center rounded-md px-5 py-2.5"
 				>
 					Read the docs

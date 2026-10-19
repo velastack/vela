@@ -164,7 +164,7 @@ Node 22.17+ and SvelteKit 3. That's it.
 
 ## Docs
 
-Full documentation, every command and flag: [docs.velastack.dev](https://docs.velastack.dev)
+Full documentation, every command and flag: [velastack.dev/docs](https://velastack.dev/docs)
 
 ## License
 
