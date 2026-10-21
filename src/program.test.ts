@@ -60,6 +60,7 @@ const EXPECTED_ENABLE_SUBCOMMANDS = [
 	'i18n',
 	'teams',
 	'payments',
+	'ecommerce',
 	'subscriptions',
 	'notifications',
 	'cms',
@@ -79,6 +80,7 @@ const EXPECTED_DISABLE_SUBCOMMANDS = [
 	'notifications',
 	'teams',
 	'payments',
+	'ecommerce',
 	'subscriptions',
 	'whatsapp'
 ];
@@ -445,7 +447,14 @@ describe('backend gate', () => {
 		['disable', 'ai'],
 		['disable', 'analytics'],
 		['enable', 'i18n'],
-		['disable', 'i18n']
+		['disable', 'i18n'],
+		// The cart reads no database; Stripe's needs a backend, which its
+		// requires check reports with the fix.
+		['enable', 'ecommerce'],
+		['disable', 'ecommerce'],
+		// Gated by the command once it knows the provider: Shopify needs none.
+		['enable', 'payments'],
+		['disable', 'payments']
 	])('%s %s runs in a project without a backend', async (name, sub) => {
 		// only the destroy commands take --yes; anywhere else it is now an error
 		const yes = name === 'destroy' ? ['--yes'] : [];

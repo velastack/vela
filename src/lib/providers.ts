@@ -1,6 +1,12 @@
 import process from 'node:process';
 import * as p from '@clack/prompts';
-import { bySlug, type Pattern, type Provider, type Slug } from '@velastack/patterns';
+import {
+	bySlug,
+	resolveProvider as resolvePatternProvider,
+	type Pattern,
+	type Provider,
+	type Slug
+} from '@velastack/patterns';
 
 /**
  * Provider selection for `vela enable <capability> --provider <id>`.
@@ -77,8 +83,7 @@ export function providerFlagInArgv(argv: string[]): boolean {
 /**
  * The generic guard every pattern run passes through. A pattern with
  * providers must be told which one; a pattern without them must not be handed
- * `--provider` as if it meant something. `input.provider` on its own is fine
- * either way: `enable payments` sends one for a pattern that declares none.
+ * `--provider` as if it meant something.
  */
 export function checkProviderInput(
 	pattern: Pick<Pattern, 'title' | 'providers'>,
@@ -97,12 +102,29 @@ export function checkProviderInput(
 	}
 }
 
-/** The provider for a run of `slug`: from `--provider`, else a prompt. */
-export async function resolveProvider(slug: Slug, flagValue?: string): Promise<Provider> {
+/**
+ * The provider for a run of `slug`: from `--provider`, else a prompt. A
+ * pattern built on another capability (`inheritsProvider`) takes the one
+ * `detected` for it instead, and accepts `--provider` only when it repeats it.
+ */
+export async function resolveProvider(
+	slug: Slug,
+	flagValue?: string,
+	detected: Partial<Record<string, string>> = {}
+): Promise<Provider> {
 	const pattern: Pattern = bySlug[slug];
 	const providers = pattern.providers ?? [];
 	if (providers.length === 0) {
 		throw new Error(`${pattern.title} does not support --provider.`);
+	}
+	if (pattern.inheritsProvider) {
+		// The package's own rules and messages, so the two cannot disagree.
+		return resolvePatternProvider(pattern, {
+			input: flagValue === undefined ? {} : { provider: flagValue },
+			argv: [],
+			env: 'runtime',
+			providers: detected
+		});
 	}
 	const patternName = capabilityName(slug);
 
@@ -129,10 +151,11 @@ export async function resolveProvider(slug: Slug, flagValue?: string): Promise<P
 /**
  * Values for the provider's declared env keys. One already in the
  * environment (the workspace `.env` is loaded before every command) is kept
- * without asking; on a terminal the rest are prompted for, blank allowed, and
- * a `secret` one (an API key) without echoing it;
- * off a terminal they fall back to the declared default or blank, and the
- * pattern writes an empty assignment for the developer to fill in.
+ * without asking; on a terminal the rest are prompted for, blank allowed
+ * unless the key is `required`, and a `secret` one (an API key) without
+ * echoing it. Off a terminal they fall back to the declared default or blank,
+ * and the pattern writes an empty assignment for the developer to fill in;
+ * a `required` key with neither is an error naming it.
  */
 export async function collectProviderEnv(provider: Provider): Promise<Record<string, string>> {
 	const values: Record<string, string> = {};
@@ -145,19 +168,29 @@ export async function collectProviderEnv(provider: Provider): Promise<Record<str
 			continue;
 		}
 		if (!interactive) {
+			if (variable.required && !variable.default) {
+				throw new Error(
+					`${variable.key} is required. Set it in .env or the environment, or run this in a terminal to be asked for it.`
+				);
+			}
 			values[variable.key] = variable.default ?? '';
 			continue;
 		}
+		const validate = variable.required
+			? (value: string | undefined) => (value?.trim() ? undefined : 'Required')
+			: undefined;
 		const value = variable.secret
 			? await p.password({
 					message: variable.placeholder
 						? `${variable.label} (${variable.placeholder})`
-						: variable.label
+						: variable.label,
+					validate
 				})
 			: await p.text({
 					message: variable.label,
 					placeholder: variable.placeholder,
-					initialValue: variable.default
+					initialValue: variable.default,
+					validate
 				});
 		if (p.isCancel(value)) {
 			p.cancel('Operation cancelled.');

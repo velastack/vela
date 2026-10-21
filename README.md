@@ -15,7 +15,7 @@ That's a running app with a database behind it. No separate PocketBase install, 
 ## What you get
 
 - **A backend on day one.** PocketBase, migrated and running locally, with types synced from your schema as it changes.
-- **Auth, payments, teams, notifications, email, i18n** — one command each, generated into your project as code you own.
+- **Auth, payments (Stripe or Shopify), a cart, teams, notifications, email, i18n** — one command each, generated into your project as code you own.
 - **CRUD you didn't write.** `vela generate scaffold post title:text body:editor` gives you the model, schema, forms, and pages.
 - **Describe it instead.** Pass `--ai "a blog post with tags and a cover image"` and review the collection it designs before anything is written.
 - **shadcn-svelte components** on tap, and fixtures and seeds for realistic data while you work.
@@ -150,8 +150,8 @@ Much of `vela` needs neither. In a plain `npx sv create` project, with no setup:
 - `vela legal` and `vela routes`
 - `vela deploy`, `env`, `status`, `logs` and `rollback`
 
-`vela ui`, `vela enable blog`, `vela enable auth` and what builds on it, and
-`vela generate scaffold --remote` write shadcn-svelte markup. Without it they refuse before
+`vela ui`, `vela enable blog`, `vela enable auth` and what builds on it, `vela enable payments`
+and `ecommerce`, and `vela generate scaffold --remote` write shadcn-svelte markup. Without it they refuse before
 changing anything and name the setup: `npx sv add tailwindcss`, then
 `npx shadcn-svelte@latest init`.
 

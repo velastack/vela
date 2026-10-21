@@ -11,6 +11,7 @@ import { i18n } from './disable/i18n.ts';
 import { notifications } from './disable/notifications.ts';
 import { teams } from './disable/teams.ts';
 import { payments } from './disable/payments.ts';
+import { ecommerce } from './disable/ecommerce.ts';
 import { subscriptions } from './disable/subscriptions.ts';
 import { whatsapp } from './disable/whatsapp.ts';
 
@@ -28,5 +29,6 @@ export const disable = new Command('disable')
 	.addCommand(notifications)
 	.addCommand(teams)
 	.addCommand(payments)
+	.addCommand(ecommerce)
 	.addCommand(subscriptions)
 	.addCommand(whatsapp);

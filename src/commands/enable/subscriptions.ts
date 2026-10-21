@@ -4,7 +4,7 @@ import { runCommand } from '../../lib/run.ts';
 import { runPattern } from '../../lib/pattern-runner.ts';
 
 export const subscriptions = new Command('subscriptions')
-	.description('enable Stripe subscriptions (requires auth and payments)')
+	.description('enable Stripe subscriptions (requires auth and Stripe payments)')
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((_opts, cmd) =>
