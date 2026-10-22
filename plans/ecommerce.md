@@ -408,6 +408,254 @@ Everything is shadcn (`requires.ui: "shadcn"`).
 
 The PR-by-PR order is in `ecommerce-plan.md`.
 
+## Phase 1.5: WhatsApp checkout
+
+Designed 2026-10-22; it ships before Phase 2. The PR outline is `ecommerce-plan.md` §12.
+
+A third provider, for sellers who close sales in a chat. The customer builds a cart as usual, and checkout turns it into a WhatsApp message to the business (a
+`wa.me` link) and records the same order in the background with a hosted VelaStack form, so the order is
+kept even if the customer never sends the message. No money moves on the site; payment, delivery and
+anything else happen in the chat.
+
+Half of this already exists. `@velastack/cms` (0.6.4) has `<CmsWhatsAppForm>`, which opens `wa.me`
+inside the submit handler and posts the same answers with `fetch(..., { keepalive: true })` to
+`/v1/projects/<id>/forms/<key>` (`cms-whatsapp-form.svelte`), with `whatsappHref` and `fillMessage` in
+`core/forms/whatsapp.ts`. The letterhead template uses it for enquiries. Phase 1.5 is that idea with a
+cart in front of it.
+
+### Decided
+
+- **WhatsApp is a payments provider** (`id: "whatsapp"`), next to Stripe and Shopify, and ecommerce
+  inherits it like the others (decision 2). Decision 4's reason applies again: every later commerce
+  pattern stays "on top of payments" with no branch. Payments on WhatsApp is the one-item case, an
+  "Order on WhatsApp" button with a prefilled message, which is what templates such as centeno already
+  build by hand (`orderHref`). It needs no backend, collections or webhook, so like Shopify it runs on
+  the `static` template.
+- **The number is `PUBLIC_WHATSAPP_NUMBER`**, declared in `src/env.ts` (`public: true`, `required`). It is
+  also the provider's marker (decision 1). It is unrelated to `features.whatsapp`, which is WhatsApp
+  sign-in (`vela enable whatsapp`) and stays as it is.
+- **Checkout asks for a name and a phone number**, plus an optional note, in the cart sheet. They go into
+  both the message and the stored order. Without them, an order whose chat was never sent can't be
+  followed up.
+- **A shared core, in a new package, serves both vela apps and templates.** It holds building the
+  `wa.me` link, formatting the lines, the order reference, and recording the order (token fetch, then
+  a `keepalive` post). `whatsappHref` and `fillMessage` move into it from `@velastack/cms`, which
+  depends on it and re-exports them. An app without the CMS installs only the core. The
+  `enable-ecommerce` provider and the CMS-driven templates both use it. Each keeps its own UI: shadcn
+  in the pattern, the template's own design in templates.
+- **Who writes the message.** In apps it is a plain `orderMessage(order)` in the project's own
+  `src/lib` that the developer edits; wuchale translates it when i18n is on. In templates it is
+  CMS-editable, through the `cmsWhatsApp` `message` with placeholders (`{ref}`, `{items}`, `{total}`,
+  `{name}`, `{note}`). The core formats the lines for both.
+- **The hosted `order` form is created for the user.** The endpoint 404s on an unknown key, and the
+  site's origin has to be on the project's allowlist:
+  - When the project is linked and the user is logged in, `vela enable payments` on WhatsApp creates
+    the `order` form and makes sure the site's origin is allowed.
+  - Templates declare `order` in `template.json` `forms`, as they declare `contact`.
+  - An unlinked project gets a next-steps note on how to add the form later.
+- **The order is posted as JSON and gets its own dashboard view.** The payload is
+  `{ ref, name, phone, note, lines: [{ name, quantity, price?, currency? }], subtotal?, message }`.
+  The endpoint is schemaless and already stores this as-is (depth 3, arrays of up to 100). velastack.dev
+  gains an order view: the lines as a table with the total, the reference and the customer, and the
+  `message` as the chat would have read. With the form-creation route below, these are the hosted
+  app's only changes in this phase.
+- **Where the order is recorded:**
+  - Templates use `hostedFormUrl(site.cmsEndpoint, "order")`, as `CmsWhatsAppForm` does.
+  - Apps always read an optional `PUBLIC_WHATSAPP_ORDER_FORM` holding the hosted form's full URL, and
+    the CLI fills it in. An app keeps its hosted CMS endpoint as a literal in `src/lib/cms.ts`
+    (`apiAdapter({ endpoint })`), not in `$lib/site`, so the generated code has no CMS path to derive
+    from.
+  - With no URL, checkout only opens WhatsApp.
+- **Prices are optional, and decimal.** `AddToCart` takes an optional price and currency, written the way
+  an editor types it (`price={4.5}`, not `450`). WhatsApp has no convention of its own, so the
+  canonical form is the one a person writes. The core sums in minor units internally, using the
+  currency's fraction digits from `Intl.NumberFormat`. A line with a price shows it. A cart in which
+  every line has a price in one currency shows a subtotal; otherwise it says the business will quote.
+- **One payments provider per project still holds.** Stripe and WhatsApp together ("pay now" or "order
+  by chat") would be two payments markers, which decision 1 refuses as ambiguous. A hybrid is a later
+  design.
+- **There is no demo item on WhatsApp.** `vela enable ecommerce` skips Phase 1's demo prompt on this
+  provider, and the docs show an `<AddToCart>` snippet. Phase 2 removes the demo for every provider.
+- **Every order gets a reference** generated in the browser (e.g. `A7K-3Q2`). It appears in both the
+  message and the stored order, so the business can match a chat to its record. It has to be
+  generated client-side because the chat opens before the post returns an id.
+- **After checkout the sheet shows a confirmation state**: "Order A7K-3Q2 opened in WhatsApp", with
+  "Open WhatsApp again" and "Done". "Done" clears the cart. We can't know whether the message was sent,
+  so the cart is not cleared on its own. `placed` is saved with the cart, so a customer who comes back
+  from WhatsApp, even in a new tab, sees the confirmation rather than a full cart that looks unsent.
+  Clearing on the next load once the order was recorded is not possible: once the tab has gone to
+  WhatsApp, the `keepalive` post completes but its result never reaches the page.
+
+### Checkout, mechanically
+
+`CmsWhatsAppForm` already settled the browser rules:
+
+- Build the message and `wa.me` href synchronously, and call `window.open` inside the submit handler.
+  A popup opened after an `await` loses the click's user activation and is blocked.
+- If it is blocked anyway, `location.assign(href)`.
+- Post the order with `keepalive: true` without awaiting it, so it finishes even if the tab goes to
+  WhatsApp.
+- The hosted endpoint already has a load-time `_token`, a `_gotcha` honeypot, origin CORS and rate
+  limits. The cart form includes the same controls.
+
+### Also decided
+
+- **The core is `@velastack/whatsapp`.** In this stack "WhatsApp" also means sign-in
+  (`features.whatsapp`), so the docs name the package for what it does: links, order messages and
+  recording.
+- **No notifications in 1.5.** The customer's message is the notification, and the dashboard's order
+  view catches the orders whose chat was never sent. Revisit with Phase 3.
+- **Payments' single-item button uses the same flow.** "Order on WhatsApp" opens a small dialog (name,
+  phone, note), then makes a one-line order with a reference, a message and a recorded submission.
+  Every WhatsApp order reaches the dashboard, whether it came from the cart or the button.
+- **Templates may all use the cart.** The `industries/README.md` rule against carts and checkout is
+  lifted for the WhatsApp cart. On-site payment stays banned on templates.
+
+### `@velastack/whatsapp`
+
+Plain TypeScript with no Svelte and no CMS runtime, so a static app, a server app and `@velastack/cms`
+can all use it:
+
+```ts
+// moved from @velastack/cms core/forms/whatsapp.ts, which re-exports them
+export function whatsappNumber(raw: string): string;
+export function whatsappHref(number: string, message?: string): string | null;
+export function fillMessage(template: string, data: FormData | Record<string, string>): string; // the cart fills from an Order
+
+// new
+export interface OrderLine {
+	name: string;
+	quantity: number;
+	price?: number;
+	currency?: string;
+}
+export interface Order {
+	ref: string;
+	name: string;
+	phone: string;
+	note?: string;
+	lines: OrderLine[];
+	/** Only when every line has a price in one currency. */
+	subtotal?: { amount: number; currency: string };
+}
+export function orderRef(): string; // A7K-3Q2: no 0/O/1/I, from crypto.getRandomValues
+export function orderSubtotal(lines: OrderLine[]): Order['subtotal'];
+export function formatLines(lines: OrderLine[], locale?: string): string; // "2 × Sourdough · €9.00"
+export function formToken(url: string): Promise<string | null>; // GET on mount, as useFormTarget does
+export function recordOrder(
+	url: string,
+	order: Order & { message: string },
+	token: string | null
+): Promise<Response>;
+```
+
+`recordOrder` posts JSON with `keepalive: true` and `accept: application/json`. `_token` and the
+`_gotcha` honeypot go in the JSON body, because the endpoint reads control fields from JSON as well
+as form bodies (`controlField` in `forms/normalize.ts`). It returns the promise, and the caller does not
+await it before opening the chat. The customer's `phone` is stored as typed, plus a
+`whatsappNumber`-normalised copy, so the dashboard can link to the customer's chat.
+
+### Vela apps (patterns)
+
+Payments, `providers/whatsapp/`:
+
+```
+src/lib/order.ts                                   orderMessage(order) (the developer's to edit) + ORDER_FORM
+src/lib/components/payments/order-button.svelte    "Order on WhatsApp": dialog → same flow, one line
+```
+
+- Env (`src/env.ts`, both `public: true`): `PUBLIC_WHATSAPP_NUMBER` (required; the marker) and
+  `PUBLIC_WHATSAPP_ORDER_FORM` (optional). `ORDER_FORM` is that env var, with one code path whether or
+  not the project has a CMS.
+- `generate.runtime.ts` branches per provider (`setupStripe` only on Stripe). WhatsApp has no runtime
+  step in the pattern, because the CLI creates the hosted form.
+- `requires`: nothing beyond the pattern's own, so it runs on `static`. The dialog is shadcn
+  (`dialog`, `input`, `textarea`, `label`, `button`).
+- The package added is `@velastack/whatsapp`.
+
+Ecommerce, `providers/whatsapp/`:
+
+```
+src/lib/cart.svelte.ts                         lines in localStorage; `placed` holds { ref, href } after checkout
+src/lib/components/cart/cart-sheet.svelte      lines, subtotal or "price on request", customer fields, confirmation state
+src/lib/components/cart/add-to-cart.svelte     <AddToCart id="sourdough" name="Sourdough" price={4.5} currency="EUR" />
+```
+
+- The store has the same shape as Stripe's (`items`, `open`, `count`, `load`, `add`, `setQuantity`,
+  `remove`, `clear`), with lines keyed by a developer-chosen `id`. The shared `CartButton` works
+  unchanged.
+- Checkout is a client-side submit handler, not a form action. Nothing runs on the server, and the
+  `wa.me` link has to open synchronously.
+
+### Templates
+
+- `@velastack/cms` gains a headless `<CmsWhatsAppCart>`, in the style of `CmsWhatsAppForm`. It owns
+  the store, the checkout behaviour and the confirmation state, and it takes the number and message
+  from a `cmsWhatsApp` field, with the cart placeholders. Templates render it with their own markup
+  through a snippet.
+- Each template that uses it declares `order` in `template.json` `forms`. The site seed already
+  creates declared forms (`ensureTemplateForms`).
+
+### CLI
+
+- `vela enable payments` lists WhatsApp as a provider. It prompts for the number, normalised with
+  `whatsappNumber` and refused when empty.
+- When the project is linked and the user is logged in, it creates the `order` form through a new
+  `POST /v1/projects/:id/forms` (API key, calling `ensureTemplateForms`), then writes
+  `PUBLIC_WHATSAPP_ORDER_FORM=<API_URL>/v1/projects/<id>/forms/order`. If the project isn't linked
+  but `src/lib/cms.ts` points at a hosted endpoint, the project id comes from that endpoint. Otherwise
+  the variable stays blank and a next-steps note explains it.
+- `vela enable ecommerce` inherits the provider and skips the demo prompt on WhatsApp.
+
+### Hosted (velastack.dev)
+
+- `POST /v1/projects/:id/forms` for the CLI, as above.
+- The order view, used for submissions to a form keyed `order` whose `data.lines` is an array:
+  - the lines table and subtotal;
+  - the reference, name, phone and note;
+  - the message, and a `wa.me` link to the customer's phone, for following up an order whose chat
+    was never sent.
+- The site origin has to be on the project's allowlist (`loadProjectOrigins`). Check that deploys and
+  linking already put it there.
+
+### Disable
+
+- `disable-payments` on WhatsApp deletes the provider's files and env declarations and uninstalls
+  `@velastack/whatsapp`. It leaves the hosted form and its orders alone.
+- `disable-ecommerce` needs nothing new: `allProviderPaths` covers the WhatsApp files.
+
+### Tests
+
+- `@velastack/whatsapp`, as units:
+  - `whatsappHref` encoding;
+  - `orderRef`'s alphabet and length;
+  - `orderSubtotal` with mixed currencies and with a missing price;
+  - `formatLines` in a zero-decimal currency;
+  - `recordOrder`'s request shape.
+- Patterns: `generate.test.ts` covering the WhatsApp provider for payments and ecommerce, with the CMS
+  and without it, and inheritance.
+- Generated project: a component test of the sheet. It checks that checkout calls `window.open` with
+  the right href before awaiting anything, and that it posts the order.
+- Hosted: the order payload round-trip, the create-form route, and the order view.
+- Integration: WhatsApp on `static` and on `minimal`, with no secrets needed, and enable, disable,
+  enable.
+
+### What this changes in Phases 2 and 3
+
+- **Phase 2** gets a third catalog. The WhatsApp provider has no product API, so products come from
+  the project: the CMS on templates and on apps with a CMS, and a plain data module otherwise.
+- **Phase 3:** `enable-orders` stays Stripe-only (`providers: { payments: ["stripe"] }`). WhatsApp
+  orders already live on velastack.dev.
+
+### Packaging
+
+- `@velastack/whatsapp` gets its own repo, `velastack/whatsapp` (`~/Code/velastack-whatsapp`), and is
+  released by tag, as patterns is. `@velastack/cms` depends on a published version.
+- The WhatsApp providers ship in patterns 0.5.x, before Phase 2. They are additive, and Phase 2's
+  `/shop` work stays the 0.6.0 break.
+- centeno is the reference template. It already builds one `orderHref` per seasonal bread, and the
+  cart replaces those links.
+
 ## Phase 2: catalog
 
 Sketched 2026-10-22; Phase 1 shipped in patterns 0.5.0 and vela 0.16.0. Phase 2 replaces the one-item demo page with a

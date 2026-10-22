@@ -699,3 +699,34 @@ Notes:
   gap from §3's "Found, not fixed here".
 - Shopify order mirroring (`webhooks/shopify`, HMAC) is not on this list; build it when a feature needs local Shopify
   orders.
+
+---
+
+## 12. Phase 1.5 (WhatsApp checkout): PR outline
+
+The design is `ecommerce.md` "Phase 1.5". It ships before Phase 2 and does not depend on #9, so either can land first.
+The order follows the dependencies: the new package, then the CMS, the hosted app, patterns, the CLI, the docs, and
+the templates. While a dependency is unreleased, develop against a symlinked checkout, as in Phase 1, and bump the
+range only after its release.
+
+| #   | Repo      | PR                                                                                                                                                                     | Release  |
+| --- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| W1  | whatsapp  | new repo `velastack/whatsapp`: `@velastack/whatsapp` with `whatsappHref`/`fillMessage` (moved), `orderRef`, `orderSubtotal`, `formatLines`, `formToken`, `recordOrder` | 0.1.0    |
+| W2  | cms       | depend on W1 and re-export the moved helpers; headless `<CmsWhatsAppCart>`                                                                                             | minor    |
+| W3  | velastack | `POST /v1/projects/:id/forms` (API key → `ensureTemplateForms`); the order view for `order` submissions; check the origin allowlist on link/deploy                     | deploy   |
+| W4  | patterns  | payments `whatsapp` provider: `src/lib/order.ts`, `OrderButton` dialog, env + marker; disable-payments removes it                                                      | with W5  |
+| W5  | patterns  | ecommerce `whatsapp` provider: cart store, sheet with customer fields and confirmation, `AddToCart`; no demo page                                                      | 0.5.x    |
+| W6  | cli       | WhatsApp in `vela enable payments` (number prompt, form creation, `PUBLIC_WHATSAPP_ORDER_FORM`); skip the ecommerce demo prompt                                        | minor    |
+| W7  | docs      | WhatsApp sections in `/docs/enable/payments` and `/docs/enable/ecommerce`; the hosted order view                                                                       | with W6  |
+| W8  | templates | lift the `industries/README.md` cart rule (on-site payment stays banned); centeno: `order` form in `template.json`, `CmsWhatsAppCart`                                  | after W2 |
+
+Notes:
+
+- W1 is the only new repo. Copy the release setup from patterns (tag push → `release.yml`).
+- W3 has to deploy before W6 is released, or the CLI's form creation 404s. The CLI handles a 404 the same way as
+  an unlinked project (a next-steps note), so the order is a preference, not a hard dependency.
+- Integration (W4/W5): WhatsApp on `static` and `minimal`, needing no secrets, and enable, disable, enable. With no
+  hosted form configured, checkout only opens the chat, which is what CI exercises. W3's tests cover the recording.
+- `detectProviders` picks up the new marker (`PUBLIC_WHATSAPP_NUMBER`) by itself. Check that
+  `integration/features.ts` and the CLI agree, and that a project with Stripe and WhatsApp markers is refused as
+  ambiguous.
