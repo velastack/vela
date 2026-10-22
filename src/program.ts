@@ -3,10 +3,14 @@ import * as p from '@clack/prompts';
 import { Command } from 'commander';
 import nodePath from 'node:path';
 import dotenv from 'dotenv';
-import pc from 'picocolors';
 import pkg from '../package.json' with { type: 'json' };
 import { helpConfig } from './lib/help.ts';
 import { findWorkspaceRoot, hasBackend } from './lib/workspace.ts';
+import {
+	hasSuperuserCredentials,
+	missingBackendMessage,
+	missingCredentialsMessage
+} from './lib/backend-gate.ts';
 import { bless } from './commands/bless.ts';
 import { create } from './commands/create.ts';
 import { generate } from './commands/generate.ts';
@@ -75,6 +79,10 @@ const NO_BACKEND_COMMMANDS = new Set([
 	// Both only delete files and strip .env, so they run wherever enabling did.
 	'disable ai',
 	'disable analytics',
+	// The cart never reads PocketBase. Stripe's cart needs the backend, which
+	// its `requires` says, so a static project is refused there instead.
+	'enable ecommerce',
+	'disable ecommerce',
 	// Only wires hooks, reroute and the root layout; no collections involved.
 	'enable content-negotiation',
 	'disable content-negotiation',
@@ -105,6 +113,13 @@ const NO_BACKEND_COMMMANDS = new Set([
 ]);
 
 /**
+ * Commands that need PocketBase for one provider and not another, so they gate
+ * themselves with `assertBackendReady` once the provider is known: Stripe
+ * payments keeps its catalog in PocketBase, Shopify keeps it at Shopify.
+ */
+const PROVIDER_GATED_COMMANDS = new Set(['enable payments', 'disable payments']);
+
+/**
  * Commands that drive the frontend build and so work with or without a backend.
  * In a backend project they still start PocketBase, which is why they are not in
  * NO_BACKEND_COMMMANDS.
@@ -132,22 +147,17 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 
 	const path = getCommandPath(actionCommand);
 	if (NO_BACKEND_COMMMANDS.has(path)) return;
+	if (PROVIDER_GATED_COMMANDS.has(path)) return;
 	const top = path.split(' ', 1)[0];
 	if (NO_BACKEND_COMMMANDS.has(top)) return;
 
-	// Without PocketBase there are no credentials to ask for. Frontend commands
-	// carry on; anything that needs the database says so plainly rather than
-	// sending the user off to look for a .env that would not help. The project
-	// may be vela's static template or one vela did not create, so the message
-	// names neither, and points at the command that adds only the backend.
+	// Frontend commands carry on without PocketBase; anything that needs the
+	// database says so plainly rather than sending the user off to look for a
+	// .env that would not help.
 	if (!hasBackend()) {
 		if (BACKEND_OPTIONAL_COMMANDS.has(top)) return;
 
-		p.log.error(
-			`${pc.cyan(`vela ${path}`)} needs a backend, and this project does not have one.\n\n` +
-				`There is no PocketBase database here for it to talk to.\n\n` +
-				`To add one, run ${pc.cyan('vela enable backend')}.`
-		);
+		p.log.error(missingBackendMessage(`vela ${path}`));
 		p.log.message();
 		p.cancel('Operation failed.');
 		process.exit(1);
@@ -158,13 +168,8 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 	// superuser; the project's credentials are not read.
 	if (path === 'generate migration' && actionCommand.opts().ai) return;
 
-	if (!process.env.POCKETBASE_SUPERUSER_EMAIL || !process.env.POCKETBASE_SUPERUSER_PASSWORD) {
-		p.log.error(
-			`PocketBase superuser credentials are required.\n\n` +
-				`Set ${pc.cyan('POCKETBASE_SUPERUSER_EMAIL')} and ${pc.cyan('POCKETBASE_SUPERUSER_PASSWORD')} in your .env file.\n\n` +
-				`To set up a new project, run ${pc.cyan('vela create')}.\n` +
-				`To set up an existing project, run ${pc.cyan('vela bless')}.`
-		);
+	if (!hasSuperuserCredentials()) {
+		p.log.error(missingCredentialsMessage());
 		p.log.message();
 		p.cancel('Operation failed.');
 		process.exit(1);

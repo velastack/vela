@@ -1,7 +1,9 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import type { Provider } from '@velastack/patterns';
 import {
 	capabilityName,
+	collectProviderEnv,
+	resolveProvider,
 	checkProviderInput,
 	decideProvider,
 	missingEnvKeys,
@@ -119,7 +121,7 @@ describe('checkProviderInput', () => {
 
 	test('leaves a pattern without providers alone otherwise', () => {
 		expect(() => checkProviderInput(auth, ['--other'], {})).not.toThrow();
-		// `enable payments` sends input.provider for a pattern that declares none.
+		// An input.provider no pattern reads is harmless; only a --provider flag misleads.
 		expect(() => checkProviderInput(auth, [], { provider: 'stripe' })).not.toThrow();
 	});
 });
@@ -132,5 +134,58 @@ describe('missingEnvKeys', () => {
 		expect(missingEnvKeys(PROVIDERS[2], { PUBLIC_POSTHOG_KEY: 'phc_1' })).toEqual([]);
 		expect(missingEnvKeys(PROVIDERS[0], {})).toEqual(['PUBLIC_PLAUSIBLE_DOMAIN']);
 		expect(missingEnvKeys(PROVIDERS[1], {})).toEqual([]);
+	});
+});
+
+describe('resolveProvider for a pattern built on another capability', () => {
+	test('takes the provider payments uses', async () => {
+		expect((await resolveProvider('enable-ecommerce', undefined, { payments: 'shopify' })).id).toBe(
+			'shopify'
+		);
+	});
+
+	test('accepts --provider only when it repeats the detected one', async () => {
+		expect((await resolveProvider('enable-ecommerce', 'stripe', { payments: 'stripe' })).id).toBe(
+			'stripe'
+		);
+		await expect(
+			resolveProvider('enable-ecommerce', 'shopify', { payments: 'stripe' })
+		).rejects.toThrow('This project uses Stripe payments, and ecommerce follows it.');
+	});
+
+	test('asks for payments first when the project has none', async () => {
+		await expect(resolveProvider('enable-ecommerce', undefined, {})).rejects.toThrow(
+			'Run `vela enable payments` first.'
+		);
+	});
+});
+
+describe('collectProviderEnv off a terminal', () => {
+	const stripe: Provider = {
+		id: 'stripe',
+		label: 'Stripe',
+		env: [
+			{ key: 'STRIPE_SECRET_KEY', label: 'Secret key', secret: true, required: true },
+			{ key: 'OPTIONAL_KEY', label: 'Optional' }
+		]
+	};
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	test('keeps values already in the environment', async () => {
+		vi.stubEnv('CI', 'true');
+		vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_x');
+		expect(await collectProviderEnv(stripe)).toEqual({
+			STRIPE_SECRET_KEY: 'sk_test_x',
+			OPTIONAL_KEY: ''
+		});
+	});
+
+	test('refuses a required key it cannot ask for', async () => {
+		vi.stubEnv('CI', 'true');
+		vi.stubEnv('STRIPE_SECRET_KEY', '');
+		await expect(collectProviderEnv(stripe)).rejects.toThrow('STRIPE_SECRET_KEY is required.');
 	});
 });

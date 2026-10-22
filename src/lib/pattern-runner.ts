@@ -3,10 +3,11 @@ import path from 'node:path';
 import * as p from '@clack/prompts';
 import { bySlug, type Pattern, type Slug } from '@velastack/patterns';
 import { withPocketbase } from './pocketbase.ts';
-import { getWorkspace } from './workspace.ts';
+import { detectWorkspace } from './workspace.ts';
 import { reportResult, type ReportFailure } from './result-report.ts';
 import { checkProviderInput } from './providers.ts';
 import { assertShadcn } from './require-ui.ts';
+import { assertRequires } from './require-features.ts';
 import { assertKit3 } from './kit-version.ts';
 import { MIGRATIONS_DIR } from './constants.ts';
 
@@ -95,18 +96,28 @@ export async function runPattern(
 
 	checkProviderInput(pattern, argv, input);
 
-	const { workspaceRootDir, features, routeGroups } = await getWorkspace();
+	const { workspaceRootDir, features, routeGroups, detected } = await detectWorkspace();
+	const command = `vela ${pattern.command.base.replace(/^vela /, '')}`;
 
 	// Patterns write SvelteKit 3 code only; on a Kit 2 project that would leave
 	// it half migrated.
-	assertKit3(workspaceRootDir, `vela ${pattern.command.base.replace(/^vela /, '')}`);
+	assertKit3(workspaceRootDir, command);
 
 	// `requires.ui` marks a pattern whose pages exist only as shadcn-svelte
 	// markup. Patterns with a plain variant (forms, i18n, ai) leave it unset and
 	// follow `features.ui` instead.
 	if (pattern.requires.ui === 'shadcn' && features.ui !== 'shadcn') {
-		assertShadcn(`vela ${pattern.command.base.replace(/^vela /, '')}`, workspaceRootDir);
+		assertShadcn(command, workspaceRootDir);
 	}
+
+	// Every other prerequisite, before anything is written. Commands that
+	// prompt run the same check first (`assertPatternRequires`); this is the
+	// backstop for the rest.
+	assertRequires(command, pattern, {
+		features,
+		detected,
+		provider: typeof input.provider === 'string' ? input.provider : undefined
+	});
 
 	const migrationsBefore = listMigrations(workspaceRootDir);
 
@@ -119,6 +130,7 @@ export async function runPattern(
 			env: 'runtime',
 			root: workspaceRootDir,
 			features,
+			providers: detected.providers,
 			routeGroups,
 			input,
 			// Patterns no longer read the schema themselves: @velastack/pocketbase-codegen

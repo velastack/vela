@@ -30,9 +30,25 @@ test('refuses a SvelteKit 2 project before the pattern writes anything', async (
 		JSON.stringify({ devDependencies: { '@sveltejs/kit': '^2.70.3' } })
 	);
 	const before = fs.readdirSync(tmp, { recursive: true });
-	await expect(runPattern('enable-payments', [], {}, report)).rejects.toBeInstanceOf(
-		KitVersionError
+	await expect(
+		runPattern('enable-payments', [], { provider: 'stripe' }, report)
+	).rejects.toBeInstanceOf(KitVersionError);
+	expect(fs.readdirSync(tmp, { recursive: true })).toEqual(before);
+});
+
+// Prerequisites are checked before anything is written too, so a pattern on a
+// project that lacks what it builds on leaves the project as it was.
+test('refuses a pattern whose prerequisites are missing, naming the command to run', async () => {
+	fs.writeFileSync(
+		path.join(tmp, 'package.json'),
+		JSON.stringify({ devDependencies: { '@sveltejs/kit': '^3.0.0', 'shadcn-svelte': '^1.0.0' } })
 	);
+	fs.writeFileSync(path.join(tmp, 'components.json'), '{}\n');
+	fs.mkdirSync(path.join(tmp, 'src', 'routes', '(app)'), { recursive: true });
+	const before = fs.readdirSync(tmp, { recursive: true });
+	const run = runPattern('enable-subscriptions', [], {}, report);
+	await expect(run).rejects.toThrow('`vela enable subscriptions` needs');
+	await expect(run).rejects.toThrow('vela enable payments');
 	expect(fs.readdirSync(tmp, { recursive: true })).toEqual(before);
 });
 

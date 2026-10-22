@@ -4,6 +4,7 @@ import process from 'node:process';
 import { APP_DIR, PUBLIC_DIR, DATA_DIR } from './constants.ts';
 import { readComponentsJson } from './components-json.ts';
 import { readPackageJson } from './package-json.ts';
+import { detectProviders, type DetectedProviders } from '@velastack/patterns';
 
 export type Ui = 'shadcn' | 'plain';
 
@@ -27,6 +28,13 @@ export interface Features {
 }
 
 /**
+ * What `getWorkspace` detects. `payments` is left out: it comes from the
+ * provider markers (`detectWorkspace` in `providers.ts`), which take a
+ * TypeScript parse most commands have no use for.
+ */
+export type WorkspaceFeatures = Omit<Features, 'payments'>;
+
+/**
  * The route groups the project has, as directory names under `src/routes`.
  * `null` means there is no such group, as in a SvelteKit project vela did not
  * create, so patterns place default routes directly under `src/routes`.
@@ -43,8 +51,7 @@ export interface Workspace {
 	appRoutesDir?: string;
 	routeGroups: RouteGroups;
 	isAppMode: boolean;
-	isPaymentsMode: boolean;
-	features: Features;
+	features: WorkspaceFeatures;
 }
 
 /**
@@ -140,11 +147,7 @@ export async function getWorkspace(): Promise<Workspace> {
 	const isAppMode = routeGroups.app !== null;
 	const appRoutesDir = routeGroups.app ? path.join(routesDir, routeGroups.app) : undefined;
 
-	const isPaymentsMode = fs.existsSync(
-		path.join(workspaceRootDir, routesDir, 'webhooks', 'stripe')
-	);
-
-	const features = detectFeatures(workspaceRootDir, { isAppMode, isPaymentsMode });
+	const features = detectFeatures(workspaceRootDir, { isAppMode });
 
 	return {
 		workspaceRootDir,
@@ -153,7 +156,6 @@ export async function getWorkspace(): Promise<Workspace> {
 		appRoutesDir,
 		routeGroups,
 		isAppMode,
-		isPaymentsMode,
 		features
 	};
 }
@@ -177,10 +179,7 @@ export function detectUi(root: string): Ui {
 	return shadcn ? 'shadcn' : 'plain';
 }
 
-function detectFeatures(
-	root: string,
-	{ isAppMode, isPaymentsMode }: { isAppMode: boolean; isPaymentsMode: boolean }
-): Features {
+function detectFeatures(root: string, { isAppMode }: { isAppMode: boolean }): WorkspaceFeatures {
 	const has = (rel: string) => fs.existsSync(path.join(root, rel));
 	const pkg = readPackageJson(path.join(root, 'package.json'));
 	const hasDep = (name: string) => Boolean(pkg.dependencies?.[name] || pkg.devDependencies?.[name]);
@@ -192,7 +191,6 @@ function detectFeatures(
 		backend: isBackendRoot(root),
 		i18n: has('wuchale.config.js') || hasDep('wuchale'),
 		teams: has('src/routes/(app)/teams') || has('src/lib/teams'),
-		payments: isPaymentsMode,
 		blog: hasDep('mdsvex'),
 		contentNegotiation: hasDep('sveltekit-negotiate'),
 		cms: hasDep('@velastack/cms'),
@@ -201,5 +199,22 @@ function detectFeatures(
 		// PocketBase SDK has WhatsApp.
 		whatsapp: has('src/routes/(public)/(auth)/whatsapp'),
 		ui: detectUi(root)
+	};
+}
+
+/**
+ * The workspace plus the providers in use (`{ payments: "stripe" }`), for a
+ * pattern run. Kept apart from `getWorkspace` because reading the providers
+ * parses `src/env.ts`, which the many commands that only want the root skip.
+ */
+export async function detectWorkspace(): Promise<
+	Omit<Workspace, 'features'> & { features: Features; detected: DetectedProviders }
+> {
+	const workspace = await getWorkspace();
+	const detected = await detectProviders(workspace.workspaceRootDir);
+	return {
+		...workspace,
+		features: { ...workspace.features, payments: detected.providers.payments !== undefined },
+		detected
 	};
 }
