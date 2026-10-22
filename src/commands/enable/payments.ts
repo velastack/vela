@@ -7,6 +7,8 @@ import { runCommand } from '../../lib/run.ts';
 import { runPattern } from '../../lib/pattern-runner.ts';
 import { assertBackendReady } from '../../lib/backend-gate.ts';
 import { assertPatternRequires } from '../../lib/require-features.ts';
+import { ensureOrderForm } from '../../lib/order-form.ts';
+import { findWorkspaceRoot } from '../../lib/workspace.ts';
 import {
 	collectProviderEnv,
 	isInteractive,
@@ -15,8 +17,8 @@ import {
 } from '../../lib/providers.ts';
 
 export const payments = new Command('payments')
-	.description('enable payments (Stripe or Shopify)')
-	.option('--provider <provider>', 'payment provider: stripe or shopify')
+	.description('enable payments (Stripe, Shopify or WhatsApp)')
+	.option('--provider <provider>', 'payment provider: stripe, shopify or whatsapp')
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts: { provider?: string }, cmd) =>
@@ -28,8 +30,9 @@ export const payments = new Command('payments')
 			if (provider.id === 'stripe') assertBackendReady('vela enable payments');
 
 			if (provider.id === 'stripe') noteWebhookSecret();
+			const orderForm = provider.id === 'whatsapp' ? await prepareOrderForm() : [];
 			const providerEnv = await collectProviderEnv(provider);
-			const demoId = await askDemoId(provider);
+			const demoId = provider.id === 'whatsapp' ? '' : await askDemoId(provider);
 			const blank = missingEnvKeys(provider, providerEnv);
 
 			await runPattern(
@@ -40,6 +43,7 @@ export const payments = new Command('payments')
 					summary: `Enabled ${provider.label} payments.`,
 					nextSteps: [
 						...blank.map((key) => `Set ${key} in .env.`),
+						...orderForm,
 						...NEXT_STEPS[provider.id],
 						'Set the same variables on each deploy target with `vela env set`.'
 					],
@@ -62,8 +66,30 @@ const NEXT_STEPS: Record<string, string[]> = {
 	shopify: [
 		'Run `vela dev` and visit /payment to try the Buy button (it is there when you gave a variant).',
 		'Products, prices and checkout settings live in Shopify admin.'
+	],
+	whatsapp: [
+		'Put `<OrderButton name="..." price={...} currency="..." />` (src/lib/components/payments/order-button.svelte) on the pages that sell things.',
+		'Edit the message the business receives in src/lib/order.ts.',
+		"Orders recorded to the hosted form are on velastack.dev, under the project's forms."
 	]
 };
+
+/**
+ * Creates the hosted order form and puts its URL where `collectProviderEnv`
+ * finds it, so it is not asked for. Returns the next step when it could not.
+ */
+async function prepareOrderForm(): Promise<string[]> {
+	if (process.env.PUBLIC_WHATSAPP_ORDER_FORM) return [];
+	const root = findWorkspaceRoot();
+	if (!root) return [];
+	const outcome = await ensureOrderForm(root);
+	if (outcome.kind === 'created') {
+		process.env.PUBLIC_WHATSAPP_ORDER_FORM = outcome.url;
+		return [];
+	}
+	// Asked for below, blank allowed; the note says how to get one later.
+	return [outcome.note];
+}
 
 /** Where the signing secret comes from, before it is asked for. */
 function noteWebhookSecret() {

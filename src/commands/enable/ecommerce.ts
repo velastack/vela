@@ -11,7 +11,7 @@ import { detectWorkspace } from '../../lib/workspace.ts';
 
 export const ecommerce = new Command('ecommerce')
 	.description("enable a cart and checkout on the project's payments provider")
-	.option('--provider <provider>', 'must match the payments provider: stripe or shopify')
+	.option('--provider <provider>', 'must match the payments provider: stripe, shopify or whatsapp')
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action((opts: { provider?: string }, cmd) =>
@@ -21,7 +21,8 @@ export const ecommerce = new Command('ecommerce')
 			const { detected } = await detectWorkspace();
 			const provider = await resolveProvider('enable-ecommerce', opts.provider, detected.providers);
 			await assertPatternRequires('enable-ecommerce', provider.id);
-			const demoId = await askDemoId(provider);
+			// A WhatsApp item is whatever the page says it is: there is no id to demo.
+			const demoId = provider.id === 'whatsapp' ? '' : await askDemoId(provider);
 
 			await runPattern(
 				'enable-ecommerce',
@@ -48,7 +49,11 @@ const NEXT_STEPS: Record<string, string[]> = {
 	stripe: [
 		'Checkout is Stripe Checkout: payment methods, tax and shipping are set in the Stripe dashboard.'
 	],
-	shopify: ["Checkout is Shopify's: payment, tax and shipping settings live in Shopify admin."]
+	shopify: ["Checkout is Shopify's: payment, tax and shipping settings live in Shopify admin."],
+	whatsapp: [
+		'Give each item an id, a name and, optionally, a price: `<AddToCart id="sourdough" name="Sourdough" price={4.5} currency="EUR" />`.',
+		'Checkout opens WhatsApp with the order; the business confirms it and takes payment in the chat.'
+	]
 };
 
 async function askDemoId(provider: Provider): Promise<string> {
