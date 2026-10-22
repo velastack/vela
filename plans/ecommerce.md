@@ -410,28 +410,130 @@ The PR-by-PR order is in `ecommerce-plan.md`.
 
 ## Phase 2: catalog
 
-- **Stripe:**
-  - Extend the catalog sync with `images`, `description` and `metadata` on products, so cart
-    items get images. The fields are added via `collectionPatches`, and the workflow is
-    modified.
-  - Write a `(public)/shop` listing and a `(public)/shop/[product]` page that read the synced
-    tables through a server load.
-  - Open question: the URL slug for a Stripe product. It could come from a metadata key or a
-    generated field.
-- **Shopify:**
-  - Write the same two pages over Storefront `products` and `product(handle:)`, with variant
-    selection.
-- Each provider's pages are native to it, and there is no shared catalog interface. They
-  replace the Phase 1 demo page.
+Sketched 2026-10-22; Phase 1 shipped in patterns 0.5.0 and vela 0.16.0. Phase 2 replaces the one-item demo page with a
+product listing and product pages, so a store works without hand-written pages. Decision 5 holds: each provider
+gets the pages a developer would write for it, with no shared catalog interface.
+
+### Where it lives
+
+**Recommendation: in `enable-ecommerce` (1.1).** One command then gives a working store, and the demo `demoId`
+prompt goes away. Existing projects pick it up by re-running `vela enable ecommerce`; it only adds files, apart
+from replacing the demo `/shop` page. The alternative is a separate `vela generate shop`, which re-runs cleanly
+after the developer edits the pages. That is worth it only if regeneration turns out to be common.
+
+### Stripe
+
+- **The catalog sync carries what a store shows.** `sync-stripe-catalog.ts` belongs to payments, so payments
+  (2.1) adds the fields, not ecommerce:
+  - products: `description` (text), `images` (json, Stripe's URL array), `metadata` (json), `url` (text)
+  - prices: `nickname` (text), `lookup_key` (text)
+
+  Existing projects get the new fields through `collectionPatches` on re-enable, and the next ten-minute sync
+  fills them. This also gives Phase 1's cart lines their images.
+
+- **Collection rules:** the catalog stays superuser-only, read through `locals.admin` in server loads, as the
+  billing page and Phase 1's demo page already do. Opening `listRule` to `active = true` buys nothing a server
+  load does not.
+- **Pages:**
+  - `(public)/shop/+page.server.ts` lists active products with their default one-time price; the page renders a
+    grid.
+  - `(public)/shop/[product]/+page.server.ts` loads one product and its active one-time prices. With several
+    prices (sizes, say) the page offers a picker, then `<AddToCart>`.
+- **URLs:** the Stripe product id (`/shop/prod_…`). Stripe has no slug. A `metadata.slug`, when set, can win
+  later; it's an open question below.
+
+### Shopify
+
+- **Pages:**
+  - `(public)/shop/+page.ts` runs the Storefront `products(first:)` query.
+  - `(public)/shop/[handle]/+page.ts` runs `product(handle:)`, including `variants`, `options` and
+    `selectedOrVariantOption`, and picks the variant from the selected options, as Shopify's own headless guides
+    do.
+- **Universal loads, not server loads.** The Storefront token is public, so the same load runs during SSR and in
+  the browser. On the static template the pages render client-side behind its `200.html` fallback.
+  Prerendering every product needs `entries()` listing the handles at build time. Leave that to the developer and
+  document it, because it rebuilds the site whenever a product changes.
+- **Money and images** stay Shopify's: `MoneyV2` formatted with `formatMoney`, and `Image.url` with Shopify's
+  CDN `width` parameters.
+
+### Shared
+
+- **Nothing in the templates.** The navbar already has the cart button. Each provider's listing and product page
+  is its own template.
+- **Generator:** the `/shop` demo page and its `demoId` prompt are removed from both the pattern and
+  `vela enable ecommerce`. A project that already has the demo page gets it replaced by the listing; it held only
+  one hard-coded item.
+
+### Open questions
+
+- A Stripe product slug: `metadata.slug` (the developer sets it in the dashboard), or a generated `slug` field
+  the sync fills.
+- Collections and categories. Shopify has them (`collection(handle:)`); Stripe has nothing native, so
+  `metadata.category` would be ours. Probably Shopify-only in v1.
+- Search and pagination. Shopify's `products` is paginated by cursor and Stripe's by `starting_after`; the
+  listing shows the first 100 until someone needs more.
 
 ## Phase 3: orders
 
-- `orders` / `order_lines` collections, written by webhooks. On Stripe that is
-  `checkout.session.completed` in `webhooks/stripe/handlers/dispatch.ts`, added by a modifier as
-  `enable-subscriptions` does. On Shopify it is `orders/create` on a new `webhooks/shopify` route
-  (HMAC-verified), which means Shopify gains a server requirement for this phase only.
-- An order history under `(app)/orders` when auth is enabled. Guest orders are matched by email.
-- Notifications: an order confirmation through `enable-notifications` when present.
+Phase 3 records what was bought, so the app can act on it: an order page, order history, a notification.
+
+### Stripe
+
+- **The webhook is the source of truth, not the success page.** A buyer who closes the tab before
+  `/checkout/success` still paid. Add `checkout.session.completed`, plus `checkout.session.async_payment_succeeded`
+  / `_failed` for delayed methods such as bank debits, to `webhooks/stripe/handlers/dispatch.ts` with a modifier,
+  as enable-subscriptions does. The handlers then run inside the `stripe-event` workflow with its retries and its
+  per-event idempotency.
+- **Collections:**
+  - `orders`:
+    - `id` (the Checkout Session id, so a redelivered event updates rather than duplicates)
+    - `user` (relation, optional: from the session's `customer` through `stripe_customers`)
+    - `email`, `amount_total`, `currency`
+    - `status` (`paid` / `unpaid` / `failed`)
+    - `metadata` (json)
+    - `created`
+  - `order_lines`: `order` (relation, cascade), `price` (text, the Stripe price id), `name` and `unit_amount`
+    snapshots, `quantity`, `amount_total`.
+
+  The handler retrieves the session with `expand: ['line_items']` and writes both in one workflow step.
+
+- **Rules:** users list and view their own orders (`user = @request.auth.id`). Guests have none; Stripe's email
+  receipt is theirs. Turn it on in the Stripe dashboard, which the docs say.
+- **Pages:**
+  - `/checkout/success` reads the order once it exists, else falls back to the session as now.
+  - With auth, `(app)/orders` lists the user's orders and `(app)/orders/[id]` shows one, with a nav-user item
+    the way payments adds Billing.
+
+### Shopify
+
+- **Orders stay in Shopify; there is no local copy by default.** Shopify sends the buyer their confirmation and
+  hosts the order status page. The canonical headless order history is Shopify's Customer Account API, an OAuth
+  login to Shopify accounts that sits beside vela's own auth rather than inside it.
+- **Recommendation:** Phase 3 on Shopify is a link to the store's customer account pages, and the docs page
+  explains the Customer Account API for anyone who wants history in the app.
+- **Mirroring orders** would mean an `orders/create` webhook on a new `webhooks/shopify` route (HMAC-verified
+  with the app secret), the same `orders` shape, and a backend. That is Shopify's first server requirement.
+  Build it only when a feature needs local orders, such as notifications or fulfilment workflows.
+
+### Generator
+
+- **A separate pattern, `enable-orders` / `disable-orders`**, rather than more of ecommerce. It adds collections,
+  a webhook handler and app pages, and it is the first commerce pattern a project would sensibly enable later.
+  - `inheritsProvider: "payments"`.
+  - `requires: { ecommerce: true, backend: true }`, with `providers: { payments: ["stripe"] }` until Shopify
+    mirroring exists.
+- **That needs an `ecommerce` feature.** Add it to `Features` as an optional flag, detect it from
+  `src/lib/cart.svelte.ts` (CLI and harness), and map it in `SLUG_TO_FEATURE` and `FEATURE_ENABLER`. Ecommerce
+  gets no markers of its own: its provider is still payments'.
+- **Notifications:** when `enable-notifications` is present, the paid-order handler creates one for the user. The
+  orders pattern branches on `features.notifications`, as enable-payments branches on auth.
+
+### What this depends on
+
+- **`blockedBy`** (decision 3's follow-up). `disable-payments` and `disable-ecommerce` must refuse while orders
+  exist, and `disable-orders` drops the collections. Without it, disabling payments leaves the order handlers
+  importing a removed Stripe client. This is the same gap subscriptions already has, so add the field before or
+  with Phase 3.
 
 ## Later / open questions
 

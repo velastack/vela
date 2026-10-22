@@ -4,6 +4,10 @@ Companion to `plans/ecommerce.md`, which says what we are building and why. This
 how: the order of pull requests across `velastack-patterns` and `velastack-cli`, the files each
 one touches, its tests, and when it is done.
 
+**Status (2026-10-22): Phase 1 shipped.** PRs #1–#8 landed as one patterns release (0.5.0, velastack/patterns#29), one
+CLI release (0.16.0, velastack/vela#49 and #51) and the docs (velastack/velastack#73). The 0.4.4 step was skipped: the
+patterns work went on a single branch. Phases 2 and 3 are outlined in §11.
+
 Written 2026-10-20. Paths under `src/` belong to the repo the PR is in. `patterns:` and `cli:`
 prefix paths when it is ambiguous.
 
@@ -670,3 +674,28 @@ Lint and svelte-check skip `.svx`, so run `npm run build` to validate.
   catalog price. If a project needs them (an attendee name on a ticket), the native options
   are `custom_fields` on the session or `price_data` with product metadata. Decide in Phase 3,
   when the order webhook would read them.
+
+---
+
+## 11. Phases 2 and 3: PR outline
+
+The design is in `ecommerce.md`. Same rules as Phase 1: patterns ship before the CLI that uses them, and every Stripe case
+runs in CI now that the repo has Stripe secrets (§3's harness gate applies too).
+
+| #   | Repo     | PR                                                                                                                           | Release  |
+| --- | -------- | ---------------------------------------------------------------------------------------------------------------------------- | -------- |
+| 9   | patterns | payments 2.1: catalog sync carries description, images, metadata, url, nickname, lookup_key                                  | 0.5.x    |
+| 10  | patterns | ecommerce 1.1: `/shop` listing and product pages per provider; demo page and `demoId` go                                     | 0.6.0    |
+| 11  | cli      | `vela enable ecommerce` drops the demo prompt                                                                                | patch    |
+| 12  | patterns | `blockedBy` on patterns, checked by `unmetRequirements`' sibling; disable-payments / -ecommerce use it                       | with #13 |
+| 13  | patterns | `ecommerce` feature, `enable-orders` / `disable-orders` (Stripe): webhook handlers, `orders` / `order_lines`, `(app)/orders` | 0.7.0    |
+| 14  | cli      | `ecommerce` detection, `blockedBy` refusals, `vela enable/disable orders`                                                    | minor    |
+| 15  | docs     | `/docs/enable/ecommerce` catalog section; `/docs/enable/orders`, `/docs/disable/orders`                                      | with #14 |
+
+Notes:
+
+- #9 is additive (new optional fields), so it can ship in a 0.5 patch. #10 removes an input (`demoId`), so it is 0.6.0.
+- #12 is general, not commerce-specific. It also lets `disable-payments` refuse while subscriptions exist, an existing
+  gap from §3's "Found, not fixed here".
+- Shopify order mirroring (`webhooks/shopify`, HMAC) is not on this list; build it when a feature needs local Shopify
+  orders.
