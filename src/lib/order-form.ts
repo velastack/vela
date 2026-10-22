@@ -36,7 +36,9 @@ export function orderFormUrl(origin: string, projectId: string): string {
 	return `${origin}/v1/projects/${projectId}/forms/${ORDER_FORM_KEY}`;
 }
 
-export type OrderFormOutcome = { kind: 'created'; url: string } | { kind: 'skipped'; note: string };
+export type OrderFormOutcome =
+	/** `note`, when the project limits which sites may post to its forms. */
+	{ kind: 'created'; url: string; note?: string } | { kind: 'skipped'; note: string };
 
 interface Deps {
 	readApiKey: () => string | null;
@@ -70,10 +72,11 @@ export async function ensureOrderForm(
 			note: 'Orders are not recorded until PUBLIC_WHATSAPP_ORDER_FORM is set: run `vela login`, then `vela enable payments --provider whatsapp` again.'
 		};
 	}
+	let origins: string[];
 	try {
-		await deps.createForms(apiKey, project.projectId, [
+		({ origins = [] } = await deps.createForms(apiKey, project.projectId, [
 			{ key: ORDER_FORM_KEY, name: ORDER_FORM_NAME }
-		]);
+		]));
 	} catch (error) {
 		const reason =
 			error instanceof ApiError ? `velastack.dev answered ${error.status}` : String(error);
@@ -82,5 +85,14 @@ export async function ensureOrderForm(
 			note: `Could not create the hosted order form (${reason}). Add a form keyed "${ORDER_FORM_KEY}" to the project on velastack.dev, then set PUBLIC_WHATSAPP_ORDER_FORM=${orderFormUrl(project.origin, project.projectId)}.`
 		};
 	}
-	return { kind: 'created', url: orderFormUrl(project.origin, project.projectId) };
+	const url = orderFormUrl(project.origin, project.projectId);
+	// Deployed environments are added to the list on their own; a site served
+	// from anywhere else is refused until it is added.
+	return origins.length > 0
+		? {
+				kind: 'created',
+				url,
+				note: `The project's forms accept posts only from ${origins.join(', ')} (and localhost). If the site is served from another domain, add it on velastack.dev, or its orders are refused.`
+			}
+		: { kind: 'created', url };
 }

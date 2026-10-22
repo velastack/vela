@@ -49,7 +49,11 @@ describe('hostedCmsProject', () => {
 describe('ensureOrderForm', () => {
 	const deps = (apiKey: string | null = 'vk_test') => ({
 		readApiKey: () => apiKey,
-		createForms: vi.fn(async () => ({ created: ['order'], existing: [] }))
+		createForms: vi.fn(async () => ({
+			created: ['order'],
+			existing: [] as string[],
+			origins: [] as string[]
+		}))
 	});
 
 	test('creates the form on the linked project', async () => {
@@ -69,6 +73,20 @@ describe('ensureOrderForm', () => {
 		expect(await ensureOrderForm(root, deps())).toEqual({
 			kind: 'created',
 			url: 'https://cms.example.com/v1/projects/abc123/forms/order'
+		});
+	});
+
+	test('warns when the project limits which sites may post', async () => {
+		link();
+		const d = deps();
+		d.createForms.mockResolvedValueOnce({
+			created: [],
+			existing: ['order'],
+			origins: ['https://bakery.example']
+		});
+		expect(await ensureOrderForm(root, d)).toMatchObject({
+			kind: 'created',
+			note: expect.stringContaining('https://bakery.example')
 		});
 	});
 

@@ -85,7 +85,7 @@ async function prepareOrderForm(): Promise<string[]> {
 	const outcome = await ensureOrderForm(root);
 	if (outcome.kind === 'created') {
 		process.env.PUBLIC_WHATSAPP_ORDER_FORM = outcome.url;
-		return [];
+		return outcome.note ? [outcome.note] : [];
 	}
 	// Asked for below, blank allowed; the note says how to get one later.
 	return [outcome.note];
