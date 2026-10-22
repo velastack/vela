@@ -730,3 +730,24 @@ Notes:
 - `detectProviders` picks up the new marker (`PUBLIC_WHATSAPP_NUMBER`) by itself. Check that
   `integration/features.ts` and the CLI agree, and that a project with Stripe and WhatsApp markers is refused as
   ambiguous.
+
+### Status (2026-10-22)
+
+Built, with these changes from the outline:
+
+- **W1:** `~/Code/velastack-whatsapp` was built and committed locally (29 tests; lint, type check and publint are clean). Creating the
+  public `velastack/whatsapp` repo, and the first `npm publish`, need the user. Trusted publishing can be configured
+  only after the package exists. The package also has `openChat` (open in a new tab, or this one if the popup is
+  blocked), `lineTotal`, `formatMoney` and `orderPlaceholders`.
+- **W2 (velastack/cms#26, draft):** there is no re-export. `@velastack/cms` already exports a different public
+  `whatsappHref` (the contact shape's `(number) => string`), and its form helpers were never public, so cms only
+  swaps its internals for the package. It adds `whatsappCart` plus a headless `CmsWhatsAppCart`, which has a default
+  message until the editor writes one.
+- **W4/W5 (velastack/patterns#30, draft):** payments 2.1 and ecommerce 1.1, so Phase 2's catalog work becomes
+  ecommerce 1.2. As with the other providers, disable-payments leaves the package installed. All six integration
+  cases passed locally against a packed tarball.
+- **W6:** the order form comes from `src/lib/order-form.ts` (the link, else the hosted CMS endpoint in `src/lib/cms.ts`)
+  and `createProjectForms` (`POST /v1/projects/:id/forms`, body `{ forms: [{ key, name }] }`).
+- **W8:** waiting on a decision. centeno's prices are free text in the CMS (`$5.50 each · while they last`) and the
+  template has no currency, so its cart needs either a currency setting plus price parsing, or unpriced lines that carry
+  the price text in their name.
