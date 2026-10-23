@@ -733,7 +733,8 @@ defensively, and form creation is idempotent.
 
 ## Phase 2: catalog
 
-Revised 2026-10-23 (first sketched 2026-10-22). Phase 2 gives every provider a product listing and product pages,
+Revised 2026-10-23 (first sketched 2026-10-22); **shipped the same day** (patterns 0.7.0, vela 0.18.0, cms 0.8.0; status in
+`ecommerce-plan.md` §13). Phase 2 gives every provider a product listing and product pages,
 so a store works without hand-written pages, and finishes the Phase 1.5 groundwork that templates need (R4, R5). It
 ships before Phase 1.6: once every price on a page goes through one `formatPrice`, display currencies can swap that
 function's insides without touching the pages.
