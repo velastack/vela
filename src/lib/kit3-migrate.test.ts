@@ -546,7 +546,6 @@ describe('third-party SvelteKit 2 peers', () => {
 			expect(asked.some((a) => a.startsWith(`${name}@`))).toBe(false);
 		}
 		expect(readJson(dir, 'package.json').overrides).toEqual({
-			formsnap: { 'sveltekit-superforms': '3.0.0-next.1' },
 			'@icons-pack/svelte-simple-icons': { '@sveltejs/kit': '^3.0.0' },
 			'local-kit2': { '@sveltejs/kit': '^3.0.0' }
 		});
@@ -650,14 +649,15 @@ describe('vela steps', () => {
 			'@sveltejs/adapter-node': '^6.0.0',
 			'@velastack/kit': '^0.4.0',
 			'@velastack/pocketbase': '^0.4.2',
-			'sveltekit-superforms': '3.0.0-next.1',
-			'sveltekit-flash-message': '3.0.0-next.0',
+			'sveltekit-superforms': '3.0.0',
+			'sveltekit-flash-message': '3.0.0',
+			formsnap: '^2.1.0',
 			svelte: '^5.57.1',
 			'svelte-check': '^4.7.6',
 			'shadcn-svelte': '^1.7.0',
 			vela: '^0.15.0'
 		});
-		expect(pkg.overrides).toEqual({ formsnap: { 'sveltekit-superforms': '3.0.0-next.1' } });
+		expect(pkg.overrides).toBeUndefined();
 
 		expect(readJson(dir, 'components.json').aliases.ui).toBe('#lib/components/ui');
 		expect(readJson(dir, 'tsconfig.json')).toMatchObject({
@@ -670,6 +670,30 @@ describe('vela steps', () => {
 				'.svelte-kit/types/pocketbase/*.d.ts'
 			]
 		});
+	});
+
+	test('minimal: drops the formsnap override an earlier migration wrote, keeping the rest', async () => {
+		const dir = fixture('minimal');
+		setPkg(dir, (pkg) => {
+			pkg.devDependencies['sveltekit-superforms'] = '3.0.0-next.1';
+			pkg.overrides = {
+				cookie: '1.0.0',
+				formsnap: { 'sveltekit-superforms': '3.0.0-next.1', 'bits-ui': '2.0.0' }
+			};
+		});
+		const result = await runKit3Migration(dir, { ...base, gitCheck: false, skipSv: true });
+		const pkg = readJson(dir, 'package.json');
+		expect(pkg.overrides).toEqual({ cookie: '1.0.0', formsnap: { 'bits-ui': '2.0.0' } });
+		expect(pkg.devDependencies['sveltekit-superforms']).toBe('3.0.0');
+		expect(pkg.devDependencies.formsnap).toBe('^2.1.0');
+		const details = result.fixups.find((f) => f.name === 'package.json')!.details;
+		expect(details).toEqual(
+			expect.arrayContaining([
+				'formsnap ^2.0.1 → ^2.1.0',
+				'sveltekit-superforms 3.0.0-next.1 → 3.0.0',
+				'overrides formsnap → sveltekit-superforms dropped (formsnap 2.1 peers superforms 3)'
+			])
+		);
 	});
 
 	test('static: no backend types in tsconfig, no form pins, no server follow-up', async () => {

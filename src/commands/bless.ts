@@ -25,10 +25,12 @@ import { emailFlag, passwordFlag, requireSuperuser } from '../lib/superuser.ts';
 import { ensureShadcnImport } from '../lib/app-css.ts';
 import { componentsJsonHints, readComponentsJson } from '../lib/components-json.ts';
 import {
+	dropFormsnapOverride,
 	dropTemplateAdapters,
 	ensureLibImports,
 	fillTemplatePlaceholders,
 	mergePackageJson,
+	raiseFloor,
 	readPackageJson,
 	readTemplatePackageJson,
 	writePackageJson,
@@ -255,7 +257,9 @@ function mergeDependencies(projectPath: string, templateDir: string) {
 	writePackageJson(userPkgPath, merged);
 
 	if (pinned.length > 0) {
-		p.log.info(`Pinned what SvelteKit 3 needs exactly:\n${pinned.map((l) => `  ${l}`).join('\n')}`);
+		p.log.info(
+			`Set what SvelteKit 3's form libraries need:\n${pinned.map((l) => `  ${l}`).join('\n')}`
+		);
 	}
 	if (added.length > 0) {
 		p.log.info(
@@ -279,12 +283,13 @@ function mergeDependencies(projectPath: string, templateDir: string) {
 }
 
 /**
- * The form libraries' SvelteKit 3 releases are prereleases, pinned exactly,
- * and formsnap needs an npm override to accept them. A project's own version
- * of either library wins nothing here: superforms 2 does not run on Kit 3. The
- * override goes in before the install, which fails ERESOLVE without it, and
- * the Node floor comes along. Mutates `merged`, and drops the pins it applies
- * from `conflicts` so they are not reported as kept.
+ * The form libraries' SvelteKit 3 releases are pinned exactly, and a project's
+ * own version of either wins nothing here: superforms 2 does not run on Kit 3.
+ * formsnap follows the template's floor too, since 2.1 is the first release
+ * whose superforms peer admits 3.x and npm would keep a lockfile's 2.0 next to
+ * superforms 3; the override earlier templates carried for 2.0 goes, and the
+ * Node floor comes along. Mutates `merged`, and drops the pins it applies from
+ * `conflicts` so they are not reported as kept.
  */
 const EXACT_TEMPLATE_PINS = ['sveltekit-superforms', 'sveltekit-flash-message'];
 
@@ -303,19 +308,15 @@ function applyTemplatePins(merged: PkgJson, template: PkgJson, conflicts: MergeC
 		if (index !== -1) conflicts.splice(index, 1);
 	}
 
-	const overrides = template.overrides as Record<string, unknown> | undefined;
-	const hasFormsnap = Boolean(merged.dependencies?.formsnap ?? merged.devDependencies?.formsnap);
-	if (overrides?.formsnap && hasFormsnap) {
-		const existing = (merged.overrides ?? {}) as Record<string, unknown>;
-		const current = existing.formsnap;
-		const next =
-			typeof current === 'object' && current !== null
-				? { ...current, ...(overrides.formsnap as object) }
-				: overrides.formsnap;
-		if (JSON.stringify(current) !== JSON.stringify(next)) {
-			merged.overrides = { ...existing, formsnap: next };
-			lines.push(`overrides.formsnap: ${JSON.stringify(next)}`);
-		}
+	const formsnapRange = template.devDependencies?.formsnap ?? template.dependencies?.formsnap;
+	const formsnapBefore = merged.devDependencies?.formsnap ?? merged.dependencies?.formsnap;
+	if (formsnapRange && raiseFloor(merged, 'formsnap', formsnapRange)) {
+		lines.push(`formsnap: ${formsnapBefore} → ${formsnapRange}`);
+		const index = conflicts.findIndex((c) => c.name === 'formsnap');
+		if (index !== -1) conflicts.splice(index, 1);
+	}
+	if (dropFormsnapOverride(merged)) {
+		lines.push('overrides.formsnap: dropped the sveltekit-superforms entry formsnap 2.0 needed');
 	}
 
 	const engines = template.engines as Record<string, string> | undefined;

@@ -256,6 +256,26 @@ export function raiseFloor(pkg: PkgJson, name: string, range: string): boolean {
 	return changed;
 }
 
+/**
+ * Drop the `overrides.formsnap["sveltekit-superforms"]` entry vela wrote while
+ * formsnap 2.0 peered superforms ^2 only; formsnap 2.1 admits 3.x, and the
+ * entry would otherwise hold its peer at a version the project moves off.
+ * Other overrides, formsnap's own included, stay. Mutates `pkg`.
+ */
+export function dropFormsnapOverride(pkg: PkgJson): boolean {
+	const overrides = pkg.overrides as Record<string, unknown> | undefined;
+	const entry = overrides?.formsnap;
+	if (typeof entry !== 'object' || entry === null || !('sveltekit-superforms' in entry)) {
+		return false;
+	}
+	const { 'sveltekit-superforms': _, ...rest } = entry as Record<string, unknown>;
+	const { formsnap: __, ...others } = overrides!;
+	const next = Object.keys(rest).length > 0 ? { ...others, formsnap: rest } : others;
+	if (Object.keys(next).length > 0) pkg.overrides = next;
+	else delete pkg.overrides;
+	return true;
+}
+
 export interface Version {
 	major: number;
 	minor: number;

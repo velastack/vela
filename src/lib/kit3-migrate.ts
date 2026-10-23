@@ -11,6 +11,7 @@ import {
 	ADAPTER_STATIC,
 	ensurePackageOverrides,
 	FLASH,
+	FORMSNAP,
 	SUPERFORMS_VERSION,
 	VELASTACK_CMS,
 	VELASTACK_KIT,
@@ -28,6 +29,7 @@ import { moveSsrExternalsToDependencies, ssrExternalNotInDependencies } from './
 import { kitStatus } from './kit-version.ts';
 import {
 	compareVersions,
+	dropFormsnapOverride,
 	ensureLibImports,
 	minVersion,
 	raiseFloor,
@@ -738,6 +740,8 @@ const FLOORS: Array<[string, string]> = [
 	['svelte-check', '^4.7.6'],
 	['typescript', '^6.0.0'],
 	['shadcn-svelte', '^1.7.0'],
+	// 2.1 is the first formsnap whose superforms peer admits 3.x.
+	splitSpec(FORMSNAP),
 	splitSpec(VELASTACK_KIT),
 	splitSpec(VELASTACK_POCKETBASE),
 	splitSpec(VELASTACK_CMS),
@@ -747,7 +751,10 @@ const FLOORS: Array<[string, string]> = [
 	['@velastack/patterns', pkg.dependencies['@velastack/patterns']]
 ];
 
-/** Installed exactly: a caret on a prerelease would follow later `next` builds. */
+/**
+ * Installed exactly, as the `next` prereleases vela pinned before them were,
+ * so a project on one of those moves onto the release.
+ */
 const EXACT_PINS: Array<[string, string]> = [
 	['sveltekit-superforms', SUPERFORMS_VERSION],
 	splitSpec(FLASH)
@@ -781,25 +788,12 @@ function packageFixup(root: string, cliVersion: string): Fixup {
 		data.engines = { ...engines, node: ENGINES_FLOOR };
 	}
 
-	if (depRange(data, 'formsnap') !== undefined) {
-		// formsnap 2 peers superforms ^2; the literal version is what works on
-		// npm 10 (`$sveltekit-superforms` does not).
-		const overrides = (data.overrides ?? {}) as Record<string, unknown>;
-		const current = overrides.formsnap;
-		if (current !== undefined && (typeof current !== 'object' || current === null)) {
-			f.warnings.push(
-				`overrides.formsnap is not an object; set "formsnap": { "sveltekit-superforms": "${SUPERFORMS_VERSION}" } by hand`
-			);
-		} else {
-			const formsnap = (current ?? {}) as Record<string, unknown>;
-			if (formsnap['sveltekit-superforms'] !== SUPERFORMS_VERSION) {
-				data.overrides = {
-					...overrides,
-					formsnap: { ...formsnap, 'sveltekit-superforms': SUPERFORMS_VERSION }
-				};
-				changed.push(`overrides formsnap → sveltekit-superforms ${SUPERFORMS_VERSION}`);
-			}
-		}
+	// Earlier runs wrote an npm override for formsnap 2.0, whose superforms peer
+	// stopped at ^2; the formsnap floor above admits superforms 3 itself.
+	if (dropFormsnapOverride(data)) {
+		changed.push(
+			'overrides formsnap → sveltekit-superforms dropped (formsnap 2.1 peers superforms 3)'
+		);
 	}
 
 	if (changed.length > 0) {
