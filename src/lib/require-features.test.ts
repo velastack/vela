@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { unmetMessage } from './require-features.ts';
+import { blockedMessage, unmetMessage } from './require-features.ts';
 
 describe('unmetMessage', () => {
 	test('names each missing feature and the commands that add them, in order', () => {
@@ -46,5 +46,19 @@ describe('unmetMessage', () => {
 		]);
 		expect(message).toContain('needs one payments provider');
 		expect(message).toContain('the settings of Stripe or Shopify payments');
+	});
+});
+
+describe('blockedMessage', () => {
+	test('names what depends on the pattern and the disable to run first', () => {
+		expect(blockedMessage('vela disable payments', ['ecommerce'])).toBe(
+			[
+				"`vela disable payments` can't run while this project has ecommerce: it depends on what it removes.",
+				'',
+				'Nothing was changed. To take it out first:',
+				'  1. vela disable ecommerce',
+				'Then run this again.'
+			].join('\n')
+		);
 	});
 });

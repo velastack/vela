@@ -18,7 +18,16 @@ export const ecommerce = new Command('ecommerce')
 		runCommand(async () => {
 			// The cart follows payments: no provider prompt, and no env to ask
 			// for, since payments wrote the keys.
-			const { detected } = await detectWorkspace();
+			const { detected, features } = await detectWorkspace();
+			// A second run would write over a cart the developer has edited.
+			if (features.ecommerce) {
+				throw new Error(
+					[
+						'This project already has a cart (src/lib/cart.svelte.ts). Nothing was changed.',
+						'To start over, run `vela disable ecommerce` first, then this again.'
+					].join('\n')
+				);
+			}
 			const provider = await resolveProvider('enable-ecommerce', opts.provider, detected.providers);
 			await assertPatternRequires('enable-ecommerce', provider.id);
 			// A WhatsApp item is whatever the page says it is: there is no id to demo.
