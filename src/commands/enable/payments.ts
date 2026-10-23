@@ -63,6 +63,11 @@ export const payments = new Command('payments')
 						nextSteps: [
 							...blank.map((key) => `Set ${key} in .env.`),
 							...orderForm,
+							...(business.currencies
+								? [
+										"Visitors can pick a currency in the navbar; the others are estimates at the day's rate from velastack.dev. Edit `currencies` in src/lib/site.ts to change the list."
+									]
+								: []),
 							...NEXT_STEPS[provider.id],
 							'Set the same variables on each deploy target with `vela env set`.'
 						],
