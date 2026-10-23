@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import {
+	dropFormsnapOverride,
 	dropTemplateAdapters,
 	ensureLibImports,
 	fillTemplatePlaceholders,
@@ -472,5 +473,37 @@ describe('rangeAdmits', () => {
 		expect(rangeAdmits('workspace:*', '3.0.0')).toBeNull();
 		expect(rangeAdmits('latest', '3.0.0')).toBeNull();
 		expect(rangeAdmits('latest || ^3.0.0', '3.0.0')).toBe(true);
+	});
+});
+
+describe('dropFormsnapOverride', () => {
+	test('drops the superforms entry, then empty parents', () => {
+		const pkg: PkgJson = { overrides: { formsnap: { 'sveltekit-superforms': '3.0.0-next.1' } } };
+		expect(dropFormsnapOverride(pkg)).toBe(true);
+		expect(pkg.overrides).toBeUndefined();
+	});
+
+	test("keeps other overrides and the rest of formsnap's", () => {
+		const pkg: PkgJson = {
+			overrides: {
+				cookie: '1.0.0',
+				formsnap: { 'sveltekit-superforms': '3.0.0-next.1', 'bits-ui': '2.0.0' }
+			}
+		};
+		expect(dropFormsnapOverride(pkg)).toBe(true);
+		expect(pkg.overrides).toEqual({ cookie: '1.0.0', formsnap: { 'bits-ui': '2.0.0' } });
+	});
+
+	test('leaves a package.json without the entry alone', () => {
+		for (const overrides of [
+			undefined,
+			{},
+			{ formsnap: '2.1.0' },
+			{ formsnap: { 'bits-ui': '2.0.0' } }
+		]) {
+			const pkg: PkgJson = overrides === undefined ? {} : { overrides };
+			expect(dropFormsnapOverride(pkg)).toBe(false);
+			expect(pkg.overrides).toEqual(overrides);
+		}
 	});
 });

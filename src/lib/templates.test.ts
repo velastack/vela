@@ -10,6 +10,7 @@ import {
 	templateChoicesMessage,
 	templatesDir
 } from './templates.ts';
+import { rangeAdmits } from './package-json.ts';
 
 describe('templatesDir', () => {
 	test('resolves the packaged templates directory', () => {
@@ -272,19 +273,20 @@ describe('SvelteKit 3', () => {
 		}
 	});
 
-	// formsnap 2 peers superforms ^2. The override has to name the version
-	// itself: npm 10, which Node 22 ships, cannot resolve a `$sveltekit-superforms`
-	// reference to a devDependency.
-	test('the formsnap override follows the superforms pin', () => {
+	// formsnap 2.1 is the first release whose superforms peer admits 3.x, and
+	// that peer excludes the `next` builds. The override earlier templates
+	// carried for formsnap 2.0 would hold its peer at a version the project
+	// does not have.
+	test('templates with formsnap rely on its superforms 3 peer, not an override', () => {
 		for (const template of listProjectTemplates()) {
 			const pkg = JSON.parse(
 				fs.readFileSync(path.join(template.dir, 'package.template.json'), 'utf8')
 			);
 			if (!pkg.devDependencies.formsnap) continue;
-			expect(pkg.devDependencies['sveltekit-superforms']).toMatch(/^\d/);
-			expect(pkg.overrides?.formsnap?.['sveltekit-superforms']).toBe(
-				pkg.devDependencies['sveltekit-superforms']
-			);
+			expect(rangeAdmits(pkg.devDependencies.formsnap, '2.0.1')).toBe(false);
+			expect(rangeAdmits(pkg.devDependencies.formsnap, '2.1.0')).toBe(true);
+			expect(pkg.devDependencies['sveltekit-superforms']).toMatch(/^\d+\.\d+\.\d+$/);
+			expect(pkg.overrides?.formsnap).toBeUndefined();
 		}
 	});
 });
