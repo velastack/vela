@@ -866,10 +866,14 @@ every template; P5 is the gate for Phase 1.6.
 
 ## Phase 1.6: display currencies
 
-Designed 2026-10-23, after Phase 2 shipped. Decided with the user the same day: velastack.dev takes its rates from
-ExchangeRate-API's open feed (166 currencies, every Latin American one, a daily update, attribution required); the
-WhatsApp message carries the visitor's estimate as one line; `vela enable payments` asks for the display currencies;
-a static site shows the home currency until the visitor switches.
+Designed 2026-10-23, after Phase 2 shipped. Decided with the user the same day: the WhatsApp message carries the
+visitor's estimate as one line; `vela enable payments` asks for the display currencies; a static site shows the home
+currency until the visitor switches. The rates were decided twice: ExchangeRate-API's open feed was the first pick,
+until its terms turned out to forbid redistribution and to require a credit on every page showing its rates, which
+rules out a relay. Of the paid feeds, Xe and Open Exchange Rates allow redistribution only under a negotiated
+enterprise or partner agreement. **Decided: Frankfurter's v2 blended rates**, central-bank data from 105 institutions
+(the ECB's terms, for one, permit reuse with the source cited), free for commercial use, every Latin American
+currency covered, the contributing providers named per rate, and self-hostable if the public API ever falters.
 
 ### What a visitor sees
 
@@ -894,12 +898,25 @@ a static site shows the home currency until the visitor switches.
 
 ### Rates, published once
 
-`GET https://velastack.dev/v1/rates` (public, no key, `cache-control: max-age=3600`, open CORS) answers
-`{ base: "USD", date, rates: { MXN: 18.73, … } }`. A daily workflow, `sync-fx-rates`, runs after the feed's own
-update (`17 1 * * *` UTC) and stores one `fx_rates` row per date from `https://open.er-api.com/v6/latest/USD`; the
-endpoint serves the latest row. Sites read velastack.dev rather than a third party, so one key or provider change
-touches one place, every site converts with the same rate, and the provider's terms (an attribution link) are met in
-one place: the docs page and the `provider` field of the response.
+`GET https://velastack.dev/v1/rates` (public, no key, `cache-control: public, max-age=3600`,
+`access-control-allow-origin: *`) answers
+
+```json
+{
+	"base": "USD",
+	"date": "2026-10-23",
+	"rates": { "MXN": 18.74, "COP": 3179.39 },
+	"providers": { "MXN": ["BM", "ECB"], "COP": ["BRC"] },
+	"countries": { "MX": "MXN", "CO": "COP" },
+	"source": "Central bank reference rates, blended by Frankfurter (https://frankfurter.dev)"
+}
+```
+
+A workflow, `sync-fx-rates`, runs twice a day (`17 1,13 * * *` UTC, after the European and the American banks have
+published) and stores one `fx_rates` row per date from `https://api.frankfurter.dev/v2/rates?base=USD&expand=providers`;
+the endpoint serves the latest row. `countries` is a static map on velastack.dev, so generated code and the CMS carry no
+table of their own. Sites read velastack.dev rather than a third party: one place to change the source, the same rate
+on every site, and the attribution (the providers per rate, the `source` line, and the docs) kept once.
 
 ### Generated code (apps)
 
