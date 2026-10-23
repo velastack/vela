@@ -807,3 +807,11 @@ language. That is the first thing Phase 1.6 should add.
   enable-cms.
 - `writeResult` reports a rewritten existing file among the modifies, which is why `generate shop` checks the disk
   first and `enable ecommerce` refuses a second run.
+
+### Shipped (2026-10-23)
+
+Phase 2 is out: `@velastack/cms` 0.8.0, templates#73 (published), `@velastack/patterns` 0.7.0, `vela` 0.18.0 (vela#56,
+release PR #57) and the docs (velastack#80). Carried forward: `site.country` on apps and the page-language-only
+`formatPrice` in the WhatsApp provider (Phase 1.6), the P4 refit beyond the bakery, the Stripe success load's `'en'`
+when i18n comes later, and i18n on the static template. Next is Phase 1.6, then Phase 3 (`enable-orders`, which now
+has the `ecommerce` feature and `blockedBy` it needed).
