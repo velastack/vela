@@ -51,7 +51,7 @@ const NEXT_STEPS: Record<string, string[]> = {
 	],
 	shopify: ["Checkout is Shopify's: payment, tax and shipping settings live in Shopify admin."],
 	whatsapp: [
-		'Give each item an id, a name and, optionally, a price: `<AddToCart id="sourdough" name="Sourdough" price={4.5} currency="EUR" />`.',
+		'Give each item an id, a name and, optionally, a price in `site.currency`: `<AddToCart id="concha" name="Concha" price={12} />`.',
 		'Checkout opens WhatsApp with the order; the business confirms it and takes payment in the chat.'
 	]
 };

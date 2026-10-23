@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import process from 'node:process';
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
@@ -19,9 +21,13 @@ import {
 export const payments = new Command('payments')
 	.description('enable payments (Stripe, Shopify or WhatsApp)')
 	.option('--provider <provider>', 'payment provider: stripe, shopify or whatsapp')
+	.option(
+		'--currency <code>',
+		"WhatsApp: the business's currency, an ISO 4217 code such as MXN (kept in src/lib/site.ts)"
+	)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
-	.action((opts: { provider?: string }, cmd) =>
+	.action((opts: { provider?: string; currency?: string }, cmd) =>
 		runCommand(async () => {
 			const provider = await resolveProvider('enable-payments', opts.provider);
 
@@ -30,6 +36,7 @@ export const payments = new Command('payments')
 			if (provider.id === 'stripe') assertBackendReady('vela enable payments');
 
 			if (provider.id === 'stripe') noteWebhookSecret();
+			const currency = provider.id === 'whatsapp' ? await askCurrency(opts.currency) : undefined;
 			const orderForm = provider.id === 'whatsapp' ? await prepareOrderForm() : [];
 			const providerEnv = await collectProviderEnv(provider);
 			const demoId = provider.id === 'whatsapp' ? '' : await askDemoId(provider);
@@ -38,7 +45,7 @@ export const payments = new Command('payments')
 			await runPattern(
 				'enable-payments',
 				cmd.args,
-				{ provider: provider.id, providerEnv, demoId },
+				{ provider: provider.id, providerEnv, demoId, currency },
 				{
 					summary: `Enabled ${provider.label} payments.`,
 					nextSteps: [
@@ -68,11 +75,42 @@ const NEXT_STEPS: Record<string, string[]> = {
 		'Products, prices and checkout settings live in Shopify admin.'
 	],
 	whatsapp: [
-		'Put `<OrderButton name="..." price={...} currency="..." />` (src/lib/components/payments/order-button.svelte) on the pages that sell things.',
+		'Put `<OrderButton name="..." price={...} />` (src/lib/components/payments/order-button.svelte) on the pages that sell things; prices are in `site.currency` (src/lib/site.ts).',
 		'Edit the message the business receives in src/lib/order.ts.',
 		"Orders recorded to the hosted form are on velastack.dev, under the project's forms."
 	]
 };
+
+/** Whether `code` is a currency `Intl` knows (any well-formed code would format). */
+function isCurrency(code: string): boolean {
+	return Intl.supportedValuesOf('currency').includes(code.trim().toUpperCase());
+}
+
+/**
+ * The business's currency for WhatsApp prices: the flag, else what
+ * `src/lib/site.ts` already says (the pattern keeps it), else asked for.
+ * Off a terminal with neither, the pattern says what to pass.
+ */
+async function askCurrency(flag: string | undefined): Promise<string | undefined> {
+	if (flag) return flag.trim().toUpperCase();
+	const root = findWorkspaceRoot();
+	const site = root ? path.join(root, 'src', 'lib', 'site.ts') : null;
+	if (site && fs.existsSync(site) && /^\s*currency\s*:/m.test(fs.readFileSync(site, 'utf8'))) {
+		return undefined;
+	}
+	if (!isInteractive()) return undefined;
+	const value = await p.text({
+		message: "The business's currency, which every price is in (ISO 4217)",
+		placeholder: 'MXN, EUR, USD...',
+		validate: (value) =>
+			value && isCurrency(value) ? undefined : 'An ISO 4217 code, such as MXN or EUR'
+	});
+	if (p.isCancel(value)) {
+		p.cancel('Operation cancelled.');
+		process.exit(0);
+	}
+	return value.trim().toUpperCase();
+}
 
 /**
  * Creates the hosted order form and puts its URL where `collectProviderEnv`
