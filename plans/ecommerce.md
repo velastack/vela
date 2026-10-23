@@ -5,8 +5,8 @@ a catalog and orders. The first providers are Stripe and Shopify. It is built on
 pattern, so this plan also settles how patterns that have providers compose, which nothing in
 the registry has needed until now.
 
-Only Phase 1 (the cart) is specified in detail. The later phases are an outline; each gets its
-own plan before work starts.
+Phases 1 and 1.5 are specified in detail and shipped. Phases 2, 1.6 and 3 (in that order, decided 2026-10-23)
+are sketched below after a review of what shipped; each gets its own PR plan before work starts.
 
 Decided 2026-10-20: the provider-composition model, restructuring payments with a Shopify
 provider, hosted Checkout for the Stripe cart, CLI enforcement of `requires`, and the Phase 1
@@ -702,145 +702,234 @@ Phase 1.5 builds only the parts of decision 6 that are expensive to change later
 - **centeno moves to Phase 2.** Its prices are free text in a collection's `details`, so it needs a CMS price
   field, which is the CMS catalog (Phase 2's WhatsApp/CMS catalog), not a template patch.
 
-## Phase 1.6: display currencies
+## Review of Phases 1 and 1.5 (2026-10-23)
 
-Sketched 2026-10-22, from decision 6, items 3 and 4. To be designed in full before it is built, and before Phase 2's
-catalog, so that product pages render prices through it from the start.
+Read after the 1.5 release, against the three tests this document sets: generated code passes the one-provider
+test (decision 5), the CLI stays zero-config (decision 1), and prices are amounts in the business's currency,
+shown in the page's language (decision 6). The sequencing below was decided with the user the same day: the
+catalog (Phase 2) comes before display currencies (Phase 1.6), both audiences (template owners and vela
+developers) move together, the WhatsApp catalog on apps is a data module with a CMS variant, and WhatsApp orders
+stay a dashboard matter for now, with no notification to the business.
 
-- `site.currencies`: the display currencies the business offers. Empty means the home currency only.
-- Picking the visitor's currency, with the same shape as the i18n locale negotiation: geo/region, then the cookie, then
-  home. A `CurrencySelect` sits beside the language select.
-- velastack.dev publishes a daily rates table that WhatsApp and CMS sites read for estimates. Stripe and Shopify use
-  their own (Adaptive Pricing, Markets).
-- Open: whether the WhatsApp message carries the visitor's estimate; how a static site gets the rates (build time
-  or the browser); and Shopify's country selector versus a currency-only switcher.
+**What holds up.** The composition machinery never reaches a project. Each cart reads as the code a developer
+would write for that provider alone; `@velastack/whatsapp` is that provider's SDK the way `stripe` is Stripe's,
+and the message the business receives is the project's own `src/lib/order.ts`. Detection, inheritance, the
+ambiguity refusal and `requires` enforcement are tested. The hosted order view reads a schemaless submission
+defensively, and form creation is idempotent.
+
+**What does not, and where it is fixed:**
+
+| #   | Finding                                                                                                                                                                                                                                                                                                                                                      | Fixed in                |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- |
+| R1  | **Nothing tells the business an order arrived.** The hosted forms endpoint stores the order and that is all; the dashboard is the only record. Decided 2026-10-23: dashboard only for now. Phase 3 adds a status to the order and names the WhatsApp Business integration velastack.dev already runs as the later channel.                                   | Phase 3 (status only)   |
+| R2  | **Decision 6's formatting rule reached only WhatsApp.** The Stripe `formatAmount` and Shopify `formatMoney` format with the browser's locale. The Stripe success page and demo page format during the server render, so the server and the browser can disagree (`MX$5.50` vs `$5.50`).                                                                      | Phase 2, P1             |
+| R3  | **The default order message is English even with i18n on.** Phase 1.5 says wuchale translates `orderMessage`; the i18n pattern's js adapter extracts only from `+page`/`+layout` modules, never `src/lib/order.ts`. A Spanish visitor sends "Hi! I'd like to place an order". The sheet's labels are extracted (they are Svelte markup), the message is not. | Phase 2, P1 (decision)  |
+| R4  | **The templates half of 1.5 has no consumer and cannot run.** `CmsWhatsAppCart` reads the `currency` site option and no baseline declares one, so it answers "No currency is set." The cart rule in `industries/README.md` and bakery.md's "No cart" still stand, and the README still tells the mill to write prices as `$` text with no currency code.     | Phase 2, P3 and P4      |
+| R5  | **The CMS already has a per-item currency.** `CollectionPrice` is `{ amount, currency, period, prefix }` per item; centeno stores `MXN` on each seasonal bread while the price it shows is free text in `details`. It predates decision 6 and conflicts with one `site.currency`.                                                                            | Phase 2, P3 (decision)  |
+| R6  | **Disabling payments breaks an enabled cart.** On WhatsApp, `disable-payments` deletes `order.ts` and `customer-fields.svelte`, which the cart sheet imports; Stripe loses `#lib/stripe.js` the same way. The `blockedBy` gap from §3, now live for every provider.                                                                                          | Phase 2, P0             |
+| R7  | **The planned component test was not written.** Nothing in a generated project checks that checkout opens the chat before any `await`, the most fragile rule in the flow.                                                                                                                                                                                    | Phase 2, P1             |
+| R8  | **Re-running `vela enable ecommerce` overwrites edited files.** `writeResult` writes every create unconditionally, so "existing projects pick the catalog up by re-running" (the Phase 2 sketch) would replace a developer's cart sheet. Ecommerce has no feature flag, so nothing refuses the second run either.                                            | Phase 2, P0 and §design |
+| R9  | Small: `'usd'` fallbacks in the Stripe cart and demo page, a US default in a Latin American product; the payments summary is missing a comma between providers.                                                                                                                                                                                              | Phase 2, P1             |
 
 ## Phase 2: catalog
 
-Sketched 2026-10-22; Phase 1 shipped in patterns 0.5.0 and vela 0.16.0. Phase 2 replaces the one-item demo page with a
-product listing and product pages, so a store works without hand-written pages. Decision 5 holds: each provider
-gets the pages a developer would write for it, with no shared catalog interface.
+Revised 2026-10-23 (first sketched 2026-10-22). Phase 2 gives every provider a product listing and product pages,
+so a store works without hand-written pages, and finishes the Phase 1.5 groundwork that templates need (R4, R5). It
+ships before Phase 1.6: once every price on a page goes through one `formatPrice`, display currencies can swap that
+function's insides without touching the pages.
 
-### Where it lives
+### What changes from the first sketch
 
-**Recommendation: in `enable-ecommerce` (1.1).** One command then gives a working store, and the demo `demoId`
-prompt goes away. Existing projects pick it up by re-running `vela enable ecommerce`; it only adds files, apart
-from replacing the demo `/shop` page. The alternative is a separate `vela generate shop`, which re-runs cleanly
-after the developer edits the pages. That is worth it only if regeneration turns out to be common.
+- **The catalog is a generator, `vela generate shop`, not more of `enable-ecommerce`.** The first sketch preferred
+  folding it into `enable-ecommerce` unless regeneration proved common. R8 settles it the other way: `writeResult`
+  overwrites, so re-running `enable` on an existing project destroys edits, and a generator is already the
+  vocabulary for pages a developer then owns (`vela generate scaffold`). The shop pages are the same kind of thing.
+  `vela generate shop` inherits the payments provider (decision 2), requires ecommerce (the new feature below), and
+  refuses to overwrite a file that exists, naming it, the way scaffold does. `enable-ecommerce` keeps the cart only;
+  its `demoId` prompt and the `/shop` demo page go, since `generate shop` replaces them.
+- **An `ecommerce` feature.** Detected from `src/lib/cart.svelte.ts` in the CLI and the harness, mapped in
+  `SLUG_TO_FEATURE` and `FEATURE_ENABLER`. `vela enable ecommerce` then refuses a second run like every other
+  enable, `generate shop` can require it, and Phase 3's `enable-orders` needs it anyway. Ecommerce gets no markers:
+  its provider is still payments'.
+- **`blockedBy` moves up to this phase (R6).** `disable-payments` refuses while `ecommerce` (or `subscriptions`)
+  is on; `disable-ecommerce` refuses while `orders` is on, once that exists. It is a `Pattern` field checked by a
+  sibling of `unmetRequirements`, enforced in the CLI runner and the harness.
+- **Three data sources on WhatsApp, not one.** The first sketch said "the CMS on templates, a plain data module
+  otherwise". Decided: a data module by default, and the CMS collection on a project with the CMS enabled
+  (`features.cms`), chosen the way other patterns pick variants.
+
+### The one-provider test, applied to a catalog
+
+Each provider's pages are the pages a developer would write for it, with no shared product type:
+
+- **Stripe:** products and prices from the synced PocketBase collections, read through `locals.admin` in server
+  loads. Prices stay `unit_amount` and `currency`.
+- **Shopify:** Storefront `products(first:)` and `product(handle:)` in universal loads. Money stays `MoneyV2`.
+- **WhatsApp:** the project's own list. There is no API to be native to, so the canonical form is the one a
+  developer writes for a static site: a typed module.
+
+What is shared is only what any single-provider project would have: `formatPrice` in `$lib`, which formats an
+amount in a currency for the page's language (R2). On WhatsApp it already exists in `order.ts`; Stripe's
+`formatAmount` and Shopify's `formatMoney` take the same locale rule, so the Stripe success page renders the same
+string on the server and in the browser.
 
 ### Stripe
 
-- **The catalog sync carries what a store shows.** `sync-stripe-catalog.ts` belongs to payments, so payments
-  (2.1) adds the fields, not ecommerce:
-  - products: `description` (text), `images` (json, Stripe's URL array), `metadata` (json), `url` (text)
-  - prices: `nickname` (text), `lookup_key` (text)
+Unchanged from the first sketch, with two notes.
 
-  Existing projects get the new fields through `collectionPatches` on re-enable, and the next ten-minute sync
-  fills them. This also gives Phase 1's cart lines their images.
-
-- **Collection rules:** the catalog stays superuser-only, read through `locals.admin` in server loads, as the
-  billing page and Phase 1's demo page already do. Opening `listRule` to `active = true` buys nothing a server
-  load does not.
-- **Pages:**
-  - `(public)/shop/+page.server.ts` lists active products with their default one-time price; the page renders a
-    grid.
-  - `(public)/shop/[product]/+page.server.ts` loads one product and its active one-time prices. With several
-    prices (sizes, say) the page offers a picker, then `<AddToCart>`.
-- **URLs:** the Stripe product id (`/shop/prod_…`). Stripe has no slug. A `metadata.slug`, when set, can win
-  later; it's an open question below.
+- Payments 2.2 (the §11 PR #9) adds to the catalog sync what a store shows: products gain `description`, `images`
+  (json), `metadata` (json) and `url`; prices gain `nickname` and `lookup_key`. Existing projects get the fields
+  through `collectionPatches` on re-enable and the next ten-minute sync fills them. The cart lines get their images
+  from this too.
+- `generate shop` writes `(public)/shop/+page.server.ts` (active products with their default one-time price) and
+  `(public)/shop/[product]/+page.server.ts` (one product, its active one-time prices, a picker when there are
+  several, then `<AddToCart>`). URLs are the product id; `metadata.slug` wins when set. The `'usd'` fallbacks go
+  (R9): a price always has a currency.
 
 ### Shopify
 
-- **Pages:**
-  - `(public)/shop/+page.ts` runs the Storefront `products(first:)` query.
-  - `(public)/shop/[handle]/+page.ts` runs `product(handle:)`, including `variants`, `options` and
-    `selectedOrVariantOption`, and picks the variant from the selected options, as Shopify's own headless guides
-    do.
-- **Universal loads, not server loads.** The Storefront token is public, so the same load runs during SSR and in
-  the browser. On the static template the pages render client-side behind its `200.html` fallback.
-  Prerendering every product needs `entries()` listing the handles at build time. Leave that to the developer and
-  document it, because it rebuilds the site whenever a product changes.
-- **Money and images** stay Shopify's: `MoneyV2` formatted with `formatMoney`, and `Image.url` with Shopify's
-  CDN `width` parameters.
+Unchanged: `(public)/shop/+page.ts` and `(public)/shop/[handle]/+page.ts` as universal loads, variants picked from
+the selected options as Shopify's headless guides do, images through Shopify's CDN parameters. Prerendering every
+product needs `entries()` and a rebuild per product change, so it is documented, not generated.
 
-### Shared
+### WhatsApp, on an app
 
-- **Nothing in the templates.** The navbar already has the cart button. Each provider's listing and product page
-  is its own template.
-- **Generator:** the `/shop` demo page and its `demoId` prompt are removed from both the pattern and
-  `vela enable ecommerce`. A project that already has the demo page gets it replaced by the listing; it held only
-  one hard-coded item.
+```
+src/lib/catalog.ts                                  the products: { id, name, description?, price?, image? }[]
+src/routes/(public)/shop/+page.svelte               a grid from the module
+src/routes/(public)/shop/[id]/+page.ts              finds the item, 404 otherwise
+src/routes/(public)/shop/[id]/+page.svelte          the item and <AddToCart>
+```
 
-### Open questions
+- `price` is a number in `site.currency` or absent ("ask in the chat"), the same contract as `<AddToCart>`. The
+  module is the developer's to edit; `generate shop` seeds it with two example items and refuses to overwrite it.
+- Nothing runs on a server, so it works on `static`. A project with a backend that wants a database-backed catalog
+  runs `vela generate scaffold product name:text price:number`, which already exists; the shop pages are not
+  generated for that shape in this phase.
+- **With the CMS enabled**, the pages read a `CmsCollection` named `shop` instead of the module, and the editor
+  adds products in place. The collection's structured `price` is the price (R5, below); its `id` is the item id.
 
-- A Stripe product slug: `metadata.slug` (the developer sets it in the dashboard), or a generated `slug` field
-  the sync fills.
-- Collections and categories. Shopify has them (`collection(handle:)`); Stripe has nothing native, so
-  `metadata.category` would be ours. Probably Shopify-only in v1.
-- Search and pagination. Shopify's `products` is paginated by cursor and Stripe's by `starting_after`; the
-  listing shows the first 100 until someone needs more.
+### WhatsApp, on templates (centeno, then the industries)
+
+This is the Phase 1.5 W8 work plus what R4 and R5 found.
+
+- **`currency` becomes a site option in every CMS baseline** (`site-options.ts` in onepage, restaurant, travel,
+  business, …), under a "Business" group, ISO 4217, with the template's default from `template.json`. Templates
+  mirror it the way they mirror the schema type. `CmsWhatsAppCart` then works unconfigured. The Phase 1.5 claim
+  that templates "mirror `site.currency` into the CMS" becomes true here.
+- **The collection price loses its per-item currency (R5). Recommendation, to confirm:** the editor's "Currency"
+  field goes; `formatCollectionPrice` takes the site currency, and an item's stored `currency` is read as an
+  override only while old content has one. The alternative, keeping it as a per-item override, is what decision 6
+  says a business never needs ("a business that only ever sells in its home currency never shows another one"),
+  and a hotel's second currency is a display currency (Phase 1.6), not a second price.
+- **centeno:** `order` in `template.json` `forms`; `CmsWhatsAppCart` around the page; the seasonal breads and the
+  oven-clock items get add buttons in place of the per-item `orderHref` links; the breads' prices move from
+  `details` text (`$360; a ring for 6, $190`) into `price.amount`, which for two sizes means two items or a
+  `details` line for the second. The hero and header keep their prefilled `wa.me` links. The closing WhatsApp form
+  stays for enquiries; the cart is for items.
+- **The industry contract.** `industries/README.md` lifts the cart rule for industries that sell items (bakery,
+  cake shop, boutique, handicrafts, florist, coffee farm, catering, coffee shop, and the food ones where a menu is
+  ordered) and keeps the enquiry form for services (dentist, law office, spa). Each spec says which: an
+  `orders: items | enquiry` line under Primary action. The "prices as `$` with no currency code" rule becomes
+  "prices are `price.amount` in the site currency"; a Spanish MXN page still renders `$5.50`, so the visual
+  contract the specs describe is unchanged, only its source. The mill's build stage follows the spec, so new
+  templates come out right; existing ones are refitted one industry at a time, centeno first.
+
+### The order message and i18n (R3)
+
+The message is the customer's, so it is in the page's language. Two ways to get there; **recommendation: the
+first.**
+
+1. `enable-i18n`'s wuchale config gains `src/lib/order.ts` in the js adapter's `files`, and `enable-payments` on
+   WhatsApp adds the same entry when `wuchale.config.js` exists, through one shared modifier (the way every
+   `handle` edit goes through `compose-handle.ts`). Targeted, and the message stays an ordinary function.
+2. Widen the js adapter to `src/lib/**/*.ts`. One line, but wuchale's heuristic would start extracting every
+   capitalised string in lib code, including server errors and comments in template literals.
+
+### PRs
+
+| #   | Repo      | PR                                                                                                                                                 | Release |
+| --- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| P0  | patterns  | `ecommerce` feature; `blockedBy` on patterns, checked beside `unmetRequirements`; disable-payments / -ecommerce declare it (R6, R8)                | 0.7.0   |
+| P0  | cli       | `ecommerce` detection; `blockedBy` refusals; `enable ecommerce` refuses when on                                                                    | minor   |
+| P1  | patterns  | Fixes: page-locale formatting on Stripe and Shopify (R2), `'usd'` fallbacks (R9), the WhatsApp sheet's component test (R7), the i18n modifier (R3) | with P0 |
+| P2  | patterns  | payments 2.2: the catalog sync fields (§11 #9)                                                                                                     | with P0 |
+| P3  | cms       | `currency` site option read by `CmsCollection`; `formatCollectionPrice` on the site currency; per-item currency as a legacy override (R5)          | minor   |
+| P3  | templates | `currency` in every CMS baseline's site options; centeno: `order` form, `CmsWhatsAppCart`, structured bread prices                                 | publish |
+| P4  | templates | `industries/README.md` and the specs: `orders: items \| enquiry`, structured prices; refit the item-selling industries                             | rolling |
+| P5  | patterns  | `generate-shop`: Stripe, Shopify, WhatsApp (module, and the CMS variant); `enable-ecommerce` drops `demoId` and the demo page                      | 0.7.x   |
+| P5  | cli       | `vela generate shop`; `enable ecommerce` drops the demo prompt                                                                                     | minor   |
+| P6  | docs      | `/docs/generate/shop`; the ecommerce and payments pages lose the demo; a currency section on the templates docs                                    | with P5 |
+
+P0 and P1 are one patterns release and worth shipping before anything else: R6 is live today. P3 is the gate for
+every template; P5 is the gate for Phase 1.6.
+
+## Phase 1.6: display currencies
+
+Sketched 2026-10-22 from decision 6, items 3 and 4; re-sequenced 2026-10-23 to follow Phase 2. The engineering is
+on the CMS and WhatsApp side; for Stripe and Shopify most of it is dashboard configuration plus docs.
+
+- **`site.currencies`**: the display currencies the business offers, in `$lib/site` and the `currency` site option's
+  sibling in the CMS. Empty means the home currency only, and nothing below renders.
+- **Picking the visitor's currency**, in the shape of the i18n locale negotiation: the region (the CDN's
+  `cf-ipcountry` or the locale's region) when a server negotiates, then the `currency` cookie, then home. A static
+  site has no server, so it renders the home currency and the switcher changes it in the browser; a region default
+  there means a flash, so it is off by default. Open: whether the Worker in front of `*.velastack.app` should set
+  the cookie for static sites.
+- **A `CurrencySelect` beside `LanguageSelect`** in apps (patterns), and a headless `displayCurrency` store in
+  `@velastack/cms` for templates, which draw their own select, the way `whatsappCart` is headless.
+- **Rates.** velastack.dev publishes a daily table (`/v1/rates`, one base, ~30 currencies, from a public source),
+  cached a day. Sites read it in the browser (static) or in a load (server). A converted price is an estimate and
+  renders as one (`≈ US$4.20`); the home-currency price stays the price.
+- **Per provider**, as decision 5 asks:
+  - **Shopify:** Markets. Every Storefront query takes `@inContext(country:)`, so the switcher on Shopify picks a
+    country, not a currency, because that is how Shopify prices. The cart and checkout follow it on their own.
+  - **Stripe:** Adaptive Pricing in Checkout needs nothing from us beyond docs. On-site prices use
+    `currency_options` where the business set them (the price sync gains the field) and the rates estimate
+    otherwise.
+  - **WhatsApp and CMS:** estimates from the rates. The stored order and the message stay in the home currency.
+    Recommendation, to confirm: the message gains one line, `≈ US$20 at today's rate`, when the visitor's currency
+    differs, because the tourist reading the chat later wants it and the business quotes in its own currency anyway.
+- **Formatting** goes through the Phase 2 `formatPrice`, which gains the display currency and the estimate mark.
 
 ## Phase 3: orders
 
-Phase 3 records what was bought, so the app can act on it: an order page, order history, a notification.
+Phase 3 records what was bought so the app can act on it. Revised 2026-10-23 for the WhatsApp provider and for
+what Phase 2 now provides (`ecommerce` feature, `blockedBy`).
 
 ### Stripe
 
-- **The webhook is the source of truth, not the success page.** A buyer who closes the tab before
-  `/checkout/success` still paid. Add `checkout.session.completed`, plus `checkout.session.async_payment_succeeded`
-  / `_failed` for delayed methods such as bank debits, to `webhooks/stripe/handlers/dispatch.ts` with a modifier,
-  as enable-subscriptions does. The handlers then run inside the `stripe-event` workflow with its retries and its
-  per-event idempotency.
-- **Collections:**
-  - `orders`:
-    - `id` (the Checkout Session id, so a redelivered event updates rather than duplicates)
-    - `user` (relation, optional: from the session's `customer` through `stripe_customers`)
-    - `email`, `amount_total`, `currency`
-    - `status` (`paid` / `unpaid` / `failed`)
-    - `metadata` (json)
-    - `created`
-  - `order_lines`: `order` (relation, cascade), `price` (text, the Stripe price id), `name` and `unit_amount`
-    snapshots, `quantity`, `amount_total`.
-
-  The handler retrieves the session with `expand: ['line_items']` and writes both in one workflow step.
-
-- **Rules:** users list and view their own orders (`user = @request.auth.id`). Guests have none; Stripe's email
-  receipt is theirs. Turn it on in the Stripe dashboard, which the docs say.
-- **Pages:**
-  - `/checkout/success` reads the order once it exists, else falls back to the session as now.
-  - With auth, `(app)/orders` lists the user's orders and `(app)/orders/[id]` shows one, with a nav-user item
-    the way payments adds Billing.
+Unchanged from the first sketch: the webhook is the source of truth (`checkout.session.completed`, plus the
+`async_payment_*` events) through a modifier on `dispatch.ts`, as subscriptions does, running inside the
+`stripe-event` workflow. Collections `orders` (keyed by the Checkout Session id, so a redelivery updates) and
+`order_lines` (snapshots of name, `unit_amount`, quantity). Users list their own orders; guests have Stripe's
+receipt. `/checkout/success` reads the order once it exists; with auth, `(app)/orders` and `(app)/orders/[id]`.
 
 ### Shopify
 
-- **Orders stay in Shopify; there is no local copy by default.** Shopify sends the buyer their confirmation and
-  hosts the order status page. The canonical headless order history is Shopify's Customer Account API, an OAuth
-  login to Shopify accounts that sits beside vela's own auth rather than inside it.
-- **Recommendation:** Phase 3 on Shopify is a link to the store's customer account pages, and the docs page
-  explains the Customer Account API for anyone who wants history in the app.
-- **Mirroring orders** would mean an `orders/create` webhook on a new `webhooks/shopify` route (HMAC-verified
-  with the app secret), the same `orders` shape, and a backend. That is Shopify's first server requirement.
-  Build it only when a feature needs local orders, such as notifications or fulfilment workflows.
+Unchanged: orders stay in Shopify, Phase 3 is a link to the store's customer account pages, and the docs explain
+the Customer Account API. Mirroring through an `orders/create` webhook waits for a feature that needs local orders.
+
+### WhatsApp
+
+Orders already live on velastack.dev as `order` form submissions. Decided 2026-10-23: the dashboard stays the
+record, and no notification goes to the business yet. What Phase 3 adds there:
+
+- **A status on the order** (`new`, `confirmed`, `done`, `cancelled`) set from the order view, and a filter on the
+  form's submissions page, so the owner can work the list. Submissions gain one optional field for it; nothing in
+  the sites changes.
+- **The later channel is named, not built.** velastack.dev already runs a WhatsApp Business integration
+  (`forward-whatsapp-event`), so a per-order message to the business is the natural notification when it comes.
+  Email to the team is the cheaper generic one. Either is a hosted-forms feature, not an ecommerce one.
+- `enable-orders` stays Stripe-only (`providers: { payments: ["stripe"] }`).
 
 ### Generator
 
-- **A separate pattern, `enable-orders` / `disable-orders`**, rather than more of ecommerce. It adds collections,
-  a webhook handler and app pages, and it is the first commerce pattern a project would sensibly enable later.
-  - `inheritsProvider: "payments"`.
-  - `requires: { ecommerce: true, backend: true }`, with `providers: { payments: ["stripe"] }` until Shopify
-    mirroring exists.
-- **That needs an `ecommerce` feature.** Add it to `Features` as an optional flag, detect it from
-  `src/lib/cart.svelte.ts` (CLI and harness), and map it in `SLUG_TO_FEATURE` and `FEATURE_ENABLER`. Ecommerce
-  gets no markers of its own: its provider is still payments'.
-- **Notifications:** when `enable-notifications` is present, the paid-order handler creates one for the user. The
-  orders pattern branches on `features.notifications`, as enable-payments branches on auth.
-
-### What this depends on
-
-- **`blockedBy`** (decision 3's follow-up). `disable-payments` and `disable-ecommerce` must refuse while orders
-  exist, and `disable-orders` drops the collections. Without it, disabling payments leaves the order handlers
-  importing a removed Stripe client. This is the same gap subscriptions already has, so add the field before or
-  with Phase 3.
+- `enable-orders` / `disable-orders` as a separate pattern, `inheritsProvider: "payments"`,
+  `requires: { ecommerce: true, backend: true }` with `providers: { payments: ["stripe"] }`. The `ecommerce`
+  feature and `blockedBy` come from Phase 2 P0, so this phase no longer carries them.
+- Notifications in the app: when `enable-notifications` is present, the paid-order handler creates one for the
+  user, branching on `features.notifications` as payments branches on auth.
 
 ## Later / open questions
 
