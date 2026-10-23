@@ -191,6 +191,36 @@ right place for it. Shared files are limited to what would read naturally in eit
 Switching providers means disable, then enable again. Running `enable-ecommerce` with a
 different provider than the one detected fails under decision 2.
 
+### 6. Currency: one home currency now, display currencies next
+
+Decided 2026-10-22. VelaStack serves a multilingual market, so its sites are multi-currency too. "Currency" covers
+four separate things:
+
+1. **Home currency.** Each business has one: the currency it sets prices in and is paid in, such as MXN for a
+   bakery in Mexico. It is `site.currency` (ISO 4217) in `$lib/site`, next to `site.name`. Templates mirror it into
+   the CMS's site options, the way the CLI mirrors `site.name` into PocketBase. A business that only ever sells in
+   its home currency never shows another one.
+2. **Prices are amounts, not text.** A price is a number in a known currency, never `$5.50 each`, since `$` alone
+   could be pesos or dollars. Where a provider owns the price, its own shape stays: Stripe's `unit_amount` in minor
+   units and Shopify's `MoneyV2`. Where VelaStack holds the price (WhatsApp, CMS), it is a decimal in the home
+   currency, as a person writes it (`4.5`).
+3. **Display currencies** (Phase 1.6). A business can offer more currencies, as a hotel would. The visitor's
+   currency defaults to their region's, from the CDN's geo header or the locale's region, when the business
+   offers it; otherwise it is the home currency. A switcher next to the language switcher overrides the default,
+   and the choice is kept in a cookie. Currency is separate from language: Spanish can mean MXN, EUR or ARS. Each
+   provider does this its own way (decision 5):
+   - Shopify: Markets, with Storefront queries `@inContext(country:)`.
+   - Stripe: Adaptive Pricing in Checkout, plus `currency_options` where the business sets fixed prices.
+   - WhatsApp and CMS: no provider holds the prices, so other currencies are converted at a daily rate that
+     velastack.dev publishes (so sites don't each call a rate API) and shown as estimates (`≈ US$4.20`).
+4. **The currency the order is charged in** is always one the provider can charge. On WhatsApp the business
+   quotes in the chat, so the message and the stored order are in the home currency; Phase 1.6 may add the
+   visitor's estimate as a note.
+
+**Formatting** uses `Intl.NumberFormat` with the page's language (`<html lang>`, or the request locale in a server
+render), not the visitor's browser. An English page then shows MXN as `MX$5.50` and a Spanish one as `$5.50`, and
+the server render and hydration agree.
+
 ## Phase 1: the cart
 
 ### Scope
@@ -651,10 +681,39 @@ src/lib/components/cart/add-to-cart.svelte     <AddToCart id="sourdough" name="S
 
 - `@velastack/whatsapp` gets its own repo, `velastack/whatsapp` (`~/Code/velastack-whatsapp`), and is
   released by tag, as patterns is. `@velastack/cms` depends on a published version.
-- The WhatsApp providers ship in patterns 0.5.x, before Phase 2. They are additive, and Phase 2's
-  `/shop` work stays the 0.6.0 break.
+- The WhatsApp providers ship in patterns **0.6.0**, before Phase 2, which becomes 0.7.0. Additive or not, vela 0.16
+  accepts `^0.5.0` and throws on a provider it doesn't know (`...NEXT_STEPS[provider.id]`). The Shopify provider
+  went out as 0.5.0 for the same reason.
 - centeno is the reference template. It already builds one `orderHref` per seasonal bread, and the
   cart replaces those links.
+
+### Currency groundwork (decision 6)
+
+Phase 1.5 builds only the parts of decision 6 that are expensive to change later:
+
+- **`@velastack/whatsapp`, before its first publish:** the order carries one `currency`, the home currency. A
+  line has an optional `price`, and `subtotal` is a number. Lines carry no currency of their own.
+- **Payments on WhatsApp:** `vela enable payments` asks for the home currency and writes `site.currency` into
+  `$lib/site` when it isn't there. `OrderButton` and `AddToCart` take a `price` in that currency and no currency
+  prop. The cart formats with `<html lang>`.
+- **Hosted order view:** it reads the order-level currency.
+- **cms:** `CmsWhatsAppCart` takes the currency from the template's site options (`currency`), and `whatsappCart`
+  items have only a price.
+- **centeno moves to Phase 2.** Its prices are free text in a collection's `details`, so it needs a CMS price
+  field, which is the CMS catalog (Phase 2's WhatsApp/CMS catalog), not a template patch.
+
+## Phase 1.6: display currencies
+
+Sketched 2026-10-22, from decision 6, items 3 and 4. To be designed in full before it is built, and before Phase 2's
+catalog, so that product pages render prices through it from the start.
+
+- `site.currencies`: the display currencies the business offers. Empty means the home currency only.
+- Picking the visitor's currency, with the same shape as the i18n locale negotiation: geo/region, then the cookie, then
+  home. A `CurrencySelect` sits beside the language select.
+- velastack.dev publishes a daily rates table that WhatsApp and CMS sites read for estimates. Stripe and Shopify use
+  their own (Adaptive Pricing, Markets).
+- Open: whether the WhatsApp message carries the visitor's estimate; how a static site gets the rates (build time
+  or the browser); and Shopify's country selector versus a currency-only switcher.
 
 ## Phase 2: catalog
 

@@ -751,3 +751,7 @@ Built, with these changes from the outline:
 - **W8:** waiting on a decision. centeno's prices are free text in the CMS (`$5.50 each · while they last`) and the
   template has no currency, so its cart needs either a currency setting plus price parsing, or unpriced lines that carry
   the price text in their name.
+- **Currency (decision 6, added later the same day):** every WhatsApp and CMS price is a number in the home currency
+  `site.currency`; the order has one currency. The groundwork is listed in `ecommerce.md` "Currency groundwork". It
+  changes W1, W2, W3 (a follow-up PR for the order view), W4/W5 and W6. Patterns releases as **0.6.0**. W8 (centeno)
+  moves to Phase 2, because it needs a CMS price field. Phase 1.6 (display currencies) comes before Phase 2.
