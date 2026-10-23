@@ -23,48 +23,57 @@ export const payments = new Command('payments')
 	.option('--provider <provider>', 'payment provider: stripe, shopify or whatsapp')
 	.option(
 		'--currency <code>',
-		"WhatsApp: the business's currency, an ISO 4217 code such as MXN (kept in src/lib/site.ts)"
+		'the currency the business prices in, an ISO 4217 code such as MXN (kept in src/lib/site.ts; WhatsApp needs it)'
+	)
+	.option(
+		'--country <code>',
+		'the country the business is in, ISO 3166-1 such as MX; prices format for it'
+	)
+	.option(
+		'--currencies <codes>',
+		'other currencies to show prices in, as estimates, comma-separated (USD,EUR); blank for none'
 	)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
-	.action((opts: { provider?: string; currency?: string }, cmd) =>
-		runCommand(async () => {
-			const provider = await resolveProvider('enable-payments', opts.provider);
+	.action(
+		(opts: { provider?: string; currency?: string; country?: string; currencies?: string }, cmd) =>
+			runCommand(async () => {
+				const provider = await resolveProvider('enable-payments', opts.provider);
 
-			// Refuse before asking for keys: Stripe needs a backend and workflows.
-			await assertPatternRequires('enable-payments', provider.id);
-			if (provider.id === 'stripe') assertBackendReady('vela enable payments');
+				// Refuse before asking for keys: Stripe needs a backend and workflows.
+				await assertPatternRequires('enable-payments', provider.id);
+				if (provider.id === 'stripe') assertBackendReady('vela enable payments');
 
-			if (provider.id === 'stripe') noteWebhookSecret();
-			const currency = provider.id === 'whatsapp' ? await askCurrency(opts.currency) : undefined;
-			const orderForm = provider.id === 'whatsapp' ? await prepareOrderForm() : [];
-			const providerEnv = await collectProviderEnv(provider);
-			const demoId = provider.id === 'whatsapp' ? '' : await askDemoId(provider);
-			// The order form's note already says how to fill it in.
-			const blank = missingEnvKeys(provider, providerEnv).filter(
-				(key) => !(key === 'PUBLIC_WHATSAPP_ORDER_FORM' && orderForm.length > 0)
-			);
+				if (provider.id === 'stripe') noteWebhookSecret();
+				const business = await askBusiness(opts, provider.id === 'whatsapp');
+				const orderForm = provider.id === 'whatsapp' ? await prepareOrderForm() : [];
+				const providerEnv = await collectProviderEnv(provider);
+				const demoId = provider.id === 'whatsapp' ? '' : await askDemoId(provider);
+				// The order form's note already says how to fill it in.
+				const blank = missingEnvKeys(provider, providerEnv).filter(
+					(key) => !(key === 'PUBLIC_WHATSAPP_ORDER_FORM' && orderForm.length > 0)
+				);
 
-			await runPattern(
-				'enable-payments',
-				cmd.args,
-				{ provider: provider.id, providerEnv, demoId, currency },
-				{
-					summary: `Enabled ${provider.label} payments.`,
-					nextSteps: [
-						...blank.map((key) => `Set ${key} in .env.`),
-						...orderForm,
-						...NEXT_STEPS[provider.id],
-						'Set the same variables on each deploy target with `vela env set`.'
-					],
-					task: {
-						title: 'Enabling payments',
-						success: 'Enabled payments',
-						error: 'Failed to enable payments'
+				await runPattern(
+					'enable-payments',
+					cmd.args,
+					{ provider: provider.id, providerEnv, demoId, ...business },
+					{
+						summary: `Enabled ${provider.label} payments.`,
+						nextSteps: [
+							...blank.map((key) => `Set ${key} in .env.`),
+							...orderForm,
+							...NEXT_STEPS[provider.id],
+							'Set the same variables on each deploy target with `vela env set`.'
+						],
+						task: {
+							title: 'Enabling payments',
+							success: 'Enabled payments',
+							error: 'Failed to enable payments'
+						}
 					}
-				}
-			);
-		}, 'Failed to enable payments.')
+				);
+			}, 'Failed to enable payments.')
 	);
 
 const NEXT_STEPS: Record<string, string[]> = {
@@ -89,30 +98,95 @@ function isCurrency(code: string): boolean {
 	return Intl.supportedValuesOf('currency').includes(code.trim().toUpperCase());
 }
 
-/**
- * The business's currency for WhatsApp prices: the flag, else what
- * `src/lib/site.ts` already says (the pattern keeps it), else asked for.
- * Off a terminal with neither, the pattern says what to pass.
- */
-async function askCurrency(flag: string | undefined): Promise<string | undefined> {
-	if (flag) return flag.trim().toUpperCase();
+/** Whether `code` is a region `Intl` knows. */
+function isCountry(code: string): boolean {
+	const upper = code.trim().toUpperCase();
+	return (
+		/^[A-Z]{2}$/.test(upper) &&
+		new Intl.DisplayNames(['en'], { type: 'region' }).of(upper) !== upper
+	);
+}
+
+/** What `src/lib/site.ts` already declares about the business. */
+function declaredBusiness(): { currency?: string; country?: string; currencies?: string } {
 	const root = findWorkspaceRoot();
 	const site = root ? path.join(root, 'src', 'lib', 'site.ts') : null;
-	if (site && fs.existsSync(site) && /^\s*currency\s*:/m.test(fs.readFileSync(site, 'utf8'))) {
-		return undefined;
+	if (!site || !fs.existsSync(site)) return {};
+	const source = fs.readFileSync(site, 'utf8');
+	return {
+		currency: /^\s*currency\s*:\s*['"]([A-Za-z]{3})['"]/m.exec(source)?.[1],
+		country: /^\s*country\s*:\s*['"]([A-Za-z]{2})['"]/m.exec(source)?.[1],
+		currencies: /^\s*currencies\s*:\s*\[([^\]]*)\]/m.exec(source)?.[1]
+	};
+}
+
+type Business = { currency?: string; country?: string; currencies?: string };
+
+/**
+ * What the business declares in `src/lib/site.ts`: the currency it prices in,
+ * the country it is in (prices format for it: `es-MX`, not `es`), and the
+ * other currencies it shows prices in. Flags first, then what the file already
+ * says (the pattern keeps that), then a prompt. WhatsApp cannot take orders
+ * without a currency; the others can run without one, so off a terminal they
+ * ask for nothing.
+ */
+async function askBusiness(flags: Business, currencyRequired: boolean): Promise<Business> {
+	const declared = declaredBusiness();
+	const business: Business = {
+		currency: flags.currency?.trim().toUpperCase(),
+		country: flags.country?.trim().toUpperCase(),
+		currencies: flags.currencies
+	};
+	const ask = isInteractive();
+
+	if (!business.currency && !declared.currency) {
+		if (!ask) return business;
+		business.currency = await text({
+			message: 'The currency the business prices in (ISO 4217)',
+			placeholder: 'MXN, EUR, USD...',
+			validate: (value) =>
+				value && isCurrency(value)
+					? undefined
+					: currencyRequired || value
+						? 'An ISO 4217 code, such as MXN or EUR'
+						: undefined
+		});
 	}
-	if (!isInteractive()) return undefined;
-	const value = await p.text({
-		message: "The business's currency, which every price is in (ISO 4217)",
-		placeholder: 'MXN, EUR, USD...',
-		validate: (value) =>
-			value && isCurrency(value) ? undefined : 'An ISO 4217 code, such as MXN or EUR'
-	});
+	const home = (business.currency ?? declared.currency ?? '').toUpperCase();
+
+	if (!business.country && !declared.country && ask) {
+		business.country = await text({
+			message: 'The country the business is in (ISO 3166-1, two letters), so prices format for it',
+			placeholder: 'MX, ES, US...',
+			validate: (value) =>
+				!value || isCountry(value) ? undefined : 'A two-letter country code, such as MX'
+		});
+	}
+
+	if (business.currencies === undefined && declared.currencies === undefined && ask && home) {
+		business.currencies = await text({
+			message: `Other currencies to show prices in, as estimates (comma-separated, blank for ${home} only)`,
+			placeholder: 'USD, EUR',
+			validate: (value) =>
+				value && value.split(/[,\s]+/).some((code) => code && !isCurrency(code))
+					? 'ISO 4217 codes, comma-separated'
+					: undefined
+		});
+	}
+	return {
+		currency: business.currency?.toUpperCase() || undefined,
+		country: business.country?.toUpperCase() || undefined,
+		currencies: business.currencies ?? undefined
+	};
+}
+
+async function text(options: Parameters<typeof p.text>[0]): Promise<string | undefined> {
+	const value = await p.text(options);
 	if (p.isCancel(value)) {
 		p.cancel('Operation cancelled.');
 		process.exit(0);
 	}
-	return value.trim().toUpperCase();
+	return (value ?? '').trim() || undefined;
 }
 
 /**
