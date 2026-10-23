@@ -953,6 +953,26 @@ switcher today, so the currency select is the first switcher on a template: the 
 automatically; a template that offers currencies (a hotel, a tour operator) draws the select in its own markup from
 the store, and centeno, which offers none, stays as it is. The industry specs say which industries offer currencies.
 
+### PRs
+
+Built 2026-10-23, the evening after the design. Status as of the last edit.
+
+| #   | Repo      | PR                                                                                                                                                                                        | Release                              |
+| --- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| C1  | velastack | #81: `fx_rates`, `sync-fx-rates` (01:17 and 13:17 UTC), `/v1/rates` with a lazy first fill, the country map                                                                               | live (165 rates, 58 countries)       |
+| C2  | patterns  | #34: `site.country` and `site.currencies`, `currency.svelte.ts`, `CurrencySelect` in the navbar, every cart and the WhatsApp message through the store                                    | 0.8.0                                |
+| C2  | patterns  | #35: `currency.server.ts` (`handleCurrency`, `displayRates`), the root layout returns `currency` + `rates`, `currency.hydrate`; load-function helpers lifted                              | 0.9.0 (in CI)                        |
+| C2  | patterns  | #36: Stripe `currency_options` synced, shown exact, charged when every price has one                                                                                                      | with #35                             |
+| C2  | patterns  | #37: Shopify Markets: `marketCountry`, `@inContext` on every operation, `buyerIdentity`, `cartBuyerIdentityUpdate`; `invalidateAll` on a switch                                           | with #35                             |
+| C3  | cli       | #62: `enable payments` asks every provider for currency, country and display currencies; `--currency`, `--country`, `--currencies`                                                        | 0.19.0; floor to patterns 0.9.0 next |
+| C4  | cms       | #29: `displayCurrency` (headless), `siteCurrencies`, `{estimate}` in the order message                                                                                                    | 0.9.0                                |
+| C5  | templates | #75: `business.currencies` in every CMS baseline; tidewater as the reference (header select, `priceLine` through the store); travel specs `currencies: yes`                               | published                            |
+| C6  | velastack | #82: the Currencies section on `/docs/enable/payments`, the estimate line on `/docs/enable/ecommerce`; a second pass for the server half, Stripe and Shopify follows the patterns release | live; second pass pending            |
+
+Known gaps carried: on an i18n site the server formats a price for the default language (`pageLocale()` has no request), so the Spanish
+page's first paint reads `MX$360` until hydration; the Shopify shop pages on a static site start in the home currency until the next
+navigation; `priceOptions` lives in the Stripe cart store rather than a plain module.
+
 ### Not in this phase
 
 - Choosing a market by country on Shopify when several share a currency (the first wins).
