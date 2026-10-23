@@ -117,7 +117,13 @@ const NO_BACKEND_COMMMANDS = new Set([
  * themselves with `assertBackendReady` once the provider is known: Stripe
  * payments keeps its catalog in PocketBase, Shopify keeps it at Shopify.
  */
-const PROVIDER_GATED_COMMANDS = new Set(['enable payments', 'disable payments']);
+const PROVIDER_GATED_COMMANDS = new Set([
+	'enable payments',
+	'disable payments',
+	// Stripe's shop reads PocketBase; Shopify's and WhatsApp's run on a static site.
+	'generate shop',
+	'destroy shop'
+]);
 
 /**
  * Commands that drive the frontend build and so work with or without a backend.
