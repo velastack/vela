@@ -755,3 +755,9 @@ Built, with these changes from the outline:
   `site.currency`; the order has one currency. The groundwork is listed in `ecommerce.md` "Currency groundwork". It
   changes W1, W2, W3 (a follow-up PR for the order view), W4/W5 and W6. Patterns releases as **0.6.0**. W8 (centeno)
   moves to Phase 2, because it needs a CMS price field. Phase 1.6 (display currencies) comes before Phase 2.
+
+### Shipped (2026-10-23)
+
+Phase 1.5 is out: `@velastack/whatsapp` 0.1.0, `@velastack/cms` 0.7.0, `@velastack/patterns` 0.6.0, `vela` 0.17.0, the
+docs (velastack#76), and the hosted order view (velastack#75, #77). W8 (centeno) moved to Phase 2. Next: Phase 1.6
+(display currencies, design first), with #9 alongside, then Phase 2.
