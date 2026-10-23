@@ -771,3 +771,38 @@ docs (velastack#76), and the hosted order view (velastack#75, #77). W8 (centeno)
 The shipped work was reviewed against decisions 1, 5 and 6; the findings (R1–R9) and the revised order of Phases 2,
 1.6 and 3 are in `ecommerce.md`. The next PRs are Phase 2's P0 and P1 (patterns 0.7.0 with the `ecommerce` feature,
 `blockedBy` and the formatting, i18n and test fixes), then P3 (cms + templates: the `currency` site option, centeno).
+
+## 13. Phase 2: status (2026-10-23)
+
+Built the same day the review merged (vela#55), in the order its PR table gives. Where the build taught something
+the review did not know, the plan says so here.
+
+| PR  | Where                      | State                                                                                                                                                                                                                 |
+| --- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0  | velastack/patterns#31      | `ecommerce` feature, `blockedBy` + `blockingFeatures`, disable-payments blocked by ecommerce, disable-ecommerce requires it; the harness refuses blocked steps.                                                       |
+| P1  | patterns#31                | Page-language prices on Stripe and Shopify (`providers-i18n/` for the Stripe success load), no `'usd'` fallbacks, `wuchale-config.ts` lists `src/lib/order.ts` both ways, `order.test.ts` with the WhatsApp provider. |
+| P2  | patterns#31                | Catalog sync fields; one copy of the specs; `ensureCollectionFields` on re-enable.                                                                                                                                    |
+| P3  | velastack/cms#28 → 0.8.0   | `siteCurrency`, `siteCountry`, `siteLocale`; collection and pricing prices in the site currency; `CmsWhatsAppCart` `number` prop.                                                                                     |
+| P3  | velastack/templates#73     | Business group (`currency`, `country`) in every CMS baseline; centeno's structured breads and order drawer; `CmsWhatsAppCart` allowed in `scripts/content.ts`.                                                        |
+| P4  | templates#73 (bakery only) | `industries/README.md` Orders and Prices sections, bakery.md. The other item-selling industries are not refitted yet.                                                                                                 |
+| P5  | patterns#32 (on #31)       | `generate-shop` / `destroy-shop`; enable-ecommerce 2.0.0 without `demoId`; disable-ecommerce removes the shop pages, keeps `catalog.ts`.                                                                              |
+| P5  | velastack/vela#56          | `features.ecommerce`, blocked disables, no second cart, `vela generate shop`, `vela destroy shop`.                                                                                                                    |
+| P6  | velastack/velastack#80     | `/docs/generate/shop`, `/docs/destroy/shop`, the ecommerce and disable pages.                                                                                                                                         |
+
+### Decision 6, amended: the business has a country
+
+`Intl.NumberFormat('es', { currency: 'MXN' })` prints `360,00 MXN`; only `es-MX` prints `$360.00`, and wuchale's
+locales (and `<html lang>`) are bare languages. So the home currency alone cannot format a price for the market.
+Decided while building P3, without asking: a business also has a **country** (ISO 3166-1 alpha-2), and prices format
+in `${language}-${country}`. On templates it is the `country` Site Option and `siteLocale` in `@velastack/cms`. On
+apps `site.country` does not exist yet: the WhatsApp provider's `formatPrice` still formats with the bare page
+language. That is the first thing Phase 1.6 should add.
+
+### Found while building
+
+- enable-i18n cannot merge into the static template's root layout load (`+layout.ts` has a `load` of its own), so
+  i18n is minimal-only today. The i18n + WhatsApp cases run on `minimal` for that reason.
+- The Stripe success load takes `'en'` unless i18n was on when ecommerce was enabled, the same limitation as
+  enable-cms.
+- `writeResult` reports a rewritten existing file among the modifies, which is why `generate shop` checks the disk
+  first and `enable ecommerce` refuses a second run.
