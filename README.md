@@ -16,7 +16,7 @@ That's a running app with a database behind it. No separate PocketBase install, 
 
 - **A backend on day one.** PocketBase, migrated and running locally, with types synced from your schema as it changes.
 - **Auth, payments (Stripe, Shopify or WhatsApp), a cart, teams, notifications, email, i18n** — one command each, generated into your project as code you own.
-- **CRUD you didn't write.** `vela generate scaffold post title:text body:editor` gives you the model, schema, forms, and pages.
+- **CRUD you didn't write.** `vela generate scaffold post title:text body:editor` gives you the model, schema, forms, and pages. `vela generate shop` gives a cart its product listing and product pages, in Stripe's, Shopify's or WhatsApp's own terms.
 - **Describe it instead.** Pass `--ai "a blog post with tags and a cover image"` and review the collection it designs before anything is written.
 - **shadcn-svelte components** on tap, and fixtures and seeds for realistic data while you work.
 - **The app's name in code.** Every project keeps its name and public URL in `src/lib/site.ts`; canonical links, Open Graph images and feeds are built from it, and `vela dev` / `vela deploy` hand the name to PocketBase as `APP_NAME` for the emails it sends. Nothing is written into its settings behind the admin panel's back.

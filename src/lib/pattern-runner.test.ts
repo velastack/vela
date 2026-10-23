@@ -52,6 +52,27 @@ test('refuses a pattern whose prerequisites are missing, naming the command to r
 	expect(fs.readdirSync(tmp, { recursive: true })).toEqual(before);
 });
 
+// A disable whose dependants are still on is refused the same way: the cart
+// imports the Stripe client, so payments can't go while the cart is there.
+test('refuses a disable that would strand a feature built on it', async () => {
+	fs.writeFileSync(
+		path.join(tmp, 'package.json'),
+		JSON.stringify({ devDependencies: { '@sveltejs/kit': '^3.0.0', 'shadcn-svelte': '^1.0.0' } })
+	);
+	fs.writeFileSync(path.join(tmp, 'components.json'), '{}\n');
+	// Stripe's path marker, and the cart.
+	fs.mkdirSync(path.join(tmp, 'src', 'routes', 'webhooks', 'stripe'), { recursive: true });
+	fs.mkdirSync(path.join(tmp, 'src', 'lib'), { recursive: true });
+	fs.writeFileSync(path.join(tmp, 'src', 'lib', 'cart.svelte.ts'), '');
+	const before = fs.readdirSync(tmp, { recursive: true });
+	const run = runPattern('disable-payments', [], { destructive: true }, report);
+	await expect(run).rejects.toThrow(
+		"`vela disable payments` can't run while this project has ecommerce"
+	);
+	await expect(run).rejects.toThrow('vela disable ecommerce');
+	expect(fs.readdirSync(tmp, { recursive: true })).toEqual(before);
+});
+
 describe('splitCreated', () => {
 	const ok = (p: string) => ({ path: p, status: 'success' as const });
 

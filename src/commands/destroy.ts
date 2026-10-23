@@ -5,6 +5,7 @@ import { schema } from './destroy/schema.ts';
 import { resource } from './destroy/resource.ts';
 import { scaffold } from './destroy/scaffold.ts';
 import { deployment } from './destroy/deployment.ts';
+import { shop } from './destroy/shop.ts';
 
 export const destroy = new Command('destroy')
 	.description('destroy scaffolding, or a deployment')
@@ -13,4 +14,5 @@ export const destroy = new Command('destroy')
 	.addCommand(schema)
 	.addCommand(resource)
 	.addCommand(scaffold)
+	.addCommand(shop)
 	.addCommand(deployment);

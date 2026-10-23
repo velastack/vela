@@ -23,6 +23,8 @@ export interface Features {
 	workflows: boolean;
 	/** WhatsApp sign-in on the auth pages (`vela enable whatsapp`). */
 	whatsapp: boolean;
+	/** A cart (`src/lib/cart.svelte.ts`, from `vela enable ecommerce`). */
+	ecommerce: boolean;
 	/** The component kit generators can assume; `plain` means native elements. */
 	ui: Ui;
 }
@@ -198,6 +200,8 @@ function detectFeatures(root: string, { isAppMode }: { isAppMode: boolean }): Wo
 		// The code page, not src/lib/server/whatsapp.ts, which goes once the
 		// PocketBase SDK has WhatsApp.
 		whatsapp: has('src/routes/(public)/(auth)/whatsapp'),
+		// The cart store every provider's ecommerce files share a path for.
+		ecommerce: has('src/lib/cart.svelte.ts'),
 		ui: detectUi(root)
 	};
 }

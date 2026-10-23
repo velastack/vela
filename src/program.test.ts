@@ -48,7 +48,8 @@ const EXPECTED_GENERATE_SUBCOMMANDS = [
 	'resource',
 	'scaffold',
 	'migration',
-	'workflow'
+	'workflow',
+	'shop'
 ];
 
 const EXPECTED_ENABLE_SUBCOMMANDS = [
@@ -96,7 +97,14 @@ const EXPECTED_MIGRATE_SUBCOMMANDS = [
 
 const EXPECTED_ENV_SUBCOMMANDS = ['list', 'get', 'set', 'unset', 'import'];
 
-const EXPECTED_DESTROY_SUBCOMMANDS = ['form', 'schema', 'resource', 'scaffold', 'deployment'];
+const EXPECTED_DESTROY_SUBCOMMANDS = [
+	'form',
+	'schema',
+	'resource',
+	'scaffold',
+	'deployment',
+	'shop'
+];
 
 const EXPECTED_BACKUP_SUBCOMMANDS = ['create', 'list', 'download', 'delete', 'schedule'];
 
