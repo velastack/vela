@@ -866,31 +866,81 @@ every template; P5 is the gate for Phase 1.6.
 
 ## Phase 1.6: display currencies
 
-Sketched 2026-10-22 from decision 6, items 3 and 4; re-sequenced 2026-10-23 to follow Phase 2. The engineering is
-on the CMS and WhatsApp side; for Stripe and Shopify most of it is dashboard configuration plus docs.
+Designed 2026-10-23, after Phase 2 shipped. Decided with the user the same day: velastack.dev takes its rates from
+ExchangeRate-API's open feed (166 currencies, every Latin American one, a daily update, attribution required); the
+WhatsApp message carries the visitor's estimate as one line; `vela enable payments` asks for the display currencies;
+a static site shows the home currency until the visitor switches.
 
-- **`site.currencies`**: the display currencies the business offers, in `$lib/site` and the `currency` site option's
-  sibling in the CMS. Empty means the home currency only, and nothing below renders.
-- **Picking the visitor's currency**, in the shape of the i18n locale negotiation: the region (the CDN's
-  `cf-ipcountry` or the locale's region) when a server negotiates, then the `currency` cookie, then home. A static
-  site has no server, so it renders the home currency and the switcher changes it in the browser; a region default
-  there means a flash, so it is off by default. Open: whether the Worker in front of `*.velastack.app` should set
-  the cookie for static sites.
-- **A `CurrencySelect` beside `LanguageSelect`** in apps (patterns), and a headless `displayCurrency` store in
-  `@velastack/cms` for templates, which draw their own select, the way `whatsappCart` is headless.
-- **Rates.** velastack.dev publishes a daily table (`/v1/rates`, one base, ~30 currencies, from a public source),
-  cached a day. Sites read it in the browser (static) or in a load (server). A converted price is an estimate and
-  renders as one (`≈ US$4.20`); the home-currency price stays the price.
-- **Per provider**, as decision 5 asks:
-  - **Shopify:** Markets. Every Storefront query takes `@inContext(country:)`, so the switcher on Shopify picks a
-    country, not a currency, because that is how Shopify prices. The cart and checkout follow it on their own.
-  - **Stripe:** Adaptive Pricing in Checkout needs nothing from us beyond docs. On-site prices use
-    `currency_options` where the business set them (the price sync gains the field) and the rates estimate
-    otherwise.
-  - **WhatsApp and CMS:** estimates from the rates. The stored order and the message stay in the home currency.
-    Recommendation, to confirm: the message gains one line, `≈ US$20 at today's rate`, when the visitor's currency
-    differs, because the tourist reading the chat later wants it and the business quotes in its own currency anyway.
-- **Formatting** goes through the Phase 2 `formatPrice`, which gains the display currency and the estimate mark.
+### What a visitor sees
+
+- Every price is the business's price, in its home currency. When the business offers the visitor's currency, the
+  page shows that instead: exactly where the provider has that price (Stripe `currency_options`, a Shopify market),
+  and as an estimate marked `≈` everywhere else (WhatsApp, the CMS, a Stripe price without an option).
+- A currency select beside the language select. The choice is kept in a `currency` cookie for a year.
+- The default is the visitor's region's currency when the site offers it: on a server, from the CDN's country header
+  (`cf-ipcountry`, `x-vercel-ip-country`), else the first `Accept-Language` region; on a static site, the home
+  currency, with no guess from the browser. Home otherwise.
+- In a cart, the total stays in the home currency with the estimate beside it. On WhatsApp the message adds one line,
+  `≈ US$20 at today's rate`, when the visitor's currency differs; the business still quotes in its own.
+
+### What the business declares
+
+- Apps: `site.currency`, `site.country` and `site.currencies` in `$lib/site`, written by `vela enable payments` for
+  **every** provider (today only WhatsApp asks for the currency, and nothing asks for the country, so a Mexican Stripe
+  store's Spanish page prints `360,00 MXN`). Existing values are kept; the prompts show what `site.ts` already says.
+- Templates: `business.currency`, `business.country` and `business.currencies` (a comma-separated text) in Site
+  Options; `siteCurrencies(site)` joins `siteCurrency`, `siteCountry` and `siteLocale` in `@velastack/cms`.
+- A business that lists no display currencies sees none of this: no select, no `≈`, no rates fetched.
+
+### Rates, published once
+
+`GET https://velastack.dev/v1/rates` (public, no key, `cache-control: max-age=3600`, open CORS) answers
+`{ base: "USD", date, rates: { MXN: 18.73, … } }`. A daily workflow, `sync-fx-rates`, runs after the feed's own
+update (`17 1 * * *` UTC) and stores one `fx_rates` row per date from `https://open.er-api.com/v6/latest/USD`; the
+endpoint serves the latest row. Sites read velastack.dev rather than a third party, so one key or provider change
+touches one place, every site converts with the same rate, and the provider's terms (an attribution link) are met in
+one place: the docs page and the `provider` field of the response.
+
+### Generated code (apps)
+
+Payments gains the provider-independent half; each provider keeps its own prices.
+
+- `src/lib/currency.svelte.ts`, written when `site.currencies` is non-empty: a module store with `current` (the
+  display code), `rates`, `load()` (cookie, then `/v1/rates`, cached a day in localStorage), `set(code)` (writes the
+  cookie), `convert(amount, from)` and `format(amount, from = site.currency)`, which formats in
+  `${lang}-${site.country}` and prefixes `≈` when it converted. `pageLocale()` moves here from `order.ts`, and the
+  WhatsApp `formatPrice`, Stripe `formatAmount` and Shopify `formatMoney` call `format`.
+- `src/lib/components/currency-select.svelte` (shadcn `Select`, as `language-select.svelte`), inserted in the navbar
+  by a root-layout modifier like enable-i18n's. The plain variant is a native `<select>`.
+- With hooks: a `handleCurrency` composed into `hooks.server.ts` (`compose-handle.ts`) resolves the display currency
+  from the cookie, else the country header, else the first `Accept-Language` region's currency, else home, into
+  `event.locals.currency`; the root `+layout.server.ts` returns it and the rates (fetched server-side, so the first
+  render already converts). Without hooks (static) the store starts at home and reads the cookie on load.
+- Country → currency: a small table in the store (the regions the site's `currencies` can map to), not a library.
+- **Stripe:** the price sync adds `currency_options` (json); the shop and cart show the exact option in the display
+  currency when there is one, else the estimate. Checkout charges in the price's currency unless Adaptive Pricing is
+  on in the dashboard, which the docs say to turn on.
+- **Shopify:** `shopify.ts` learns the store's markets once (`localization { availableCountries { isoCode currency {
+isoCode } } }`) and the country whose market currency is the display currency; every Storefront query and mutation
+  carries `@inContext(country: $country)`, a cart is created in that context, and a switch after a cart exists runs
+  `cartBuyerIdentityUpdate`. Shopify then prices the cart and checkout itself; nothing is estimated.
+- **WhatsApp:** estimates from the rates; the order and the stored record stay in the home currency;
+  `orderMessage` adds the estimate line.
+
+### Templates and the CMS
+
+`@velastack/cms` 0.9 gains a headless `displayCurrency` store (the same `current`, `rates`, `load`, `set`, `convert`,
+`format`, from `business.currencies` and velastack.dev), `formatCollectionPrice` converts when asked, the cart's
+`formatPrice` converts and the message gets an `{estimate}` placeholder. Templates have no visitor-facing language
+switcher today, so the currency select is the first switcher on a template: the baseline root layout gets nothing
+automatically; a template that offers currencies (a hotel, a tour operator) draws the select in its own markup from
+the store, and centeno, which offers none, stays as it is. The industry specs say which industries offer currencies.
+
+### Not in this phase
+
+- Choosing a market by country on Shopify when several share a currency (the first wins).
+- Rounding rules beyond the display currency's minor unit.
+- Updating rates more than daily, or a fallback feed.
 
 ## Phase 3: orders
 

@@ -815,3 +815,17 @@ release PR #57) and the docs (velastack#80). Carried forward: `site.country` on 
 `formatPrice` in the WhatsApp provider (Phase 1.6), the P4 refit beyond the bakery, the Stripe success load's `'en'`
 when i18n comes later, and i18n on the static template. Next is Phase 1.6, then Phase 3 (`enable-orders`, which now
 has the `ecommerce` feature and `blockedBy` it needed).
+
+## 14. Phase 1.6 (display currencies): PR outline
+
+The design is `ecommerce.md` "Phase 1.6". velastack.dev first, so a site has rates to read; then the patterns and CLI
+together, as in Phase 2; the CMS and templates after.
+
+| #   | Repo      | PR                                                                                                                                                                                                                                            | Release |
+| --- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| C1  | velastack | `fx_rates` migration, `sync-fx-rates` daily workflow from open.er-api.com, `GET /v1/rates` (public, cached, CORS), the attribution in the docs                                                                                                | deploy  |
+| C2  | patterns  | `site.country` / `site.currencies` groundwork (`ensureSiteBusiness`), `currency.svelte.ts`, `currency-select.svelte` + navbar modifier, `handleCurrency`, carts and the message convert, Stripe `currency_options` sync, Shopify `@inContext` | 0.8.0   |
+| C3  | cli       | `vela enable payments` asks currency, country and display currencies for every provider; docs                                                                                                                                                 | minor   |
+| C4  | cms       | `displayCurrency`, `siteCurrencies`, converting `formatCollectionPrice` and cart `formatPrice`, `{estimate}`                                                                                                                                  | 0.9.0   |
+| C5  | templates | `business.currencies` in every CMS baseline; a reference switcher on a travel template; the industry specs say who offers currencies                                                                                                          | publish |
+| C6  | docs      | A currencies section on `/docs/enable/payments`; `/docs/enable/ecommerce` on estimates                                                                                                                                                        | with C3 |
