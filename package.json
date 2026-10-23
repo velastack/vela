@@ -37,7 +37,7 @@
 	"dependencies": {
 		"@clack/prompts": "^1.7.0",
 		"@faker-js/faker": "^10.6.0",
-		"@velastack/patterns": "^0.5.0",
+		"@velastack/patterns": "^0.6.0",
 		"@velastack/pocketbase-codegen": "^0.1.0",
 		"@velastack/schema": "^0.3.0",
 		"@velastack/schema-ui": "^0.3.1",

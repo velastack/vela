@@ -40,7 +40,10 @@ export const payments = new Command('payments')
 			const orderForm = provider.id === 'whatsapp' ? await prepareOrderForm() : [];
 			const providerEnv = await collectProviderEnv(provider);
 			const demoId = provider.id === 'whatsapp' ? '' : await askDemoId(provider);
-			const blank = missingEnvKeys(provider, providerEnv);
+			// The order form's note already says how to fill it in.
+			const blank = missingEnvKeys(provider, providerEnv).filter(
+				(key) => !(key === 'PUBLIC_WHATSAPP_ORDER_FORM' && orderForm.length > 0)
+			);
 
 			await runPattern(
 				'enable-payments',
