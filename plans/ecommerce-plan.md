@@ -775,7 +775,8 @@ The shipped work was reviewed against decisions 1, 5 and 6; the findings (R1–R
 ## 13. Phase 2: status (2026-10-23)
 
 Built the same day the review merged (vela#55), in the order its PR table gives. Where the build taught something
-the review did not know, the plan says so here.
+the review did not know, the plan says so here. P0–P2 and P5 went out together as **patterns 0.7.0** (one minor bump
+from 0.6.0 covers the `demoId` removal), not as 0.7.0 then 0.8.0.
 
 | PR  | Where                      | State                                                                                                                                                                                                                 |
 | --- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
