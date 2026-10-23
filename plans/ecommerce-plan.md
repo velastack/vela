@@ -4,6 +4,10 @@ Companion to `plans/ecommerce.md`, which says what we are building and why. This
 how: the order of pull requests across `velastack-patterns` and `velastack-cli`, the files each
 one touches, its tests, and when it is done.
 
+**Status (2026-10-22): Phase 1 shipped.** PRs #1–#8 landed as one patterns release (0.5.0, velastack/patterns#29), one
+CLI release (0.16.0, velastack/vela#49 and #51) and the docs (velastack/velastack#73). The 0.4.4 step was skipped: the
+patterns work went on a single branch. Phases 2 and 3 are outlined in §11.
+
 Written 2026-10-20. Paths under `src/` belong to the repo the PR is in. `patterns:` and `cli:`
 prefix paths when it is ambiguous.
 
@@ -670,3 +674,90 @@ Lint and svelte-check skip `.svx`, so run `npm run build` to validate.
   catalog price. If a project needs them (an attendee name on a ticket), the native options
   are `custom_fields` on the session or `price_data` with product metadata. Decide in Phase 3,
   when the order webhook would read them.
+
+---
+
+## 11. Phases 2 and 3: PR outline
+
+The design is in `ecommerce.md`. Same rules as Phase 1: patterns ship before the CLI that uses them, and every Stripe case
+runs in CI now that the repo has Stripe secrets (§3's harness gate applies too).
+
+| #   | Repo     | PR                                                                                                                           | Release  |
+| --- | -------- | ---------------------------------------------------------------------------------------------------------------------------- | -------- |
+| 9   | patterns | payments 2.1: catalog sync carries description, images, metadata, url, nickname, lookup_key                                  | 0.5.x    |
+| 10  | patterns | ecommerce 1.1: `/shop` listing and product pages per provider; demo page and `demoId` go                                     | 0.6.0    |
+| 11  | cli      | `vela enable ecommerce` drops the demo prompt                                                                                | patch    |
+| 12  | patterns | `blockedBy` on patterns, checked by `unmetRequirements`' sibling; disable-payments / -ecommerce use it                       | with #13 |
+| 13  | patterns | `ecommerce` feature, `enable-orders` / `disable-orders` (Stripe): webhook handlers, `orders` / `order_lines`, `(app)/orders` | 0.7.0    |
+| 14  | cli      | `ecommerce` detection, `blockedBy` refusals, `vela enable/disable orders`                                                    | minor    |
+| 15  | docs     | `/docs/enable/ecommerce` catalog section; `/docs/enable/orders`, `/docs/disable/orders`                                      | with #14 |
+
+Notes:
+
+- #9 is additive (new optional fields), so it can ship in a 0.5 patch. #10 removes an input (`demoId`), so it is 0.6.0.
+- #12 is general, not commerce-specific. It also lets `disable-payments` refuse while subscriptions exist, an existing
+  gap from §3's "Found, not fixed here".
+- Shopify order mirroring (`webhooks/shopify`, HMAC) is not on this list; build it when a feature needs local Shopify
+  orders.
+
+---
+
+## 12. Phase 1.5 (WhatsApp checkout): PR outline
+
+The design is `ecommerce.md` "Phase 1.5". It ships before Phase 2 and does not depend on #9, so either can land first.
+The order follows the dependencies: the new package, then the CMS, the hosted app, patterns, the CLI, the docs, and
+the templates. While a dependency is unreleased, develop against a symlinked checkout, as in Phase 1, and bump the
+range only after its release.
+
+| #   | Repo      | PR                                                                                                                                                                     | Release  |
+| --- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| W1  | whatsapp  | new repo `velastack/whatsapp`: `@velastack/whatsapp` with `whatsappHref`/`fillMessage` (moved), `orderRef`, `orderSubtotal`, `formatLines`, `formToken`, `recordOrder` | 0.1.0    |
+| W2  | cms       | depend on W1 and re-export the moved helpers; headless `<CmsWhatsAppCart>`                                                                                             | minor    |
+| W3  | velastack | `POST /v1/projects/:id/forms` (API key → `ensureTemplateForms`); the order view for `order` submissions; check the origin allowlist on link/deploy                     | deploy   |
+| W4  | patterns  | payments `whatsapp` provider: `src/lib/order.ts`, `OrderButton` dialog, env + marker; disable-payments removes it                                                      | with W5  |
+| W5  | patterns  | ecommerce `whatsapp` provider: cart store, sheet with customer fields and confirmation, `AddToCart`; no demo page                                                      | 0.5.x    |
+| W6  | cli       | WhatsApp in `vela enable payments` (number prompt, form creation, `PUBLIC_WHATSAPP_ORDER_FORM`); skip the ecommerce demo prompt                                        | minor    |
+| W7  | docs      | WhatsApp sections in `/docs/enable/payments` and `/docs/enable/ecommerce`; the hosted order view                                                                       | with W6  |
+| W8  | templates | lift the `industries/README.md` cart rule (on-site payment stays banned); centeno: `order` form in `template.json`, `CmsWhatsAppCart`                                  | after W2 |
+
+Notes:
+
+- W1 is the only new repo. Copy the release setup from patterns (tag push → `release.yml`).
+- W3 has to deploy before W6 is released, or the CLI's form creation 404s. The CLI handles a 404 the same way as
+  an unlinked project (a next-steps note), so the order is a preference, not a hard dependency.
+- Integration (W4/W5): WhatsApp on `static` and `minimal`, needing no secrets, and enable, disable, enable. With no
+  hosted form configured, checkout only opens the chat, which is what CI exercises. W3's tests cover the recording.
+- `detectProviders` picks up the new marker (`PUBLIC_WHATSAPP_NUMBER`) by itself. Check that
+  `integration/features.ts` and the CLI agree, and that a project with Stripe and WhatsApp markers is refused as
+  ambiguous.
+
+### Status (2026-10-22)
+
+Built, with these changes from the outline:
+
+- **W1:** `~/Code/velastack-whatsapp` was built and committed locally (29 tests; lint, type check and publint are clean). Creating the
+  public `velastack/whatsapp` repo, and the first `npm publish`, need the user. Trusted publishing can be configured
+  only after the package exists. The package also has `openChat` (open in a new tab, or this one if the popup is
+  blocked), `lineTotal`, `formatMoney` and `orderPlaceholders`.
+- **W2 (velastack/cms#26, draft):** there is no re-export. `@velastack/cms` already exports a different public
+  `whatsappHref` (the contact shape's `(number) => string`), and its form helpers were never public, so cms only
+  swaps its internals for the package. It adds `whatsappCart` plus a headless `CmsWhatsAppCart`, which has a default
+  message until the editor writes one.
+- **W4/W5 (velastack/patterns#30, draft):** payments 2.1 and ecommerce 1.1, so Phase 2's catalog work becomes
+  ecommerce 1.2. As with the other providers, disable-payments leaves the package installed. All six integration
+  cases passed locally against a packed tarball.
+- **W6:** the order form comes from `src/lib/order-form.ts` (the link, else the hosted CMS endpoint in `src/lib/cms.ts`)
+  and `createProjectForms` (`POST /v1/projects/:id/forms`, body `{ forms: [{ key, name }] }`).
+- **W8:** waiting on a decision. centeno's prices are free text in the CMS (`$5.50 each · while they last`) and the
+  template has no currency, so its cart needs either a currency setting plus price parsing, or unpriced lines that carry
+  the price text in their name.
+- **Currency (decision 6, added later the same day):** every WhatsApp and CMS price is a number in the home currency
+  `site.currency`; the order has one currency. The groundwork is listed in `ecommerce.md` "Currency groundwork". It
+  changes W1, W2, W3 (a follow-up PR for the order view), W4/W5 and W6. Patterns releases as **0.6.0**. W8 (centeno)
+  moves to Phase 2, because it needs a CMS price field. Phase 1.6 (display currencies) comes before Phase 2.
+
+### Shipped (2026-10-23)
+
+Phase 1.5 is out: `@velastack/whatsapp` 0.1.0, `@velastack/cms` 0.7.0, `@velastack/patterns` 0.6.0, `vela` 0.17.0, the
+docs (velastack#76), and the hosted order view (velastack#75, #77). W8 (centeno) moved to Phase 2. Next: Phase 1.6
+(display currencies, design first), with #9 alongside, then Phase 2.
