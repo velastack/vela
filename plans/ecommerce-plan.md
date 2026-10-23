@@ -677,7 +677,11 @@ Lint and svelte-check skip `.svx`, so run `npm run build` to validate.
 
 ---
 
-## 11. Phases 2 and 3: PR outline
+## 11. Phases 2 and 3: PR outline (superseded)
+
+**Superseded 2026-10-23** by the review in `ecommerce.md` ("Review of Phases 1 and 1.5") and its Phase 2 PR table
+(P0–P6): the catalog became `vela generate shop`, `blockedBy` and the `ecommerce` feature moved into Phase 2, and
+Phase 1.6 follows Phase 2. Kept for the Stripe and Shopify page details it references.
 
 The design is in `ecommerce.md`. Same rules as Phase 1: patterns ship before the CLI that uses them, and every Stripe case
 runs in CI now that the repo has Stripe secrets (§3's harness gate applies too).
@@ -761,3 +765,9 @@ Built, with these changes from the outline:
 Phase 1.5 is out: `@velastack/whatsapp` 0.1.0, `@velastack/cms` 0.7.0, `@velastack/patterns` 0.6.0, `vela` 0.17.0, the
 docs (velastack#76), and the hosted order view (velastack#75, #77). W8 (centeno) moved to Phase 2. Next: Phase 1.6
 (display currencies, design first), with #9 alongside, then Phase 2.
+
+### Reviewed (2026-10-23)
+
+The shipped work was reviewed against decisions 1, 5 and 6; the findings (R1–R9) and the revised order of Phases 2,
+1.6 and 3 are in `ecommerce.md`. The next PRs are Phase 2's P0 and P1 (patterns 0.7.0 with the `ecommerce` feature,
+`blockedBy` and the formatting, i18n and test fixes), then P3 (cms + templates: the `currency` site option, centeno).
