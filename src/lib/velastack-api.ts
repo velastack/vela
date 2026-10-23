@@ -263,6 +263,35 @@ export async function seedSite(
 	});
 }
 
+/** A hosted form to create: its key (what sites post to) and the dashboard's name for it. */
+export interface ProjectFormSpec {
+	key: string;
+	name: string;
+}
+
+/**
+ * What `POST /v1/projects/:id/forms` did, and the origins the project's hosted
+ * forms accept posts from (empty: any).
+ */
+export interface ProjectFormsOutcome extends SiteSeedForms {
+	origins: string[];
+}
+
+/**
+ * `POST /v1/projects/:id/forms`: creates the hosted forms the project lacks
+ * and leaves the rest, so it is safe to repeat.
+ */
+export async function createProjectForms(
+	apiKey: string,
+	projectId: string,
+	forms: ProjectFormSpec[]
+): Promise<ProjectFormsOutcome> {
+	return apiFetch<ProjectFormsOutcome>(apiKey, `/v1/projects/${projectId}/forms`, {
+		method: 'POST',
+		body: JSON.stringify({ forms })
+	});
+}
+
 export async function destroyEnvironment(
 	apiKey: string,
 	projectId: string,

@@ -21,6 +21,17 @@ const SHOPIFY = {
 	]
 };
 
+const WHATSAPP = {
+	confirmMessage:
+		'Disable payments? Removes the Order on WhatsApp button, src/lib/order.ts and the WhatsApp env variables. Orders recorded on velastack.dev are untouched.',
+	nextSteps: [
+		'The hosted order form and the orders in it stay on velastack.dev.',
+		'The @velastack/whatsapp package remains installed. Uninstall it manually if desired.'
+	]
+};
+
+const COPY: Record<string, typeof STRIPE> = { shopify: SHOPIFY, whatsapp: WHATSAPP };
+
 export const payments = new Command('payments')
 	.description('disable payments')
 	.option('-y, --yes', 'skip confirmation prompt')
@@ -36,7 +47,7 @@ export const payments = new Command('payments')
 			if (provider === 'stripe' || (provider === undefined && hasBackend())) {
 				assertBackendReady('vela disable payments');
 			}
-			const copy = provider === 'shopify' ? SHOPIFY : STRIPE;
+			const copy = (provider ? COPY[provider] : undefined) ?? STRIPE;
 
 			await runDisable(
 				{
