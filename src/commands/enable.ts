@@ -11,6 +11,7 @@ import { teams } from './enable/teams.ts';
 import { payments } from './enable/payments.ts';
 import { ecommerce } from './enable/ecommerce.ts';
 import { subscriptions } from './enable/subscriptions.ts';
+import { orders } from './enable/orders.ts';
 import { notifications } from './enable/notifications.ts';
 import { cms } from './enable/cms.ts';
 import { blog } from './enable/blog.ts';
@@ -33,6 +34,7 @@ export const enable = new Command('enable')
 	.addCommand(payments)
 	.addCommand(ecommerce)
 	.addCommand(subscriptions)
+	.addCommand(orders)
 	.addCommand(notifications)
 	.addCommand(cms)
 	.addCommand(blog)

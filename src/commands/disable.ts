@@ -13,6 +13,7 @@ import { teams } from './disable/teams.ts';
 import { payments } from './disable/payments.ts';
 import { ecommerce } from './disable/ecommerce.ts';
 import { subscriptions } from './disable/subscriptions.ts';
+import { orders } from './disable/orders.ts';
 import { whatsapp } from './disable/whatsapp.ts';
 
 export const disable = new Command('disable')
@@ -31,4 +32,5 @@ export const disable = new Command('disable')
 	.addCommand(payments)
 	.addCommand(ecommerce)
 	.addCommand(subscriptions)
+	.addCommand(orders)
 	.addCommand(whatsapp);
