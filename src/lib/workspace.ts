@@ -25,6 +25,12 @@ export interface Features {
 	whatsapp: boolean;
 	/** A cart (`src/lib/cart.svelte.ts`, from `vela enable ecommerce`). */
 	ecommerce: boolean;
+	/** In-app notifications (`src/lib/server/notifications.ts`, from `vela enable notifications`). */
+	notifications: boolean;
+	/** Stripe subscriptions (`vela enable subscriptions`), by their sync workflow. */
+	subscriptions: boolean;
+	/** Orders recorded from Stripe Checkout (`vela enable orders`), by their webhook handlers. */
+	orders: boolean;
 	/** The component kit generators can assume; `plain` means native elements. */
 	ui: Ui;
 }
@@ -202,6 +208,9 @@ function detectFeatures(root: string, { isAppMode }: { isAppMode: boolean }): Wo
 		whatsapp: has('src/routes/(public)/(auth)/whatsapp'),
 		// The cart store every provider's ecommerce files share a path for.
 		ecommerce: has('src/lib/cart.svelte.ts'),
+		notifications: has('src/lib/server/notifications.ts'),
+		subscriptions: has('src/lib/workflows/sync-stripe-subscriptions.ts'),
+		orders: has('src/routes/webhooks/stripe/handlers/checkout'),
 		ui: detectUi(root)
 	};
 }

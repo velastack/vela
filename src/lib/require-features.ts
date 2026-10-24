@@ -38,7 +38,9 @@ const DISABLE_COMMAND: Partial<Record<FeatureFlag, string>> = {
 	blog: 'vela disable blog',
 	contentNegotiation: 'vela disable content-negotiation',
 	cms: 'vela disable cms',
-	ecommerce: 'vela disable ecommerce'
+	ecommerce: 'vela disable ecommerce',
+	subscriptions: 'vela disable subscriptions',
+	orders: 'vela disable orders'
 };
 
 const FEATURE_NAME: Partial<Record<keyof Features, string>> = {
