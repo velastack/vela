@@ -957,17 +957,17 @@ the store, and centeno, which offers none, stays as it is. The industry specs sa
 
 Built 2026-10-23, the evening after the design. Status as of the last edit.
 
-| #   | Repo      | PR                                                                                                                                                                                        | Release                              |
-| --- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| C1  | velastack | #81: `fx_rates`, `sync-fx-rates` (01:17 and 13:17 UTC), `/v1/rates` with a lazy first fill, the country map                                                                               | live (165 rates, 58 countries)       |
-| C2  | patterns  | #34: `site.country` and `site.currencies`, `currency.svelte.ts`, `CurrencySelect` in the navbar, every cart and the WhatsApp message through the store                                    | 0.8.0                                |
-| C2  | patterns  | #35: `currency.server.ts` (`handleCurrency`, `displayRates`), the root layout returns `currency` + `rates`, `currency.hydrate`; load-function helpers lifted                              | 0.9.0 (in CI)                        |
-| C2  | patterns  | #36: Stripe `currency_options` synced, shown exact, charged when every price has one                                                                                                      | with #35                             |
-| C2  | patterns  | #37: Shopify Markets: `marketCountry`, `@inContext` on every operation, `buyerIdentity`, `cartBuyerIdentityUpdate`; `invalidateAll` on a switch                                           | with #35                             |
-| C3  | cli       | #62: `enable payments` asks every provider for currency, country and display currencies; `--currency`, `--country`, `--currencies`                                                        | 0.19.0; floor to patterns 0.9.0 next |
-| C4  | cms       | #29: `displayCurrency` (headless), `siteCurrencies`, `{estimate}` in the order message                                                                                                    | 0.9.0                                |
-| C5  | templates | #75: `business.currencies` in every CMS baseline; tidewater as the reference (header select, `priceLine` through the store); travel specs `currencies: yes`                               | published                            |
-| C6  | velastack | #82: the Currencies section on `/docs/enable/payments`, the estimate line on `/docs/enable/ecommerce`; a second pass for the server half, Stripe and Shopify follows the patterns release | live; second pass pending            |
+| #   | Repo      | PR                                                                                                                                                                                        | Release                          |
+| --- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| C1  | velastack | #81: `fx_rates`, `sync-fx-rates` (01:17 and 13:17 UTC), `/v1/rates` with a lazy first fill, the country map                                                                               | live (165 rates, 58 countries)   |
+| C2  | patterns  | #34: `site.country` and `site.currencies`, `currency.svelte.ts`, `CurrencySelect` in the navbar, every cart and the WhatsApp message through the store                                    | 0.8.0                            |
+| C2  | patterns  | #35: `currency.server.ts` (`handleCurrency`, `displayRates`), the root layout returns `currency` + `rates`, `currency.hydrate`; load-function helpers lifted                              | 0.9.0                            |
+| C2  | patterns  | #36: Stripe `currency_options` synced, shown exact, charged when every price has one                                                                                                      | with #35                         |
+| C2  | patterns  | #37: Shopify Markets: `marketCountry`, `@inContext` on every operation, `buyerIdentity`, `cartBuyerIdentityUpdate`; `invalidateAll` on a switch                                           | with #35                         |
+| C3  | cli       | #62: `enable payments` asks every provider for currency, country and display currencies; `--currency`, `--country`, `--currencies`                                                        | 0.19.0; 0.20.0 on patterns 0.9.0 |
+| C4  | cms       | #29: `displayCurrency` (headless), `siteCurrencies`, `{estimate}` in the order message                                                                                                    | 0.9.0                            |
+| C5  | templates | #75: `business.currencies` in every CMS baseline; tidewater as the reference (header select, `priceLine` through the store); travel specs `currencies: yes`                               | published                        |
+| C6  | velastack | #82: the Currencies section on `/docs/enable/payments`, the estimate line on `/docs/enable/ecommerce`; a second pass for the server half, Stripe and Shopify follows the patterns release | live, both passes                |
 
 Known gaps carried: on an i18n site the server formats a price for the default language (`pageLocale()` has no request), so the Spanish
 page's first paint reads `MX$360` until hydration; the Shopify shop pages on a static site start in the home currency until the next
@@ -1017,6 +1017,21 @@ record, and no notification goes to the business yet. What Phase 3 adds there:
   feature and `blockedBy` come from Phase 2 P0, so this phase no longer carries them.
 - Notifications in the app: when `enable-notifications` is present, the paid-order handler creates one for the
   user, branching on `features.notifications` as payments branches on auth.
+
+### PRs
+
+Built 2026-10-23, the same night as Phase 1.6. Status as of the last edit.
+
+| #   | Repo      | PR                                                                                                                                                                                                                                                                                                                                                             | Release                  |
+| --- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| O1  | patterns  | #38: `enable-orders` / `disable-orders` (Stripe only): `orders` + `order_lines`, the checkout handlers in `dispatch.ts`, the success page rewritten, `/orders` with auth, a notification with notifications; `notifications`, `subscriptions` and `orders` become features and the last two block `disable-payments` (and `orders` blocks `disable-ecommerce`) | 0.10.0 (in CI)           |
+| O2  | cli       | #64: `vela enable orders` / `vela disable orders`; the three features detected                                                                                                                                                                                                                                                                                 | with the floor to 0.10.0 |
+| O3  | velastack | #85: a status on order submissions (`new`, `confirmed`, `done`, `cancelled`), filter and buttons on the form's page, written as the superuser                                                                                                                                                                                                                  | live                     |
+| O4  | velastack | #84: `/docs/enable/orders`, `/docs/disable/orders`; the disable pages name what blocks them                                                                                                                                                                                                                                                                    | with O2                  |
+
+Known gaps carried: the generated `server.test.ts` creates a real test-mode Checkout Session each run; the notifications
+variant formats the amount through `#lib/cart.svelte.js`, which pulls `$app/navigation` into the workflow worker (works,
+but a plain money formatter would be the canonical home); `priceOptions` likewise lives in the cart store.
 
 ## Later / open questions
 
