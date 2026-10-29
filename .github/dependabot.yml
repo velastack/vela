@@ -15,7 +15,7 @@ updates:
       # PocketBase (velabase) version they wrap. Never "upgrade" to it.
       - dependency-name: pocketbase-server
         versions:
-          - ">=1.0.0"
+          - '>=1.0.0'
   - package-ecosystem: github-actions
     directory: /
     schedule:
