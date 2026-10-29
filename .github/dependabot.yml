@@ -9,6 +9,13 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # pocketbase-server 1.0.x is an older, abandoned line of the package from
+      # 2025 that happens to sort above the 0.40.x releases, which track the
+      # PocketBase (velabase) version they wrap. Never "upgrade" to it.
+      - dependency-name: pocketbase-server
+        versions:
+          - ">=1.0.0"
   - package-ecosystem: github-actions
     directory: /
     schedule:
