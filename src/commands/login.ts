@@ -1,14 +1,22 @@
 import os from 'node:os';
-import process from 'node:process';
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
-import makeFetchCookie, { type FetchCookieImpl } from 'fetch-cookie';
+import makeFetchCookie from 'fetch-cookie';
 import { helpConfig } from '../lib/help.ts';
 import { API_URL } from '../lib/constants.ts';
 import { writeConfig } from '../lib/config.ts';
 import { runCommand } from '../lib/run.ts';
+import {
+	cancelled,
+	chooseAuthMethod,
+	failureText,
+	fetchAuthMethods,
+	postForm,
+	signInWithWhatsApp,
+	type FetchCookie
+} from '../lib/account.ts';
 
-export type FetchCookie = FetchCookieImpl<string | URL | Request, RequestInit, Response>;
+export type { FetchCookie } from '../lib/account.ts';
 
 export const login = new Command('login')
 	.description('login to velastack.dev')
@@ -23,43 +31,42 @@ export const login = new Command('login')
 /**
  * Ask for credentials, sign in, mint an API key and store it in `~/.vela`.
  *
- * Shared with `vela create`, which offers to log in on the spot when a template
- * needs a CMS and there is no key yet. Returns the key so the caller can carry
- * on without re-reading the config.
+ * Email and password, or a WhatsApp code when the site offers it. Shared
+ * with `vela create`, which offers to log in on the spot when a template
+ * needs a CMS and there is no key yet. Returns the key so the caller can
+ * carry on without re-reading the config.
  */
 export async function loginInteractively(): Promise<string> {
-	const { email, password } = await p.group(
-		{
-			email: () => p.text({ message: 'Email' }),
-			password: () => p.password({ message: 'Password' })
-		},
-		{
-			onCancel: () => {
-				p.cancel('Operation cancelled.');
-				process.exit(0);
-			}
-		}
-	);
-
+	const method = await chooseAuthMethod('login', await fetchAuthMethods());
 	const fetchCookie = makeFetchCookie(fetch);
-	const loginRes = await fetchCookie(`${API_URL}/login`, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/x-www-form-urlencoded',
-			Origin: API_URL
-		},
-		body: new URLSearchParams({ type: 'password', email, password }).toString()
-	});
 
-	if (!loginRes.headers.get('Set-Cookie')) {
-		throw new Error(
-			'Run `vela signup` to create an account or reset at https://velastack.dev/reset'
-		);
+	if (method === 'whatsapp') {
+		await signInWithWhatsApp(fetchCookie, 'login');
+	} else {
+		await loginWithPassword(fetchCookie);
 	}
 
 	const apiKey = await issueApiKey(fetchCookie);
 	writeConfig({ apiKey });
 	return apiKey;
+}
+
+async function loginWithPassword(fetchCookie: FetchCookie): Promise<void> {
+	const { email, password } = await p.group(
+		{
+			email: () => p.text({ message: 'Email' }),
+			password: () => p.password({ message: 'Password' })
+		},
+		{ onCancel: cancelled }
+	);
+
+	const result = await postForm(fetchCookie, '/login', { type: 'password', email, password });
+
+	if (result.type !== 'redirect') {
+		throw new Error(
+			`${failureText(result, 'Failed to authenticate.')} Run \`vela signup\` to create an account or reset at https://velastack.dev/reset`
+		);
+	}
 }
 
 export async function issueApiKey(fetchCookie: FetchCookie): Promise<string> {

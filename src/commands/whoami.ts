@@ -18,8 +18,13 @@ export const whoami = new Command('whoami')
 			const res = await fetch(`${API_URL}/api/collections/users/records`, {
 				headers: { Authorization: `Bearer ${apiKey}` }
 			});
-			const data = (await res.json()) as { items: Array<{ email: string }> };
-			if (!data.items.length) throw new Error('No user found. Run `vela login` to login.');
-			p.log.success(`Logged in as ${data.items[0]!.email}`);
+			const data = (await res.json()) as {
+				items: Array<{ email?: string; phone?: string; name?: string }>;
+			};
+			const user = data.items[0];
+			if (!user) throw new Error('No user found. Run `vela login` to login.');
+			// A WhatsApp account has a number and maybe a name, but no email.
+			const who = user.email || user.phone || user.name || 'an account without a name';
+			p.log.success(`Logged in as ${who}`);
 		})
 	);
