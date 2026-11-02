@@ -16,12 +16,19 @@
 		"vela": "./dist/bin.js",
 		"velastack": "./dist/bin.js"
 	},
+	"exports": {
+		"./testing": {
+			"types": "./dist/testing.d.ts",
+			"default": "./dist/testing.js"
+		},
+		"./package.json": "./package.json"
+	},
 	"files": [
 		"dist",
 		"templates"
 	],
 	"scripts": {
-		"build": "node --experimental-strip-types scripts/build.ts",
+		"build": "node --experimental-strip-types scripts/build.ts && tsc -p tsconfig.testing.json",
 		"dev": "node --experimental-strip-types scripts/build.ts --watch",
 		"clean": "rm -rf dist",
 		"lint": "npm run lint:ts && npm run lint:format && npm run lint:sh",

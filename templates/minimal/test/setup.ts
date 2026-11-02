@@ -1,10 +1,19 @@
-import { beforeEach, afterEach, beforeAll } from 'vitest';
+import { beforeEach, afterEach, beforeAll, inject } from 'vitest';
 import supertest, { type Agent } from 'supertest';
 import PocketBase from 'pocketbase-sveltekit';
 import type { TestContext } from '@velastack/pocketbase/testing';
+import type {} from 'vela/testing';
 
-const admin = new PocketBase(process.env.POCKETBASE_URL!) as App.Locals['admin'];
-const pb = new PocketBase(process.env.POCKETBASE_URL!) as App.Locals['pb'];
+// The servers `vela/testing` started: a throwaway PocketBase and the app.
+const servers = inject('vela');
+if (!servers) {
+	throw new Error(
+		'Server tests need the servers `vela/testing` starts. Add `globalSetup: [\'vela/testing\']` to the test config in vitest.config.ts.'
+	);
+}
+
+const admin = new PocketBase(servers.pocketbaseUrl) as App.Locals['admin'];
+const pb = new PocketBase(servers.pocketbaseUrl) as App.Locals['pb'];
 
 const testUserPassword = 'password';
 
@@ -25,15 +34,12 @@ beforeAll(async () => {
 	await admin
 		// @ts-ignore
 		.collection('_superusers')
-		.authWithPassword(
-			process.env.POCKETBASE_SUPERUSER_EMAIL!,
-			process.env.POCKETBASE_SUPERUSER_PASSWORD!
-		);
+		.authWithPassword(servers.superuser.email, servers.superuser.password);
 });
 
 beforeEach(async (context: TestContext) => {
-	context.request = supertest(process.env.VITE_TEST_URL!);
-	context.agent = supertest.agent(process.env.VITE_TEST_URL!) as TestContext['agent'];
+	context.request = supertest(servers.appUrl);
+	context.agent = supertest.agent(servers.appUrl) as TestContext['agent'];
 	context.admin = admin;
 	context.pb = pb;
 	const email = `test-${Math.random().toString(36).slice(2)}@example.com`;

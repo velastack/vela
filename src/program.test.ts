@@ -124,6 +124,13 @@ describe('program registration', () => {
 		}
 	});
 
+	test('test:harness is registered for vela/testing but hidden from help', () => {
+		const harness = program.commands.find((c) => c.name() === 'test:harness')!;
+		expect(harness).toBeDefined();
+		// @ts-expect-error commander keeps the flag private
+		expect(harness._hidden).toBe(true);
+	});
+
 	test('env registers its subcommands', () => {
 		const env = program.commands.find((c) => c.name() === 'env')!;
 		const names = env.commands.map((c) => c.name());

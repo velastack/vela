@@ -1,20 +1,19 @@
-import path from 'node:path';
 import process from 'node:process';
 import { Command } from 'commander';
-import PocketBase from 'pocketbase';
 import pc from 'picocolors';
 import { x } from 'tinyexec';
 import { detect } from 'package-manager-detector';
 import { resolveCommand } from 'package-manager-detector/commands';
-import fs from 'node:fs';
 import { helpConfig } from '../lib/help.ts';
-import { authWithRetries, findFreePort, launchPocketbase } from '../lib/pocketbase.ts';
-import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
-import { DataLoadError, loadFixtures, loadSeeds } from '../lib/data.ts';
-import { loadVite } from '../lib/vite.ts';
 import { warnIfKit2 } from '../lib/kit-version.ts';
-import type { Plugin, ViteDevServer } from 'vite';
+import { HarnessError, startTestHarness, type TestHarness } from '../lib/test-harness.ts';
 
+/**
+ * Run the server tests. The servers they need come up inside vitest, through
+ * the `vela/testing` global setup the project's `vitest.config.ts` names, so
+ * this is `vitest run` with vela's defaults: the `server` project, the dot
+ * reporter, CI mode, and a pass on an empty suite.
+ */
 export const testServer = new Command('test:server')
 	.description('run server tests')
 	.allowUnknownOption(true)
@@ -23,130 +22,23 @@ export const testServer = new Command('test:server')
 	.action(async (_opts, cmd) => {
 		const cwd = process.cwd();
 		warnIfKit2(cwd, (m) => console.warn(pc.yellow(`▲ ${m}`)));
-		const email = `test-${Math.random().toString(36).slice(2)}@example.com`;
-		const password = 'password';
-
-		const testDataDir = path.join(cwd, 'test-data');
-		fs.rmSync(testDataDir, { recursive: true, force: true });
-
-		const { stop, url } = await launchPocketbase(cwd, {
-			dir: testDataDir,
-			migrationsDir: path.join(cwd, MIGRATIONS_DIR),
-			// The app's PocketBase hooks (slug generation, personal teams, …) are part
-			// of its behaviour; the suite runs against the same server dev and build
-			// start, so it loads them from the same place.
-			hooksDir: path.join(cwd, DATA_DIR, 'hooks'),
-			email,
-			password
-		});
-
-		process.env.POCKETBASE_URL = url;
-		process.env.POCKETBASE_SUPERUSER_EMAIL = email;
-		process.env.POCKETBASE_SUPERUSER_PASSWORD = password;
-		// The app's data directory is PocketBase's, here as everywhere else. It
-		// points at the throwaway one so that a database or an uploaded file the
-		// suite creates is removed with it, rather than accumulating in the
-		// directory the developer actually works against.
-		process.env.VELA_DATA_DIR = testDataDir;
-		process.env.TEST = 'true';
-
-		console.log(`${pc.greenBright('✓')} Created test database`);
-
-		let vite: ViteDevServer | undefined;
-		let cleanedUp = false;
-		// Synchronous so it can run from an exit or signal handler; Vite's close
-		// is async and is only awaited on the normal path.
-		const cleanupSync = () => {
-			if (cleanedUp) return;
-			cleanedUp = true;
-			stop();
-			fs.rmSync(testDataDir, { recursive: true, force: true });
-		};
-		const cleanup = async () => {
-			if (cleanedUp) return;
-			// The app's workflow worker runs inside this Vite server and stops on
-			// the event adapter-node emits in production; PocketBase is still up
-			// at this point, so it drains cleanly instead of erroring every poll.
-			process.emit('sveltekit:shutdown' as 'exit', 0);
-			await vite?.close().catch(() => {});
-			cleanupSync();
-		};
-		const fail = async (message: string): Promise<never> => {
-			console.error(`${pc.redBright('✗')} ${message}`);
-			await cleanup();
-			process.exit(1);
-		};
-		process.on('exit', cleanupSync);
-		// Not onTerminate: a test run stopped by a signal must not exit 0.
-		for (const [signal, code] of [
-			['SIGINT', 130],
-			['SIGTERM', 143],
-			['SIGHUP', 129]
-		] as const) {
-			process.on(signal, () => {
-				cleanupSync();
-				process.exit(code);
-			});
-		}
-
-		const pb = new PocketBase(url);
-		try {
-			await authWithRetries(pb, email, password);
-		} catch (e) {
-			await fail(`Auth failed: ${(e as Error).message}`);
-		}
-
-		// Seeds are the data the app needs to function and fixtures are its test
-		// data, so the test database carries both. They go in through the running
-		// server so the app's hooks apply to them as they would to any write.
-		try {
-			const seeds = await loadSeeds(pb, cwd);
-			if (seeds.length > 0) {
-				console.log(`${pc.greenBright('✓')} Loaded ${seeds.length} seed file(s)`);
-			}
-			const fixtures = await loadFixtures(pb, cwd);
-			if (fixtures.length > 0) {
-				console.log(`${pc.greenBright('✓')} Loaded ${fixtures.length} fixture file(s)`);
-			}
-		} catch (e) {
-			await fail(describeLoadFailure(e));
-		}
-
-		const { createServer } = await loadVite(cwd);
-		vite = await createServer({
-			mode: 'test',
-			plugins: [stubPagesPlugin()],
-			optimizeDeps: { noDiscovery: true },
-			// This config differs from `vela dev`'s, so sharing node_modules/.vite
-			// would make Vite re-optimize dependencies under a running dev server,
-			// which then loads two copies of Svelte and fails reading `page`.
-			cacheDir: 'node_modules/.vite-test'
-		});
-		const vitePort = await findFreePort();
-		await vite.listen(vitePort);
-		process.env.VITE_TEST_URL = `http://localhost:${vitePort}`;
-
-		console.log(`${pc.greenBright('✓')} Started Vite: http://localhost:${vitePort}`);
-		console.log(`${pc.greenBright('✓')} Started PocketBase: ${url}`);
 
 		const extraArgs: string[] = (cmd.parent?.args ?? []).slice(1);
-		let filter = extraArgs.find((arg: string) => !arg.startsWith('-'));
-		const passthrough = filter ? extraArgs.filter((a: string) => a !== filter) : extraArgs;
 		// With no filter of the user's, an empty suite is a project that has not
 		// written a server test yet (straight after `vela enable backend`), not a
 		// failure. A filter that matches nothing is more likely a typo, and fails.
-		const defaulted = !filter;
-		if (!filter) filter = 'server';
+		const filtered = extraArgs.some((arg) => !arg.startsWith('-'));
 
 		try {
 			const pm = (await detect({ cwd }))?.name ?? 'npm';
 			const resolved = resolveCommand(pm, 'execute', [
 				'vitest',
 				'run',
-				filter,
+				'--project',
+				'server',
 				'--reporter=dot',
-				...(defaulted ? ['--passWithNoTests'] : []),
-				...passthrough
+				...(filtered ? [] : ['--passWithNoTests']),
+				...extraArgs
 			])!;
 			const resolvedArgs = resolved.args.slice();
 			if (pm === 'npm') resolvedArgs.unshift('--yes');
@@ -158,43 +50,73 @@ export const testServer = new Command('test:server')
 		} catch (e) {
 			console.error(`${pc.redBright('✗')} ${(e as Error).message}`);
 			process.exitCode = 1;
-		} finally {
-			await cleanup();
-			// Anything the app started in-process (a workflow worker, a timer) would
-			// otherwise keep the event loop, and this command, alive after the suite.
-			process.exit(process.exitCode ?? 0);
 		}
 	});
 
-function describeLoadFailure(e: unknown): string {
-	if (e instanceof DataLoadError) {
-		const hint =
-			e.kind === 'fixtures'
-				? 'Run `vela fixtures regen` to regenerate fixtures from the current schema.'
-				: `Check ${e.file} against the current schema.`;
-		return `Failed to load ${e.message}\n  ${hint}`;
-	}
-	return `Failed to load test data: ${(e as Error).message}`;
-}
-
 /**
- * Server tests exercise endpoints and actions, so pages render nothing. A
- * layout stub still renders its children: SvelteKit 3 warns
- * (`layout_children_missing`) about a layout that does not, once per layout.
+ * Start the servers for a server-test run and keep them up until the parent
+ * says stop or goes away. `vela/testing` spawns this from vitest's global
+ * setup with an IPC channel; the servers' addresses go back over it, and the
+ * app's own output goes to the inherited stdio.
+ *
+ * In its own process rather than inside vitest because the app's Vite server
+ * loads the project's `vite.config.ts` with its full plugin set, which vitest
+ * has already loaded for itself; two of those in one process share caches
+ * they should not.
  */
-function stubPagesPlugin(): Plugin {
-	const stub = `<script>export const render = () => '';</script>`;
-	const layoutStub = `<script>let { children } = $props(); export const render = () => '';</script>{@render children?.()}`;
-	return {
-		name: 'stub-pages',
-		resolveId(id: string) {
-			if (id.endsWith('+page.svelte')) return id;
-			return undefined;
-		},
-		load(id: string) {
-			if (id.endsWith('+layout.svelte')) return layoutStub;
-			if (id.endsWith('+page.svelte') || id.endsWith('+error.svelte')) return stub;
-			return undefined;
+export const testHarness = new Command('test:harness')
+	.description('start the servers for server tests and wait (used by vela/testing)')
+	.configureHelp(helpConfig)
+	.action(async () => {
+		const cwd = process.cwd();
+		if (!process.send) {
+			console.error(
+				`${pc.redBright('✗')} vela test:harness is started by vitest through \`vela/testing\`. Run \`vela test:server\` instead.`
+			);
+			process.exit(1);
 		}
-	};
-}
+
+		let harness: TestHarness | undefined;
+		let exiting = false;
+		const exit = async (code: number) => {
+			if (exiting) return;
+			exiting = true;
+			await harness?.stop();
+			process.exit(code);
+		};
+		process.on('exit', () => harness?.stopSync());
+		// Not onTerminate: a run stopped by a signal must not exit 0.
+		for (const [signal, code] of [
+			['SIGINT', 130],
+			['SIGTERM', 143],
+			['SIGHUP', 129]
+		] as const) {
+			process.on(signal, () => void exit(code));
+		}
+		// The parent going away, however it went, ends the run.
+		process.on('disconnect', () => void exit(0));
+		process.on('message', (message) => {
+			if (message === 'stop') void exit(0);
+		});
+
+		try {
+			harness = await startTestHarness(cwd, {
+				log: (message) => console.log(`${pc.greenBright('✓')} ${message}`)
+			});
+		} catch (e) {
+			const message =
+				e instanceof HarnessError
+					? e.message
+					: `Failed to start the test servers: ${(e as Error).message}`;
+			console.error(`${pc.redBright('✗')} ${message}`);
+			process.send({ type: 'error', message });
+			process.exit(1);
+		}
+
+		const { pocketbaseUrl, appUrl, superuser, dataDir, env } = harness;
+		process.send({
+			type: 'ready',
+			servers: { pocketbaseUrl, appUrl, superuser, dataDir },
+			env
+		});
+	});

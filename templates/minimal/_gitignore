@@ -30,3 +30,6 @@ vite.config.ts.timestamp-*
 
 # Backups
 /backups
+
+# Throwaway databases of server-test runs (vela/testing)
+test-data/

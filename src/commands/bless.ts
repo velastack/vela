@@ -107,7 +107,7 @@ export const VELA_ONLY_FILES: VelaFile[] = [
 	{ path: '.ignore', adds: 'search ignores for generated files' },
 	{
 		path: 'vitest.config.ts',
-		adds: 'the server test project `vela test:server` runs — without it test/setup.ts never loads'
+		adds: 'the server test project, with the `vela/testing` global setup that starts its servers — without it test/setup.ts never loads'
 	}
 ];
 // `src/lib/workflows` carries the README explaining the convention, and is

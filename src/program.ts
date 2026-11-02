@@ -41,7 +41,7 @@ import { admin } from './commands/admin.ts';
 import { backup } from './commands/backup.ts';
 import { restore } from './commands/restore.ts';
 import { targets } from './commands/targets.ts';
-import { testServer } from './commands/test.ts';
+import { testHarness, testServer } from './commands/test.ts';
 import { routes } from './commands/routes.ts';
 import { i18n } from './commands/i18n.ts';
 import { cms } from './commands/cms.ts';
@@ -136,7 +136,7 @@ const BACKEND_OPTIONAL_COMMANDS = new Set(['dev', 'build', 'preview', 'deploy'])
  * Commands that create their own superuser for a throwaway database, so the
  * credentials in `.env` are never read.
  */
-const SELF_CREDENTIALED_COMMANDS = new Set(['test:server']);
+const SELF_CREDENTIALED_COMMANDS = new Set(['test:server', 'test:harness']);
 
 export const program = new Command()
 	.name(pkg.name)
@@ -231,3 +231,5 @@ for (const command of [
 ]) {
 	program.addCommand(command);
 }
+// Started by vitest through `vela/testing`, never by hand.
+program.addCommand(testHarness, { hidden: true });
