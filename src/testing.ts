@@ -19,8 +19,10 @@
  * `VELA_DATA_DIR`, `VITE_TEST_URL` and `TEST=true`.
  */
 import { spawn } from 'node:child_process';
+import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
 import type { TestProject } from 'vitest/node';
 
 /** What a server-test run talks to; `inject('vela')` in a test or setup file. */
@@ -46,11 +48,18 @@ type HarnessMessage =
 	| { type: 'error'; message: string };
 
 export default async function setup(project: TestProject): Promise<() => Promise<void>> {
+	const root = project.config.root;
+	// The project's `.env`, as every vela command loads it: the app reads it
+	// through Vite either way, and a test that signs a request with the same
+	// secret must see the same value. Nothing already set is replaced, and the
+	// harness's own variables are assigned over it below.
+	dotenv.config({ path: path.join(root, '.env'), quiet: true });
+
 	// This package's own bin, so the harness is the vela the project installed,
 	// whatever is on the PATH.
 	const bin = fileURLToPath(new URL('./bin.js', import.meta.url));
 	const child = spawn(process.execPath, [bin, 'test:harness'], {
-		cwd: project.config.root,
+		cwd: root,
 		// `test.env` from the config reaches the app too, not only the workers,
 		// so a suite's settings live in one place.
 		env: { ...process.env, ...project.config.env },
