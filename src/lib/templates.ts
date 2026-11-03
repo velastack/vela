@@ -205,14 +205,18 @@ export function templateChoicesMessage(templates: TemplateInfo[]): string {
 /**
  * Put a template's files on disk. A built-in is already there; a registry
  * template is downloaded and unpacked into a temporary directory that
- * `cleanup()` removes once it has been copied into the project.
+ * `cleanup()` removes once it has been copied into the project. A paid one
+ * downloads with `apiKey`, through velastack.dev.
  */
-export async function resolveTemplate(template: AnyTemplate): Promise<ResolvedTemplate> {
+export async function resolveTemplate(
+	template: AnyTemplate,
+	options: { apiKey?: string | null } = {}
+): Promise<ResolvedTemplate> {
 	if (!('entry' in template)) {
 		return { ...template, cleanup() {} };
 	}
 	const { entry, indexUrl, ...info } = template;
-	const dir = await downloadTemplate(entry, indexUrl);
+	const dir = await downloadTemplate(entry, indexUrl, { apiKey: options.apiKey });
 	return {
 		...info,
 		dir,

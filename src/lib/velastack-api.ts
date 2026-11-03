@@ -111,6 +111,27 @@ export async function createProject(
 	});
 }
 
+/** What velastack.dev answers `POST /v1/templates/:slug/purchase` with. */
+export type TemplatePurchaseOutcome =
+	| { status: 'purchased'; amount: number; currency: string; brand?: string; last4?: string }
+	/** No card on file, the card wants authentication, or it declined: finish on `url`. */
+	| { status: 'card-needed' | 'needs-browser' | 'declined'; url: string; message: string };
+
+/**
+ * Buy a paid template for a team from the terminal: velastack.dev charges the
+ * owner's card on file and records the purchase, or says where to finish it.
+ */
+export async function purchaseTemplate(
+	apiKey: string,
+	slug: string,
+	teamId: string
+): Promise<TemplatePurchaseOutcome> {
+	return apiFetch<TemplatePurchaseOutcome>(apiKey, `/v1/templates/${slug}/purchase`, {
+		method: 'POST',
+		body: JSON.stringify({ team: teamId })
+	});
+}
+
 // ------------------------------------------------------------ control plane
 //
 // `vela deploy` announces itself before building, learns the hostnames the

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import * as v from 'valibot';
 import * as tar from 'tar';
 import { configDir } from './config.ts';
+import { API_URL } from './constants.ts';
 
 /**
  * The template registry: an `index.json` describing themed templates and, next
@@ -13,9 +14,10 @@ import { configDir } from './config.ts';
  * everything else (`vela create --template broadsheet`) is downloaded from here
  * on first use.
  *
- * Paid templates land later. The seam is `resolveDownloadUrl` plus the `headers`
- * option: a priced entry will download through velastack.dev with an API key,
- * and nothing about the tarball, checksum or extraction changes.
+ * A priced entry downloads through velastack.dev (`resolveDownloadUrl`) with
+ * the user's API key, which checks that the template was bought for them, or
+ * that they are in an agency, which has every template; nothing about the
+ * tarball, checksum or extraction changes.
  */
 
 const CACHE_DIR_NAME = 'templates';
@@ -81,7 +83,7 @@ const entrySchema = v.object({
 	),
 	/** The schema.org type its JSON-LD describes (`ProfessionalService`, `Restaurant`, …). */
 	schemaType: v.optional(v.string()),
-	/** Tarball location, relative to the index URL. */
+	/** Tarball location, relative to the index URL; a paid entry's names velastack.dev's download, which `resolveDownloadUrl` derives itself. */
 	file: v.string(),
 	sha256: v.pipe(v.string(), v.regex(/^[0-9a-f]{64}$/)),
 	size: v.optional(v.number()),
@@ -191,10 +193,13 @@ async function readBytes(url: string, options: { timeoutMs: number; headers?: He
 		signal: AbortSignal.timeout(options.timeoutMs)
 	});
 	if (!res.ok) {
-		throw new Error(`${res.status} ${res.statusText}`.trim());
+		throw new DownloadRefused(res.status, res.statusText, await res.text().catch(() => ''));
 	}
 	return new Uint8Array(await res.arrayBuffer());
 }
+
+const headersObject = (headers: HeadersInit | undefined): Record<string, string> =>
+	headers ? Object.fromEntries(new Headers(headers)) : {};
 
 /**
  * The registry index, from the cache when it is fresh, otherwise fetched. A
@@ -227,13 +232,72 @@ export async function fetchTemplateIndex(
 	}
 }
 
+/** A template that has to be bought (or come with an agency) before it downloads. */
+export const isPaidEntry = (entry: Pick<RemoteTemplateEntry, 'price'>) => (entry.price ?? 0) > 0;
+
 /**
  * Where an entry's tarball is downloaded from. Free templates resolve straight
- * against the index; a paid one will go through velastack.dev instead, which is
- * the only place this needs to change.
+ * against the index; a paid one goes through velastack.dev (`VELA_API_URL`,
+ * so staging's CLI asks staging), which hands it out to an API key whose
+ * account has it.
  */
-export function resolveDownloadUrl(entry: RemoteTemplateEntry, indexUrl: string): string {
+export function resolveDownloadUrl(
+	entry: RemoteTemplateEntry,
+	indexUrl: string,
+	apiUrl: string = API_URL
+): string {
+	if (isPaidEntry(entry)) return `${apiUrl}/v1/templates/${entry.name}/download`;
 	return new URL(entry.file, indexUrl).href;
+}
+
+/** What velastack.dev answers a download it refuses with. */
+class DownloadRefused extends Error {
+	status: number;
+	body: string;
+	constructor(status: number, statusText: string, body: string) {
+		super(`${status} ${statusText}`.trim());
+		this.status = status;
+		this.body = body;
+	}
+}
+
+/**
+ * velastack.dev refused a paid template's download because the account has
+ * not bought it. `vela create` offers to buy it on the spot; `url` is where
+ * to buy it in the browser otherwise.
+ */
+export class TemplateNotPurchased extends Error {
+	override name = 'TemplateNotPurchased';
+	constructor(
+		readonly entry: RemoteTemplateEntry,
+		readonly url: string
+	) {
+		super(
+			`${entry.title ?? entry.name} is a paid template (US$${entry.price}). Buy it for your team at ${url}, then run this again.`
+		);
+	}
+}
+
+/**
+ * Why a paid template did not download, in the user's terms: not bought (402,
+ * with where to buy it), a key velastack.dev no longer accepts (401), or
+ * anything else as it came.
+ */
+function paidDownloadError(entry: RemoteTemplateEntry, error: DownloadRefused): Error {
+	if (error.status === 402) {
+		let url = `https://velabase.dev/templates/${entry.name}`;
+		try {
+			const parsed = JSON.parse(error.body) as { url?: string };
+			if (typeof parsed.url === 'string') url = parsed.url;
+		} catch {
+			// a plain-text answer; the default page is right
+		}
+		return new TemplateNotPurchased(entry, url);
+	}
+	if (error.status === 401) {
+		return new Error(`velastack.dev did not accept your login. Run \`vela login\` and try again.`);
+	}
+	return new Error(`Could not download template ${entry.name}: ${error.message}`);
 }
 
 function sha256(bytes: Uint8Array): string {
@@ -251,6 +315,9 @@ function tarballCachePath(entry: RemoteTemplateEntry): string {
 export interface DownloadOptions {
 	timeoutMs?: number;
 	headers?: HeadersInit;
+	/** The velastack.dev API key a paid template is fetched with. */
+	apiKey?: string | null;
+	apiUrl?: string;
 }
 
 /**
@@ -275,11 +342,21 @@ export async function downloadTemplate(
 	}
 
 	if (!haveTarball) {
-		const url = resolveDownloadUrl(entry, indexUrl);
+		const paid = isPaidEntry(entry);
+		if (paid && !options.apiKey) {
+			throw new Error(
+				`${entry.title ?? entry.name} is a paid template. Run \`vela login\` (or set VELA_API_KEY) so velastack.dev can check it was bought for you.`
+			);
+		}
+		const url = resolveDownloadUrl(entry, indexUrl, options.apiUrl);
+		const headers = paid
+			? { ...headersObject(options.headers), Authorization: `Bearer ${options.apiKey}` }
+			: options.headers;
 		let fetched: Uint8Array;
 		try {
-			fetched = await readBytes(url, { timeoutMs, headers: options.headers });
+			fetched = await readBytes(url, { timeoutMs, headers });
 		} catch (e) {
+			if (paid && e instanceof DownloadRefused) throw paidDownloadError(entry, e);
 			throw new Error(`Could not download template ${entry.name}: ${(e as Error).message}`);
 		}
 		const digest = sha256(fetched);
