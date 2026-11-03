@@ -309,3 +309,75 @@ describe('resolveTemplate', () => {
 		expect(fs.existsSync(resolved.dir)).toBe(true);
 	});
 });
+
+describe('paid templates', () => {
+	const paid = (): RemoteTemplateEntry => ({
+		...entry,
+		name: 'claret',
+		title: 'Claret',
+		price: 18
+	});
+
+	test('downloads through velastack.dev, whichever host the CLI talks to', () => {
+		expect(resolveDownloadUrl(paid(), indexUrl)).toBe(
+			'https://velastack.dev/v1/templates/claret/download'
+		);
+		expect(resolveDownloadUrl(paid(), indexUrl, 'https://dev.velastack.dev')).toBe(
+			'https://dev.velastack.dev/v1/templates/claret/download'
+		);
+		// A free entry never leaves the registry, whatever `file` says.
+		expect(resolveDownloadUrl({ ...entry, price: 0 }, 'https://templates.example/index.json')).toBe(
+			'https://templates.example/sample.tgz'
+		);
+	});
+
+	test('asks for a login before fetching', async () => {
+		await expect(downloadTemplate(paid(), indexUrl)).rejects.toThrow('Run `vela login`');
+	});
+
+	test('sends the API key and unpacks what velastack.dev hands back', async () => {
+		const bytes = fs.readFileSync(path.join(registryDir, 'sample.tgz'));
+		const fetchMock = vi.fn(async () => new Response(bytes, { status: 200 }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		const dir = await downloadTemplate(paid(), indexUrl, {
+			apiKey: 'key.secret',
+			apiUrl: 'https://velastack.test'
+		});
+		try {
+			expect(fs.existsSync(path.join(dir, 'template.json'))).toBe(true);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+		expect(url).toBe('https://velastack.test/v1/templates/claret/download');
+		expect(new Headers(init.headers).get('authorization')).toBe('Bearer key.secret');
+	});
+
+	test('says where to buy a template the account does not have', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ url: 'https://velabase.dev/templates/claret' }), {
+						status: 402,
+						statusText: 'Payment Required'
+					})
+			)
+		);
+		await expect(downloadTemplate(paid(), indexUrl, { apiKey: 'key.secret' })).rejects.toThrow(
+			'Claret is a paid template (US$18). Buy it for your team at https://velabase.dev/templates/claret'
+		);
+	});
+
+	test('says when the login is no longer good', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response('', { status: 401, statusText: 'Unauthorized' }))
+		);
+		await expect(downloadTemplate(paid(), indexUrl, { apiKey: 'stale' })).rejects.toThrow(
+			'did not accept your login'
+		);
+	});
+});

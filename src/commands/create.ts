@@ -301,8 +301,23 @@ async function createProject(
  * dependencies, so the check reads the template itself.
  */
 export async function resolveCreatableTemplate(template: AnyTemplate): Promise<ResolvedTemplate> {
+	let apiKey = readApiKey();
+	// A paid template downloads through velastack.dev, which checks it was
+	// bought for the account (or that the account is in an agency, which has
+	// them all), so the login comes first; the link step reuses it.
+	if ((template.price ?? 0) > 0 && !apiKey) {
+		if (!isInteractive()) {
+			throw new Error(
+				`${template.name} is a paid template. Run \`vela login\` or set VELA_API_KEY, then run this again.`
+			);
+		}
+		p.log.info(
+			`${template.name} is a paid template (US$${template.price}). Log in to velastack.dev to download it.`
+		);
+		apiKey = await loginInteractively();
+	}
 	if (template.source === 'remote') p.log.step(`Downloading template ${template.name}...`);
-	const resolved = await resolveTemplate(template);
+	const resolved = await resolveTemplate(template, { apiKey });
 	const blocker = findKit3Blocker(resolved.dir);
 	if (blocker) {
 		resolved.cleanup();
