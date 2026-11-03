@@ -1,5 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import process from 'node:process';
 import * as v from 'valibot';
+import { x } from 'tinyexec';
+import { detect } from 'package-manager-detector';
+import { resolveCommand } from 'package-manager-detector/commands';
+import pkg from '../../../package.json' with { type: 'json' };
 import { Command } from 'commander';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
@@ -55,7 +61,10 @@ export const backend = new Command('backend')
 				},
 				// The pattern installs `pocketbase-server` before this runs, and
 				// scaffolds the `data/` directory the database lives in.
-				() => initPocketbase(workspaceRootDir, credentials)
+				async () => {
+					await ensureVelaDependency(workspaceRootDir);
+					await initPocketbase(workspaceRootDir, credentials);
+				}
 			);
 		}, 'Failed to enable backend.')
 	);
@@ -81,6 +90,32 @@ export function backendNextSteps(ui: Ui): string[] {
 		'Run `vela test:server` to run the server tests that come with it.',
 		'`vela enable auth` needs shadcn-svelte: `npx sv add tailwindcss`, then `npx shadcn-svelte@latest init`.'
 	];
+}
+
+/**
+ * Make sure the project depends on `vela`. The vitest config the pattern
+ * writes imports `vela/testing` from the project's own node_modules, which a
+ * project vela did not create has no reason to have. The range is this CLI's,
+ * as `vela create` writes it; a project that already has one is left alone.
+ */
+async function ensureVelaDependency(root: string): Promise<void> {
+	const file = path.join(root, 'package.json');
+	if (!fs.existsSync(file)) return;
+	const manifest = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+		dependencies?: Record<string, string>;
+		devDependencies?: Record<string, string>;
+	};
+	if (manifest.dependencies?.vela || manifest.devDependencies?.vela) return;
+
+	p.log.step('Adding vela to devDependencies...');
+	const pm = (await detect({ cwd: root }))?.name ?? 'npm';
+	const resolved = resolveCommand(pm, 'add', [`vela@^${pkg.version}`, '-D'])!;
+	const result = await x(resolved.command, resolved.args, {
+		nodeOptions: { cwd: root, stdio: 'pipe' }
+	});
+	if (result.exitCode !== 0) {
+		throw new Error(`Failed to add vela to devDependencies:\n${result.stderr || result.stdout}`);
+	}
 }
 
 /**

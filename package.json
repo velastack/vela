@@ -16,12 +16,19 @@
 		"vela": "./dist/bin.js",
 		"velastack": "./dist/bin.js"
 	},
+	"exports": {
+		"./testing": {
+			"types": "./dist/testing.d.ts",
+			"default": "./dist/testing.js"
+		},
+		"./package.json": "./package.json"
+	},
 	"files": [
 		"dist",
 		"templates"
 	],
 	"scripts": {
-		"build": "node --experimental-strip-types scripts/build.ts",
+		"build": "node --experimental-strip-types scripts/build.ts && tsc -p tsconfig.testing.json",
 		"dev": "node --experimental-strip-types scripts/build.ts --watch",
 		"clean": "rm -rf dist",
 		"lint": "npm run lint:ts && npm run lint:format && npm run lint:sh",
@@ -37,7 +44,7 @@
 	"dependencies": {
 		"@clack/prompts": "^1.7.0",
 		"@faker-js/faker": "^10.6.0",
-		"@velastack/patterns": "^0.10.1",
+		"@velastack/patterns": "^0.11.0",
 		"@velastack/pocketbase-codegen": "^0.1.0",
 		"@velastack/schema": "^0.3.0",
 		"@velastack/schema-ui": "^0.3.1",
