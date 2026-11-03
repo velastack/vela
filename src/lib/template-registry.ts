@@ -262,12 +262,28 @@ class DownloadRefused extends Error {
 }
 
 /**
+ * velastack.dev refused a paid template's download because the account has
+ * not bought it. `vela create` offers to buy it on the spot; `url` is where
+ * to buy it in the browser otherwise.
+ */
+export class TemplateNotPurchased extends Error {
+	override name = 'TemplateNotPurchased';
+	constructor(
+		readonly entry: RemoteTemplateEntry,
+		readonly url: string
+	) {
+		super(
+			`${entry.title ?? entry.name} is a paid template (US$${entry.price}). Buy it for your team at ${url}, then run this again.`
+		);
+	}
+}
+
+/**
  * Why a paid template did not download, in the user's terms: not bought (402,
  * with where to buy it), a key velastack.dev no longer accepts (401), or
  * anything else as it came.
  */
-function paidDownloadMessage(entry: RemoteTemplateEntry, error: DownloadRefused): string {
-	const title = entry.title ?? entry.name;
+function paidDownloadError(entry: RemoteTemplateEntry, error: DownloadRefused): Error {
 	if (error.status === 402) {
 		let url = `https://velabase.dev/templates/${entry.name}`;
 		try {
@@ -276,12 +292,12 @@ function paidDownloadMessage(entry: RemoteTemplateEntry, error: DownloadRefused)
 		} catch {
 			// a plain-text answer; the default page is right
 		}
-		return `${title} is a paid template (US$${entry.price}). Buy it for your team at ${url}, then run this again.`;
+		return new TemplateNotPurchased(entry, url);
 	}
 	if (error.status === 401) {
-		return `velastack.dev did not accept your login. Run \`vela login\` and try again.`;
+		return new Error(`velastack.dev did not accept your login. Run \`vela login\` and try again.`);
 	}
-	return error.message;
+	return new Error(`Could not download template ${entry.name}: ${error.message}`);
 }
 
 function sha256(bytes: Uint8Array): string {
@@ -340,7 +356,7 @@ export async function downloadTemplate(
 		try {
 			fetched = await readBytes(url, { timeoutMs, headers });
 		} catch (e) {
-			if (paid && e instanceof DownloadRefused) throw new Error(paidDownloadMessage(entry, e));
+			if (paid && e instanceof DownloadRefused) throw paidDownloadError(entry, e);
 			throw new Error(`Could not download template ${entry.name}: ${(e as Error).message}`);
 		}
 		const digest = sha256(fetched);

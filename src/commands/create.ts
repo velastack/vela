@@ -52,7 +52,14 @@ import {
 	type LinkedProject,
 	type SeedReport
 } from '../lib/link-on-create.ts';
-import { linkExistingProject, linkNewProject, seedLinkedProject } from '../lib/link-project.ts';
+import {
+	linkExistingProject,
+	linkNewProject,
+	resolveTeam,
+	seedLinkedProject
+} from '../lib/link-project.ts';
+import { listTeams, purchaseTemplate } from '../lib/velastack-api.ts';
+import { TemplateNotPurchased } from '../lib/template-registry.ts';
 import { writeProjectConfig } from '../lib/project-config.ts';
 import { loginInteractively } from './login.ts';
 import { kitStatus } from '../lib/kit-version.ts';
@@ -215,7 +222,7 @@ async function createProject(
 	checkFlagsForTemplate(template, options);
 	const gallerySchema = options.schema ? findGallerySchema(options.schema) : undefined;
 
-	const resolved = await resolveCreatableTemplate(template);
+	const resolved = await resolveCreatableTemplate(template, options);
 	const onCancel = () => {
 		resolved.cleanup();
 		p.cancel('Operation cancelled.');
@@ -300,7 +307,10 @@ async function createProject(
  * file: a refusal leaves nothing behind. The registry index says nothing about
  * dependencies, so the check reads the template itself.
  */
-export async function resolveCreatableTemplate(template: AnyTemplate): Promise<ResolvedTemplate> {
+export async function resolveCreatableTemplate(
+	template: AnyTemplate,
+	options: { team?: string; link?: string } = {}
+): Promise<ResolvedTemplate> {
 	let apiKey = readApiKey();
 	// A paid template downloads through velastack.dev, which checks it was
 	// bought for the account (or that the account is in an agency, which has
@@ -317,13 +327,57 @@ export async function resolveCreatableTemplate(template: AnyTemplate): Promise<R
 		apiKey = await loginInteractively();
 	}
 	if (template.source === 'remote') p.log.step(`Downloading template ${template.name}...`);
-	const resolved = await resolveTemplate(template, { apiKey });
+	let resolved: ResolvedTemplate;
+	try {
+		resolved = await resolveTemplate(template, { apiKey });
+	} catch (error) {
+		if (!(error instanceof TemplateNotPurchased) || !apiKey || !isInteractive()) throw error;
+		await buyTemplate(error, apiKey, options);
+		resolved = await resolveTemplate(template, { apiKey });
+	}
 	const blocker = findKit3Blocker(resolved.dir);
 	if (blocker) {
 		resolved.cleanup();
 		throw new Error(kit3BlockerMessage(template.name, blocker));
 	}
 	return resolved;
+}
+
+/**
+ * Buy the template at the terminal, for the team the project is going to
+ * join (`--team`, else the personal team, else a choice): velastack.dev
+ * charges the owner's card on file. When it cannot — no card, a bank asking
+ * for authentication, a decline — the team's Templates page finishes it, and
+ * the download is tried again once the user says so. The team bought for is
+ * the one the project is then linked to.
+ */
+async function buyTemplate(
+	refusal: TemplateNotPurchased,
+	apiKey: string,
+	options: { team?: string; link?: string }
+): Promise<void> {
+	const { entry } = refusal;
+	const title = entry.title ?? entry.name;
+	p.log.warn(`${title} is a paid template (US$${entry.price}).`);
+	const team = await resolveTeam(await listTeams(apiKey), {
+		teamId: options.team,
+		interactive: true
+	});
+	const confirmed = await p.confirm({
+		message: `Buy ${title} for US$${entry.price} for ${team.name}? The card on file at velastack.dev is charged.`
+	});
+	if (p.isCancel(confirmed) || !confirmed) throw refusal;
+	if (options.link === undefined || options.link === 'new') options.team = team.id;
+
+	const outcome = await purchaseTemplate(apiKey, entry.name, team.id);
+	if (outcome.status === 'purchased') {
+		const card = outcome.last4 ? ` on the card ending ${outcome.last4}` : '';
+		p.log.success(`Bought ${title} for ${team.name}${card}. It is yours to deploy again any time.`);
+		return;
+	}
+	p.log.info(`${outcome.message}\nBuy it in the browser, then come back here:\n  ${outcome.url}`);
+	const done = await p.confirm({ message: 'Bought it? The download is tried again.' });
+	if (p.isCancel(done) || !done) throw refusal;
 }
 
 /**

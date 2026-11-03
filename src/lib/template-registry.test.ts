@@ -7,6 +7,7 @@ import * as tar from 'tar';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
 	INDEX_CACHE_TTL_MS,
+	TemplateNotPurchased,
 	downloadTemplate,
 	fetchTemplateIndex,
 	parseTemplateIndex,
@@ -379,5 +380,26 @@ describe('paid templates', () => {
 		await expect(downloadTemplate(paid(), indexUrl, { apiKey: 'stale' })).rejects.toThrow(
 			'did not accept your login'
 		);
+	});
+});
+
+describe('TemplateNotPurchased', () => {
+	test('carries the entry and where to buy it, for `vela create` to offer', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ url: 'https://velabase.dev/templates/claret' }), {
+						status: 402
+					})
+			)
+		);
+		const paid = { ...entry, name: 'claret', title: 'Claret', price: 18 };
+		const refusal = await downloadTemplate(paid, indexUrl, { apiKey: 'key.secret' }).catch(
+			(e: unknown) => e
+		);
+		expect(refusal).toBeInstanceOf(TemplateNotPurchased);
+		expect((refusal as TemplateNotPurchased).url).toBe('https://velabase.dev/templates/claret');
+		expect((refusal as TemplateNotPurchased).entry.name).toBe('claret');
 	});
 });
