@@ -193,8 +193,9 @@ function isAlive(pid: number): boolean {
 
 function describeLoadFailure(e: unknown): string {
 	if (e instanceof DataLoadError) {
-		const hint =
-			e.kind === 'fixtures'
+		const hint = e.malformed
+			? `Fix ${e.file}, or rewrite it from a database with \`vela seeds save --force\`.`
+			: e.kind === 'fixtures'
 				? 'Run `vela fixtures regen` to regenerate fixtures from the current schema.'
 				: `Check ${e.file} against the current schema.`;
 		return `Failed to load ${e.message}\n  ${hint}`;

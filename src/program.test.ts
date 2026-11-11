@@ -298,6 +298,7 @@ describe('target selection', () => {
 		['rollback', 'production'],
 		['destroy deployment', 'production'],
 		['admin create', 'local'],
+		['seeds load', 'local'],
 		['backup create', 'production'],
 		['backup list', 'production'],
 		['backup download', 'production'],
@@ -492,5 +493,17 @@ describe('backend gate', () => {
 		vi.spyOn(console, 'log').mockImplementation(() => {});
 		vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 		expect(await runs([name, sub, 'contact', '--yes'])).toBe(false);
+	});
+
+	// `-t` may name a deployed copy, whose credentials are on its server. The
+	// local path checks for a backend and its credentials itself.
+	test('seeds load is not held to local credentials', async () => {
+		expect(await runs(['seeds', 'load', '-t', 'production'])).toBe(true);
+	});
+
+	test.each(['save', 'clear'])('seeds %s still needs a backend', async (sub) => {
+		vi.spyOn(console, 'log').mockImplementation(() => {});
+		vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+		expect(await runs(['seeds', sub])).toBe(false);
 	});
 });

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import PocketBase, { ClientResponseError } from 'pocketbase';
@@ -9,6 +10,10 @@ import { dependencyOrder } from './collections.ts';
  * admin — and ship with it. Fixtures are mock data for development and tests.
  * Both are JSON files under `data/<kind>`, one per collection, loaded through
  * the PocketBase API so the app's hooks see them like any other write.
+ *
+ * Seeds go to every copy of the app, deployed ones included, and are loaded
+ * again on each deploy. So loading them only ever adds: a record whose id is
+ * already there is left as it is, whatever has been done to it since.
  */
 export type DataKind = 'seeds' | 'fixtures';
 
@@ -75,12 +80,21 @@ export function fixtureFilter(collectionName: string): string {
 export class DataLoadError extends Error {
 	readonly kind: DataKind;
 	readonly file: string;
+	/** The file is at fault as written, whatever the schema says. */
+	readonly malformed: boolean;
 
-	constructor(kind: DataKind, file: string, index: number, cause: unknown) {
+	constructor(
+		kind: DataKind,
+		file: string,
+		index: number,
+		cause: unknown,
+		opts: { malformed?: boolean } = {}
+	) {
 		super(`${file}, record ${index + 1}: ${describeError(cause)}`);
 		this.name = 'DataLoadError';
 		this.kind = kind;
 		this.file = file;
+		this.malformed = opts.malformed ?? false;
 	}
 }
 
@@ -119,18 +133,130 @@ async function createRecords(
 	return records.length;
 }
 
-/** Load every seed file, or the given ones, returning a label per file. */
+/** What loading one seed file did. */
+export interface SeedLoadResult {
+	/** The file and its counts, for output. */
+	label: string;
+	created: number;
+	/** Records whose id was already in the database, left untouched. */
+	skipped: number;
+}
+
+/** Ids are looked up this many at a time, to keep the filter a sane length. */
+const ID_LOOKUP_CHUNK = 50;
+
+/** Which of these ids the collection already holds. */
+async function existingIds(
+	pb: PocketBase,
+	collectionName: string,
+	ids: string[]
+): Promise<Set<string>> {
+	const found = new Set<string>();
+	for (let start = 0; start < ids.length; start += ID_LOOKUP_CHUNK) {
+		// Asked for by id rather than listed: a deployed collection can hold far
+		// more records than its seed file does.
+		const filter = ids
+			.slice(start, start + ID_LOOKUP_CHUNK)
+			.map((id) => `id = ${JSON.stringify(id)}`)
+			.join(' || ');
+		const records = await pb.collection(collectionName).getFullList({ filter, fields: 'id' });
+		for (const record of records) found.add(record.id);
+	}
+	return found;
+}
+
+/**
+ * A seeded account has no password to carry: PocketBase never gives one back,
+ * so `vela seeds save` has none to write. The account is created with a random
+ * one and its owner sets their own through a password reset. A password written
+ * into the seed file by hand is used as it is.
+ */
+function withPassword(record: Record<string, unknown>): Record<string, unknown> {
+	if (typeof record.password === 'string' && record.password) {
+		return { passwordConfirm: record.password, ...record };
+	}
+	const password = crypto.randomBytes(24).toString('base64url');
+	return { ...record, password, passwordConfirm: password };
+}
+
+/**
+ * Load every seed file, or the given ones, creating the records that are not
+ * there yet.
+ *
+ * Safe to run against a database any number of times, which is what lets a
+ * deploy run it every time. Records are matched by id, so each one needs an id;
+ * all the files are checked for that before anything is written.
+ */
 export async function loadSeeds(
 	pb: PocketBase,
 	cwd: string,
 	seedFiles: DataFile[] = getSeedFiles(cwd)
-): Promise<string[]> {
-	const loaded: string[] = [];
-	for (const file of seedFiles) {
-		const count = await createRecords(pb, 'seeds', cwd, file);
-		loaded.push(label(cwd, file.filePath, count));
+): Promise<SeedLoadResult[]> {
+	const files = seedFiles.map((file) => ({ file, records: readRecords(file.filePath) }));
+	if (files.length === 0) return [];
+
+	for (const { file, records } of files) {
+		for (const [index, record] of records.entries()) {
+			if (typeof record.id === 'string' && record.id) continue;
+			throw new DataLoadError(
+				'seeds',
+				path.relative(cwd, file.filePath),
+				index,
+				new Error(
+					'seed records need an `id`. It is how a record already loaded is told from a new one.'
+				),
+				{ malformed: true }
+			);
+		}
 	}
-	return loaded;
+
+	const authCollections = new Set(
+		(await pb.collections.getFullList()).filter((c) => c.type === 'auth').map((c) => c.name)
+	);
+
+	const results: SeedLoadResult[] = [];
+	for (const { file, records } of files) {
+		const { collectionName, filePath } = file;
+		const relative = path.relative(cwd, filePath);
+		const present = await existingIds(
+			pb,
+			collectionName,
+			records.map((record) => record.id as string)
+		);
+		const isAuth = authCollections.has(collectionName);
+
+		let created = 0;
+		for (const [index, record] of records.entries()) {
+			if (present.has(record.id as string)) continue;
+			try {
+				await pb.collection(collectionName).create(isAuth ? withPassword(record) : record);
+			} catch (e) {
+				throw new DataLoadError('seeds', relative, index, e);
+			}
+			// Listed twice in one file, the second is as present as any other.
+			present.add(record.id as string);
+			created++;
+		}
+
+		const skipped = records.length - created;
+		results.push({
+			label:
+				`${relative} (${created} created` + (skipped > 0 ? `, ${skipped} already there)` : ')'),
+			created,
+			skipped
+		});
+	}
+	return results;
+}
+
+/** One line for what a seed load did across all its files. */
+export function summarizeSeedLoad(results: SeedLoadResult[]): string {
+	const created = results.reduce((sum, r) => sum + r.created, 0);
+	const skipped = results.reduce((sum, r) => sum + r.skipped, 0);
+	const plural = (count: number) => `${count} seed record${count === 1 ? '' : 's'}`;
+	if (created === 0 && skipped === 0) return 'No seed records to load.';
+	if (created === 0) return `All ${plural(skipped)} already there, nothing to load.`;
+	return `Loaded ${plural(created)}` + (skipped > 0 ? `, ${skipped} already there.` : '.');
 }
 
 export async function clearSeeds(

@@ -187,10 +187,20 @@ async function execPackageBin(cwd: string, args: string[], stdio: 'inherit' | 'p
 	return x(command, resolvedArgs, { nodeOptions: { cwd, stdio }, throwOnError: true });
 }
 
+/**
+ * Run one piece of work against the local database, authenticated.
+ *
+ * Uses the server `vela dev` has running when there is one, and otherwise
+ * starts one for the duration. That one loads the app's hooks only when asked:
+ * a command writing the app's own data wants them to apply as they would to any
+ * write, and one inspecting or migrating the database does not want them in
+ * the way.
+ */
 export async function withPocketbase(
 	cwd: string,
 	fn: (pb: PocketBase) => Promise<void>,
-	creds?: { email: string; password: string }
+	creds?: { email: string; password: string },
+	opts: { hooks?: boolean } = {}
 ) {
 	const dir = path.join(cwd, DATA_DIR);
 	const migrationsDir = path.join(cwd, MIGRATIONS_DIR);
@@ -210,9 +220,11 @@ export async function withPocketbase(
 		return;
 	}
 
+	const hooksDir = path.join(dir, 'hooks');
 	const { proc, url } = await startPocketbaseServe({
 		dataDir: dir,
 		migrationsDir,
+		...(opts.hooks && fs.existsSync(hooksDir) ? { hooksDir } : {}),
 		host,
 		stdio: 'ignore'
 	});

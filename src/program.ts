@@ -110,6 +110,7 @@ const NO_BACKEND_COMMMANDS = new Set([
 	// own credentials rather than requiring them in this process.
 	'backup',
 	'restore',
+	'seeds load',
 	// Removes a copy from its server. `destroy resource` and `destroy scaffold`
 	// drop collections and stay gated.
 	'destroy deployment'
