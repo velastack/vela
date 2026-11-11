@@ -24,7 +24,9 @@ export const load = loadFlash(async ({ url }) => {
 					height: 630
 				}
 			]
-		}
+		},
+		// The large picture card: the share image is 1200 x 630.
+		twitter: { cardType: 'summary_large_image' }
 	});
 
 	return {
