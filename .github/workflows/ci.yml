@@ -23,7 +23,7 @@ jobs:
         # (engines). Testing the floor itself, not just the latest 22, catches
         # an API used before it existed. The bundle targets node22 (see
         # scripts/build.ts).
-        node-version: ['22.17', 24]
+        node-version: ['22.17', 24, 26]
 
     steps:
       - uses: actions/checkout@v7
