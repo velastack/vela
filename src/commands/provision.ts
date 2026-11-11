@@ -15,7 +15,7 @@ import { sshOptionsFrom, SSH_OPTION_SCHEMA, addSshOptions } from '../lib/ssh-opt
  * The Node line servers are brought up to: the one releases are built with (the
  * action's default too), so the server's npm accepts the build's lockfile.
  */
-const NODE_MAJOR = '24';
+const NODE_MAJOR = '26';
 
 const OptionsSchema = v.object({
 	...SSH_OPTION_SCHEMA,
@@ -23,7 +23,7 @@ const OptionsSchema = v.object({
 	// A number: provision.sh compares it with the server's major, so a line
 	// name like `lts` would never count as reached.
 	nodeMajor: v.optional(
-		v.pipe(v.string(), v.regex(/^\d+$/, 'must be a major version number, like 24'))
+		v.pipe(v.string(), v.regex(/^\d+$/, 'must be a major version number, like 26'))
 	)
 });
 

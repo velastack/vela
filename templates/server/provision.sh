@@ -14,7 +14,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PB_VERSION=""
 # The Node line a server is brought up to: the one releases are built with. A
 # server already on a later major keeps it; see install_node.
-NODE_MAJOR=24
+NODE_MAJOR=26
 CLI_VERSION="unknown"
 LAYOUT_VERSION=1
 
