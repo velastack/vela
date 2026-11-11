@@ -128,8 +128,16 @@ install_node() {
 	fi
 	curl -fsSL "https://deb.nodesource.com/setup_${line}.x" -o /tmp/nodesource_setup.sh
 	wait_for_apt
-	bash /tmp/nodesource_setup.sh >/dev/null
-	rm -f /tmp/nodesource_setup.sh
+	# The setup script calls `apt` rather than `apt-get`, and apt prints
+	# "WARNING: apt does not have a stable CLI interface" to stderr on every
+	# non-interactive call - three times on a provision where nothing is wrong.
+	# Drop that line (and the blank ones around it), pass everything else on.
+	local status=0
+	bash /tmp/nodesource_setup.sh >/dev/null 2>/tmp/nodesource_setup.err || status=$?
+	grep -v -e '^WARNING: apt does not have a stable CLI interface' -e '^[[:space:]]*$' \
+		/tmp/nodesource_setup.err >&2 || true
+	rm -f /tmp/nodesource_setup.sh /tmp/nodesource_setup.err
+	[ "$status" -eq 0 ] || die "the nodesource setup script failed (exit $status)"
 	# `install` upgrades a nodejs that is already there to the candidate the
 	# setup script just made available.
 	apt_get install -y -qq nodejs >/dev/null
