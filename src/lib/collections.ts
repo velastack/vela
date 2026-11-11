@@ -4,41 +4,34 @@ export interface CollectionLike {
 	fields: Array<{ type: string; collectionId?: string }>;
 }
 
-export function dependencyOrder(
-	collections: CollectionLike[],
-	startingCollectionId?: string
-): { ids: string[]; names: string[] } {
-	const order: string[] = [];
-	const visited: Record<string, boolean> = {};
-	const queue: string[] = [];
-
+/**
+ * The app's collections with every relation target ahead of what points at it,
+ * so records written in this order always find the records they refer to.
+ *
+ * Otherwise the given order is kept, and a cycle (or a collection relating to
+ * itself) is broken where it is met rather than refused: there is no order
+ * that satisfies one. System collections (`_superusers` and the like) are left
+ * out, as they are not the app's data to save, generate or clear.
+ */
+export function dependencyOrder(collections: CollectionLike[]): { ids: string[]; names: string[] } {
 	const eligible = collections.filter((c) => !c.name.startsWith('_'));
+	const byId = new Map(eligible.map((c) => [c.id, c]));
+	const seen = new Set<string>();
+	const order: CollectionLike[] = [];
 
-	if (startingCollectionId) {
-		queue.push(startingCollectionId);
-	} else {
-		for (const collection of eligible) {
-			if (!visited[collection.id]) {
-				visited[collection.id] = true;
-				queue.push(collection.id);
-			}
+	const visit = (collection: CollectionLike) => {
+		// Marked on the way in, so a cycle stops at the collection that closes it.
+		if (seen.has(collection.id)) return;
+		seen.add(collection.id);
+		for (const field of collection.fields) {
+			if (field.type !== 'relation' || !field.collectionId) continue;
+			const target = byId.get(field.collectionId);
+			if (target) visit(target);
 		}
-	}
+		order.push(collection);
+	};
 
-	while (queue.length > 0) {
-		const collectionId = queue.shift();
-		if (!collectionId) continue;
-		order.push(collectionId);
+	for (const collection of eligible) visit(collection);
 
-		const source = collections.find((c) => c.id === collectionId);
-		for (const field of source?.fields ?? []) {
-			if (field.type === 'relation' && field.collectionId && !visited[field.collectionId]) {
-				visited[field.collectionId] = true;
-				queue.push(field.collectionId);
-			}
-		}
-	}
-
-	const nameById = Object.fromEntries(collections.map((c) => [c.id, c.name]));
-	return { ids: order, names: order.map((id) => nameById[id]!) };
+	return { ids: order.map((c) => c.id), names: order.map((c) => c.name) };
 }

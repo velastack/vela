@@ -77,9 +77,12 @@ machine again. Every command takes the same selector — `-t local`, `-t product
 vela targets                       # what exists, and where
 vela env set STRIPE_SECRET_KEY -t production
 vela admin create -t production    # a login for the admin panel
+vela seeds load -t production      # the records in data/seeds, where missing
 ```
 
 Each deploy uploads an immutable release, runs migrations, restarts the app and health-checks it. A release that does not come up healthy is rolled back before the command exits, migrations included.
+
+Once the release is live, the deploy loads the project's seeds (`data/seeds`) into the target's database. Seeds are the records the app needs to function, such as plans and roles, and loading only ever adds: a record whose `id` is already there is left as it is, so an edit made in the admin panel survives every later deploy and a changed seed file does not overwrite it. Each record needs an `id`, and `vela seeds save` writes them, leaving fixtures out. Read `data/seeds` before committing it, because every copy of the app gets what is in it. An account in a seed file is created with a random password for its owner to reset. A seed file the database refuses does not undo the deploy: the command exits non-zero, and `vela seeds load -t production` loads the rest once the file is fixed. Pages are prerendered before seeds load, so one that renders a record seeded for the first time shows it from the next deploy.
 
 One deploy runs per target at a time. A second one started from another machine — CI and a laptop, say — waits for the first to finish (up to `--lock-wait` seconds, 300 by default; `0` gives up at once), and a release that is older than the one already live is dropped rather than put back in front of it. Release ids are stamped from the server's clock so every machine agrees on which is newer.
 
@@ -93,8 +96,8 @@ vela rollback        # previous release, with its down migrations
 
 `vela destroy deployment -t staging` removes a copy from its server. Its database and uploads stay behind unless you pass `--purge`, which snapshots them into `/var/lib/vela/trash` on the server (kept two weeks) before deleting. Removing production, or purging anything but a preview, asks you to type the app's name; from a script, pass `--confirm <app-name>` — `--yes` alone is not accepted for either.
 
-These default to `production`; `vela admin` defaults to `local`, because that is
-the copy you are usually standing in. `vela env` has no default — see below.
+These default to `production`; `vela admin` and `vela seeds load` default to `local`,
+because that is the copy you are usually standing in. `vela env` has no default — see below.
 
 ## Environment
 

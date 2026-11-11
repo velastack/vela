@@ -19,8 +19,11 @@ import {
 	addTargetOptions,
 	LOCK_WAIT_SCHEMA,
 	lockWaitArgs,
-	withTarget
+	withTarget,
+	type ServerContext
 } from '../lib/server-command.ts';
+import { withRemotePocketbase } from '../lib/remote-pocketbase.ts';
+import { DataLoadError, getSeedFiles, loadSeeds, summarizeSeedLoad } from '../lib/data.ts';
 import { instanceId, normalizeEnvTag, releaseId } from '../lib/instance.ts';
 import { ensureSuperuser, findFreePort, pocketbaseVersion } from '../lib/pocketbase.ts';
 import { buildOrigin, normalizeOrigin, splitHosts } from '../lib/origin.ts';
@@ -439,6 +442,8 @@ export const deploy = addLockWaitOption(
 									`.`
 							);
 						}
+
+						if (backend) await loadDeployedSeeds(ctx);
 					}
 				},
 				{ project: options.project, askDomain: true, label: 'deploy' }
@@ -447,6 +452,46 @@ export const deploy = addLockWaitOption(
 			p.outro(`${pc.cyan('vela status')} to see what is running`);
 		}, 'Failed to deploy.')
 	);
+
+/**
+ * Load the project's seeds into the copy just deployed.
+ *
+ * Seeds are the data the app needs to function, so a deployed copy gets them
+ * with the release that expects them. Only records that are not there yet are
+ * created, which is what makes this safe on every deploy.
+ *
+ * Last of all, and never thrown: by now the release is live and stays live, so
+ * a seed file PocketBase refuses is not a failed deploy. It still fails the
+ * command, because an app missing data it needs is not something for CI to
+ * pass over, and `vela seeds load -t` does the same load once the file is fixed.
+ *
+ * The build ran before any of this, so a page prerendered from a record seeded
+ * here for the first time shows it from the next deploy on.
+ */
+async function loadDeployedSeeds(ctx: ServerContext): Promise<void> {
+	const seedFiles = getSeedFiles(ctx.workspaceRootDir);
+	if (seedFiles.length === 0) return;
+
+	try {
+		const loaded = await withRemotePocketbase(ctx.session, ctx.instance, (pb) =>
+			loadSeeds(pb, ctx.workspaceRootDir, seedFiles)
+		);
+		// Nothing new is every deploy after the first; not worth a line each time.
+		if (loaded.some((result) => result.created > 0)) {
+			p.log.success(summarizeSeedLoad(loaded));
+		}
+	} catch (err) {
+		const retry = `vela seeds load -t ${ctx.targetName}`;
+		p.log.error(
+			`The release is deployed, but its seeds did not all load.\n\n` +
+				`${err instanceof Error ? err.message : String(err)}\n\n` +
+				(err instanceof DataLoadError
+					? `Fix the file, then run ${pc.cyan(retry)}. Records already loaded are left as they are.`
+					: `Run ${pc.cyan(retry)} to try again.`)
+		);
+		process.exitCode = 1;
+	}
+}
 
 /**
  * Get the project onto @sveltejs/adapter-node, and say what that took.
