@@ -86,6 +86,9 @@ const NO_BACKEND_COMMMANDS = new Set([
 	// Only wires hooks, reroute and the root layout; no collections involved.
 	'enable content-negotiation',
 	'disable content-negotiation',
+	// The card is rendered by a SvelteKit endpoint, prerendered on a static site.
+	'enable og',
+	'disable og',
 	// Posts are mdsvex files on disk.
 	'enable blog',
 	// Translations live in wuchale catalogs.
