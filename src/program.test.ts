@@ -64,6 +64,7 @@ const EXPECTED_ENABLE_SUBCOMMANDS = [
 	'ecommerce',
 	'subscriptions',
 	'notifications',
+	'og',
 	'cms',
 	'workflows',
 	'whatsapp'
@@ -79,6 +80,7 @@ const EXPECTED_DISABLE_SUBCOMMANDS = [
 	'content-negotiation',
 	'i18n',
 	'notifications',
+	'og',
 	'teams',
 	'payments',
 	'ecommerce',
@@ -461,6 +463,8 @@ describe('backend gate', () => {
 		['enable', 'ai'],
 		['disable', 'ai'],
 		['disable', 'analytics'],
+		['enable', 'og'],
+		['disable', 'og'],
 		['enable', 'i18n'],
 		['disable', 'i18n'],
 		// The cart reads no database; Stripe's needs a backend, which its

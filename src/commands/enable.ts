@@ -13,6 +13,7 @@ import { ecommerce } from './enable/ecommerce.ts';
 import { subscriptions } from './enable/subscriptions.ts';
 import { orders } from './enable/orders.ts';
 import { notifications } from './enable/notifications.ts';
+import { og } from './enable/og.ts';
 import { cms } from './enable/cms.ts';
 import { blog } from './enable/blog.ts';
 import { contentNegotiation } from './enable/content-negotiation.ts';
@@ -36,6 +37,7 @@ export const enable = new Command('enable')
 	.addCommand(subscriptions)
 	.addCommand(orders)
 	.addCommand(notifications)
+	.addCommand(og)
 	.addCommand(cms)
 	.addCommand(blog)
 	.addCommand(workflows)

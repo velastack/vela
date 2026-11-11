@@ -9,6 +9,7 @@ import { backend } from './disable/backend.ts';
 import { contentNegotiation } from './disable/content-negotiation.ts';
 import { i18n } from './disable/i18n.ts';
 import { notifications } from './disable/notifications.ts';
+import { og } from './disable/og.ts';
 import { teams } from './disable/teams.ts';
 import { payments } from './disable/payments.ts';
 import { ecommerce } from './disable/ecommerce.ts';
@@ -28,6 +29,7 @@ export const disable = new Command('disable')
 	.addCommand(contentNegotiation)
 	.addCommand(i18n)
 	.addCommand(notifications)
+	.addCommand(og)
 	.addCommand(teams)
 	.addCommand(payments)
 	.addCommand(ecommerce)
