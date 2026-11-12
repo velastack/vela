@@ -41,7 +41,7 @@ jobs:
         # dependency whose own `engines` starts above the floor fails the
         # install there (projects set engine-strict), and only the floor
         # shows it.
-        node-version: ['22.17', 24]
+        node-version: ['22.22', 24]
 
     steps:
       - uses: actions/checkout@v7

@@ -747,10 +747,11 @@ function isDirectory(target: string): boolean {
 }
 
 /**
- * The oldest Node a release can run on: SvelteKit 3 and adapter-node 6 need
- * 22.17. `apply.sh` refuses below it too, but only after the build and upload.
+ * The oldest Node a release can run on: a vela project's `engines` floor
+ * (22.22, with `engine-strict`, so the server's `npm ci` refuses below it).
+ * `apply.sh` refuses below it too, but only after the build and upload.
  */
-const SERVER_NODE_FLOOR = { major: 22, minor: 17 };
+const SERVER_NODE_FLOOR = { major: 22, minor: 22 };
 
 /** Whether a `node -v` string is at least `major.minor`. Unreadable is not. */
 export function nodeVersionAtLeast(version: string, major: number, minor: number): boolean {

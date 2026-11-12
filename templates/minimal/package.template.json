@@ -35,8 +35,8 @@
 		"croner": "^10.0.1",
 		"formsnap": "^2.1.0",
 		"mode-watcher": "^1.1.0",
-		"openworkflow": "^0.10.1",
-		"openworkflow-pocketbase": "^0.1.1",
+		"openworkflow": "^0.11.0",
+		"openworkflow-pocketbase": "^0.2.1",
 		"pocketbase-sveltekit": "^0.28.2",
 		"prettier": "^3.9.10",
 		"prettier-plugin-svelte": "^4.1.1",
@@ -59,6 +59,6 @@
 		"zod": "^4.6.7"
 	},
 	"engines": {
-		"node": ">=22.17"
+		"node": ">=22.22"
 	}
 }

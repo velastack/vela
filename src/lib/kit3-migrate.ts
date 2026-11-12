@@ -81,8 +81,12 @@ import pkg from '../../package.json' with { type: 'json' };
  * running the command twice changes nothing the second time.
  */
 
-/** The Node SvelteKit 3 needs. */
-export const NODE_FLOOR = '22.17.0';
+/**
+ * The Node a vela project needs. SvelteKit 3 itself starts at 22.17; the
+ * workflow engine (openworkflow 0.11) needs 22.22, and projects set
+ * `engine-strict`.
+ */
+export const NODE_FLOOR = '22.22.0';
 
 /**
  * sv 1.0's selectable sveltekit-3 tasks, in the order it runs them (pinned by
@@ -279,7 +283,7 @@ export async function runKit3Migration(
 		'@sveltejs/adapter-node'
 	)
 		? [
-				'Servers need Node 22.17 or later: run `vela provision` on each before the first SvelteKit 3 deploy.'
+				'Servers need Node 22.22 or later: run `vela provision` on each before the first SvelteKit 3 deploy.'
 			]
 		: [];
 	writeFollowUps(root, followUps, genericFollowUps);
@@ -295,7 +299,7 @@ async function preflight(
 	const node = minVersion(options.nodeVersion ?? process.versions.node);
 	if (!node || compareVersions(node, minVersion(NODE_FLOOR)!) < 0) {
 		throw new Kit3MigrationError(
-			`SvelteKit 3 needs Node ${NODE_FLOOR} or later; this is Node ${options.nodeVersion ?? process.versions.node}.`
+			`A vela project on SvelteKit 3 needs Node ${NODE_FLOOR} or later; this is Node ${options.nodeVersion ?? process.versions.node}.`
 		);
 	}
 
@@ -756,7 +760,7 @@ const FLOORS: Array<[string, string]> = [
 	['@velastack/patterns', pkg.dependencies['@velastack/patterns']]
 ];
 
-const ENGINES_FLOOR = '>=22.17';
+const ENGINES_FLOOR = '>=22.22';
 
 function packageFixup(root: string, cliVersion: string): Fixup {
 	const f = fixup('package.json');

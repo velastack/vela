@@ -268,7 +268,7 @@ describe('SvelteKit 3', () => {
 				fs.readFileSync(path.join(template.dir, 'package.template.json'), 'utf8')
 			);
 			expect(pkg.imports).toEqual({ '#lib': './src/lib/index.js', '#lib/*': './src/lib/*' });
-			expect(pkg.engines).toEqual({ node: '>=22.17' });
+			expect(pkg.engines).toEqual({ node: '>=22.22' });
 			// Any 3.x floor: the range itself is checked against patterns' list.
 			expect(rangeAdmits(pkg.devDependencies['@sveltejs/kit'], '2.99.0')).toBe(false);
 			expect(rangeAdmits(pkg.devDependencies['@sveltejs/kit'], '3.99.0')).toBe(true);

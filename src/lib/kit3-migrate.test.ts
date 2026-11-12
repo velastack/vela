@@ -271,10 +271,10 @@ describe('preflight', () => {
 		);
 	});
 
-	test('refuses Node below 22.17', async () => {
+	test('refuses Node below 22.22', async () => {
 		const dir = fixture('static');
 		await expect(
-			runKit3Migration(dir, { ...base, gitCheck: false, nodeVersion: '22.16.0' })
+			runKit3Migration(dir, { ...base, gitCheck: false, nodeVersion: '22.21.1' })
 		).rejects.toBeInstanceOf(Kit3MigrationError);
 	});
 });
@@ -655,7 +655,7 @@ describe('vela steps', () => {
 
 		const pkg = readJson(dir, 'package.json');
 		expect(pkg.imports).toEqual({ '#lib': './src/lib/index.js', '#lib/*': './src/lib/*' });
-		expect(pkg.engines).toEqual({ node: '>=22.17' });
+		expect(pkg.engines).toEqual({ node: '>=22.22' });
 		expect(pkg.devDependencies).toMatchObject({
 			'@sveltejs/kit': '^3.0.0',
 			// Whatever patterns lists: the floors come from its constants.

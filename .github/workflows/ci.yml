@@ -19,11 +19,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 22.17 is the floor: SvelteKit 3 requires it, and so does vela 0.15
+        # 22.22 is the floor: a vela project requires it, and so does vela
         # (engines). Testing the floor itself, not just the latest 22, catches
         # an API used before it existed. The bundle targets node22 (see
         # scripts/build.ts).
-        node-version: ['22.17', 24, 26]
+        node-version: ['22.22', 24, 26]
 
     steps:
       - uses: actions/checkout@v7
