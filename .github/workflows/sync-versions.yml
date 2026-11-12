@@ -1,0 +1,87 @@
+name: Sync versions
+
+# Brings the built-in templates' dependency ranges up to the list
+# `@velastack/patterns` publishes (its `versions.json`, kept current by that
+# repository's weekly bump), and opens one pull request with the result.
+#
+# The pull request is opened with the workflow's own token, so its checks wait
+# for one click ("Approve and run") before they start; CI and the canary then
+# run on it like on any other.
+
+on:
+  schedule:
+    # Tuesdays: the day after patterns' bump.
+    - cron: '23 9 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# An explicit shell runs with pipefail, so a script piped into `tee` still
+# fails its step.
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: sync-versions
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Raise @velastack/patterns to its latest release
+        run: |
+          before=$(node -p "require('@velastack/patterns/package.json').version")
+          latest=$(npm view @velastack/patterns version)
+          echo "PATTERNS_BEFORE=$before" >> "$GITHUB_ENV"
+          echo "PATTERNS_AFTER=$latest" >> "$GITHUB_ENV"
+          if [ "$before" != "$latest" ]; then
+            npm install "@velastack/patterns@^$latest"
+          fi
+
+      - name: Sync the templates
+        run: npm run sync-versions | tee "$RUNNER_TEMP/sync.txt"
+
+      - name: Open a pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet; then
+            echo "Templates already match @velastack/patterns $PATTERNS_AFTER."
+            exit 0
+          fi
+          branch="chore/sync-versions"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git commit -am "chore(templates): dependency ranges from @velastack/patterns $PATTERNS_AFTER"
+          git push --force origin "$branch"
+          {
+            echo "The built-in templates, brought to the ranges \`@velastack/patterns\` $PATTERNS_AFTER lists (was $PATTERNS_BEFORE)."
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/sync.txt"
+            echo '```'
+            echo
+            echo "Approve the checks to run CI and the canary on this branch. Merged ranges reach users with the next \`vela\` release."
+          } > "$RUNNER_TEMP/body.md"
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')" ]; then
+            gh pr edit "$branch" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --base main --head "$branch" \
+              --title "chore(templates): sync dependency ranges with @velastack/patterns $PATTERNS_AFTER" \
+              --body-file "$RUNNER_TEMP/body.md"
+          fi

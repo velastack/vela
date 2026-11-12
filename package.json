@@ -40,6 +40,7 @@
 		"version": "npm run build",
 		"lint:sh": "shellcheck -x -P SCRIPTDIR -S warning templates/server/*.sh",
 		"test:scripts": "bash scripts/test-server-scripts.sh",
+		"sync-versions": "node --experimental-strip-types scripts/sync-versions.ts",
 		"canary": "bash scripts/canary.sh"
 	},
 	"dependencies": {
