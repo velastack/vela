@@ -8,7 +8,7 @@ import type {} from 'vela/testing';
 const servers = inject('vela');
 if (!servers) {
 	throw new Error(
-		'Server tests need the servers `vela/testing` starts. Add `globalSetup: [\'vela/testing\']` to the test config in vitest.config.ts.'
+		"Server tests need the servers `vela/testing` starts. Add `globalSetup: ['vela/testing']` to the test config in vitest.config.ts."
 	);
 }
 
