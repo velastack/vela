@@ -1,0 +1,88 @@
+name: Canary
+
+# What a user gets from `vela create` today: both built-in templates scaffolded
+# from this checkout, installed with no lockfile, type-checked, built and
+# tested (scripts/canary.sh).
+#
+# Daily, because no template ships a lockfile: a new project resolves the
+# newest release each range admits, so a release upstream can break
+# `vela create` with no change here. On pull requests that touch what a new
+# project is made of, so a version bump is proven before it merges.
+
+on:
+  schedule:
+    - cron: '17 9 * * *'
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'templates/minimal/**'
+      - 'templates/static/**'
+      - 'scripts/canary.sh'
+      - '.github/workflows/canary.yml'
+      - 'package.json'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: canary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor a project's `engines` admits, and the current LTS. A
+        # dependency whose own `engines` starts above the floor fails the
+        # install there (projects set engine-strict), and only the floor
+        # shows it.
+        node-version: ['22.22', 24]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      # Node 22 bundles npm 10, whose arborist crashes on the optional-peer
+      # chain a fresh project resolves; npm 11 is what the docs ask for.
+      - run: npm install -g npm@11
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: npm run canary
+
+  # A scheduled failure has no pull request to turn red, so it opens an issue
+  # (or adds to the one already open) instead.
+  report:
+    needs: canary
+    if: ${{ failure() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the canary issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Canary: a new project no longer installs, checks, builds or tests"
+          body="The daily canary failed: $RUN_URL
+
+          No template ships a lockfile, so this is usually a release upstream that a range in the templates admits. Find it in the failing step, then either hold it in \`@velastack/patterns\`' \`src/core/versions.json\` (\`holds\`, with the reason) or fix what it broke."
+          existing=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Failed again: $RUN_URL"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

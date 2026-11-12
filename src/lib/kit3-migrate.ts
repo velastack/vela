@@ -81,8 +81,12 @@ import pkg from '../../package.json' with { type: 'json' };
  * running the command twice changes nothing the second time.
  */
 
-/** The Node SvelteKit 3 needs. */
-export const NODE_FLOOR = '22.17.0';
+/**
+ * The Node a vela project needs. SvelteKit 3 itself starts at 22.17; the
+ * workflow engine (openworkflow 0.11) needs 22.22, and projects set
+ * `engine-strict`.
+ */
+export const NODE_FLOOR = '22.22.0';
 
 /**
  * sv 1.0's selectable sveltekit-3 tasks, in the order it runs them (pinned by
@@ -279,7 +283,7 @@ export async function runKit3Migration(
 		'@sveltejs/adapter-node'
 	)
 		? [
-				'Servers need Node 22.17 or later: run `vela provision` on each before the first SvelteKit 3 deploy.'
+				'Servers need Node 22.22 or later: run `vela provision` on each before the first SvelteKit 3 deploy.'
 			]
 		: [];
 	writeFollowUps(root, followUps, genericFollowUps);
@@ -295,7 +299,7 @@ async function preflight(
 	const node = minVersion(options.nodeVersion ?? process.versions.node);
 	if (!node || compareVersions(node, minVersion(NODE_FLOOR)!) < 0) {
 		throw new Kit3MigrationError(
-			`SvelteKit 3 needs Node ${NODE_FLOOR} or later; this is Node ${options.nodeVersion ?? process.versions.node}.`
+			`A vela project on SvelteKit 3 needs Node ${NODE_FLOOR} or later; this is Node ${options.nodeVersion ?? process.versions.node}.`
 		);
 	}
 
@@ -742,6 +746,11 @@ const FLOORS: Array<[string, string]> = [
 	['shadcn-svelte', '^1.7.0'],
 	// 2.1 is the first formsnap whose superforms peer admits 3.x.
 	splitSpec(FORMSNAP),
+	// The form libraries' Kit 3 lines. Floors like the rest: a project on
+	// superforms 2, or on one of the `3.0.0-next` prereleases vela pinned
+	// exactly before the release, moves up; one already past the floor stays.
+	['sveltekit-superforms', SUPERFORMS_VERSION],
+	splitSpec(FLASH),
 	splitSpec(VELASTACK_KIT),
 	splitSpec(VELASTACK_POCKETBASE),
 	splitSpec(VELASTACK_CMS),
@@ -751,16 +760,7 @@ const FLOORS: Array<[string, string]> = [
 	['@velastack/patterns', pkg.dependencies['@velastack/patterns']]
 ];
 
-/**
- * Installed exactly, as the `next` prereleases vela pinned before them were,
- * so a project on one of those moves onto the release.
- */
-const EXACT_PINS: Array<[string, string]> = [
-	['sveltekit-superforms', SUPERFORMS_VERSION],
-	splitSpec(FLASH)
-];
-
-const ENGINES_FLOOR = '>=22.17';
+const ENGINES_FLOOR = '>=22.22';
 
 function packageFixup(root: string, cliVersion: string): Fixup {
 	const f = fixup('package.json');
@@ -771,14 +771,6 @@ function packageFixup(root: string, cliVersion: string): Fixup {
 	for (const [name, range] of [...FLOORS, ['vela', `^${cliVersion}`] as [string, string]]) {
 		const before = depRange(data, name);
 		if (raiseFloor(data, name, range)) changed.push(`${name} ${before} → ${range}`);
-	}
-	for (const [name, version] of EXACT_PINS) {
-		for (const kind of ['dependencies', 'devDependencies'] as const) {
-			const current = data[kind]?.[name];
-			if (current === undefined || current === version || current.includes(':')) continue;
-			data[kind]![name] = version;
-			changed.push(`${name} ${current} → ${version}`);
-		}
 	}
 
 	const engines = (data.engines ?? {}) as Record<string, string>;
@@ -849,8 +841,7 @@ function bumpedHere(name: string): boolean {
 		name.startsWith('@sveltejs/') ||
 		name.startsWith('@velastack/') ||
 		name.startsWith('@types/') ||
-		FLOORS.some(([floor]) => floor === name) ||
-		EXACT_PINS.some(([pin]) => pin === name)
+		FLOORS.some(([floor]) => floor === name)
 	);
 }
 

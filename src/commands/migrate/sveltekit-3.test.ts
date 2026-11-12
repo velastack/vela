@@ -8,7 +8,7 @@ function result(overrides: Partial<Kit3MigrationResult> = {}): Kit3MigrationResu
 		sv: { ran: false, failures: [], excluded: [], cleared: [], dropped: [] },
 		fixups: [{ name: 'origin', changed: false, details: [], warnings: [] }],
 		followUps: [],
-		genericFollowUps: ['Servers need Node 22.17 or later.'],
+		genericFollowUps: ['Servers need Node 22.22 or later.'],
 		tasks: null,
 		installed: true,
 		formatted: [],
@@ -57,7 +57,7 @@ describe('nextStepsFor', () => {
 			})
 		);
 		expect(steps[0]).toMatch(/sv could not format without node_modules/);
-		expect(steps).toContain('Servers need Node 22.17 or later.');
+		expect(steps).toContain('Servers need Node 22.22 or later.');
 		expect(steps).not.toContain('Nothing left to change.');
 	});
 });

@@ -102,9 +102,9 @@ ensure_packages build-essential python3
 # action's default too), not merely one new enough to start them: npm ships with
 # Node, and the server's `npm ci` has to accept the lockfile the build's npm
 # wrote. npm 10 (Node 22) rejects some that npm 11 (Node 24) writes, as
-# "Missing: ... from lock file". SvelteKit 3 and adapter-node 6 also need 22.17,
-# which an explicit `--node-major 22` still has to reach within its line. A
-# server already on a later major than NODE_MAJOR is left alone.
+# "Missing: ... from lock file". A vela project also needs 22.22, which an
+# explicit `--node-major 22` still has to reach within its line. A server
+# already on a later major than NODE_MAJOR is left alone.
 #
 # Moving a major leaves the hosted apps on dependencies compiled for the old
 # one. Their running processes keep working, but each needs a redeploy (which
@@ -114,7 +114,7 @@ install_node() {
 	if command -v node >/dev/null 2>&1; then
 		current=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
 	fi
-	if [ "$current" -ge "$line" ] 2>/dev/null && node_at_least 22 17; then
+	if [ "$current" -ge "$line" ] 2>/dev/null && node_at_least 22 22; then
 		log "node $(node -v) already installed"
 		return 0
 	fi
@@ -145,7 +145,7 @@ install_node() {
 	# old version in place with apt reporting success. Caught here, it names the
 	# problem; caught by the next deploy, it would only name the symptom.
 	current=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
-	{ [ "$current" -ge "$line" ] 2>/dev/null && node_at_least 22 17; } \
+	{ [ "$current" -ge "$line" ] 2>/dev/null && node_at_least 22 22; } \
 		|| die "Node.js is $(node -v 2>/dev/null || echo 'missing') after installing $line.x - check for a held nodejs package or another repository pinned above nodesource"
 }
 install_node

@@ -283,27 +283,25 @@ function mergeDependencies(projectPath: string, templateDir: string) {
 }
 
 /**
- * The form libraries' SvelteKit 3 releases are pinned exactly, and a project's
- * own version of either wins nothing here: superforms 2 does not run on Kit 3.
- * formsnap follows the template's floor too, since 2.1 is the first release
- * whose superforms peer admits 3.x and npm would keep a lockfile's 2.0 next to
- * superforms 3; the override earlier templates carried for 2.0 goes, and the
- * Node floor comes along. Mutates `merged`, and drops the pins it applies from
- * `conflicts` so they are not reported as kept.
+ * The form libraries follow the template's floors whatever the merge kept: a
+ * project's own superforms 2 does not run on Kit 3, and a `3.0.0-next` pin
+ * from before the release is excluded by formsnap's `^3.0.0` peer. A project
+ * already past the floor keeps its range. formsnap follows the template's
+ * floor too, since 2.1 is the first release whose superforms peer admits 3.x
+ * and npm would keep a lockfile's 2.0 next to superforms 3; the override
+ * earlier templates carried for 2.0 goes, and the Node floor comes along.
+ * Mutates `merged`, and drops the floors it applies from `conflicts` so they
+ * are not reported as kept.
  */
-const EXACT_TEMPLATE_PINS = ['sveltekit-superforms', 'sveltekit-flash-message'];
+const TEMPLATE_FLOORS = ['sveltekit-superforms', 'sveltekit-flash-message'];
 
 function applyTemplatePins(merged: PkgJson, template: PkgJson, conflicts: MergeChange[]): string[] {
 	const lines: string[] = [];
-	for (const name of EXACT_TEMPLATE_PINS) {
+	for (const name of TEMPLATE_FLOORS) {
 		const wanted = template.devDependencies?.[name] ?? template.dependencies?.[name];
 		if (!wanted) continue;
-		for (const kind of ['dependencies', 'devDependencies'] as const) {
-			const current = merged[kind]?.[name];
-			if (current === undefined || current === wanted) continue;
-			merged[kind]![name] = wanted;
-			lines.push(`${name}: ${current} → ${wanted}`);
-		}
+		const current = merged.devDependencies?.[name] ?? merged.dependencies?.[name];
+		if (raiseFloor(merged, name, wanted)) lines.push(`${name}: ${current} → ${wanted}`);
 		const index = conflicts.findIndex((c) => c.name === name);
 		if (index !== -1) conflicts.splice(index, 1);
 	}

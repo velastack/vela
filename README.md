@@ -164,7 +164,7 @@ Generated files are yours to edit — no framework wrapping your app, no magic y
 
 ## Requirements
 
-Node 22.17+ and SvelteKit 3. That's it.
+Node 22.22+ and SvelteKit 3. That's it.
 
 ## Docs
 

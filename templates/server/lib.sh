@@ -306,9 +306,8 @@ runtime_origin_lines() {
 	fi
 }
 
-# Whether the server's Node is at least <major>.<minor>. SvelteKit 3 and
-# adapter-node 6 need 22.17, which a server provisioned for SvelteKit 2 may
-# not have; `vela provision` upgrades it. No Node at all, or a version that
+# Whether the server's Node is at least <major>.<minor>. A vela project needs
+# 22.22, which a server provisioned earlier may not have; `vela provision` upgrades it. No Node at all, or a version that
 # cannot be read, is not enough.
 #
 # usage: node_at_least <major> <minor>
