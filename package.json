@@ -39,7 +39,8 @@
 		"prepare": "npm run build",
 		"version": "npm run build",
 		"lint:sh": "shellcheck -x -P SCRIPTDIR -S warning templates/server/*.sh",
-		"test:scripts": "bash scripts/test-server-scripts.sh"
+		"test:scripts": "bash scripts/test-server-scripts.sh",
+		"canary": "bash scripts/canary.sh"
 	},
 	"dependencies": {
 		"@clack/prompts": "^1.7.0",
