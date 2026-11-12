@@ -31,7 +31,7 @@ export const SVELTE_CONFIG_CANDIDATES = [
 ];
 
 /** The file's own indentation: a tab, or the narrowest run of spaces a line starts with. */
-function detectIndentation(sourceFile: SourceFile): { useTabs: boolean; size: number } {
+export function detectIndentation(sourceFile: SourceFile): { useTabs: boolean; size: number } {
 	let spaces = 0;
 	for (const line of sourceFile.getFullText().split('\n')) {
 		if (line.startsWith('\t')) return { useTabs: true, size: 4 };
@@ -57,7 +57,7 @@ export function formatLikeSource(sourceFile: SourceFile): void {
  * Indent what ts-morph inserts the way the file already is, so an added
  * property lines up with its siblings without reformatting the file.
  */
-function matchIndentation(project: Project, sourceFile: SourceFile): void {
+export function matchIndentation(project: Project, sourceFile: SourceFile): void {
 	const { useTabs, size } = detectIndentation(sourceFile);
 	const indentationText = useTabs
 		? IndentationText.Tab

@@ -211,15 +211,19 @@ function describeLoadFailure(e: unknown): string {
 function stubPagesPlugin(): Plugin {
 	const stub = `<script>export const render = () => '';</script>`;
 	const layoutStub = `<script>let { children } = $props(); export const render = () => '';</script>{@render children?.()}`;
+	// `+page@.svelte` and `+layout@(app).svelte` reset the layout they sit
+	// under and are a page and a layout like any other.
+	const isPage = (id: string) => /\+page(@[^/]*)?\.svelte$/.test(id);
+	const isLayout = (id: string) => /\+layout(@[^/]*)?\.svelte$/.test(id);
 	return {
 		name: 'stub-pages',
 		resolveId(id: string) {
-			if (id.endsWith('+page.svelte')) return id;
+			if (isPage(id)) return id;
 			return undefined;
 		},
 		load(id: string) {
-			if (id.endsWith('+layout.svelte')) return layoutStub;
-			if (id.endsWith('+page.svelte') || id.endsWith('+error.svelte')) return stub;
+			if (isLayout(id)) return layoutStub;
+			if (isPage(id) || id.endsWith('+error.svelte')) return stub;
 			return undefined;
 		}
 	};
