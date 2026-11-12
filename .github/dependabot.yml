@@ -16,6 +16,10 @@ updates:
       - dependency-name: pocketbase-server
         versions:
           - '>=1.0.0'
+      # Raised by the Sync versions workflow, together with the templates'
+      # dependency ranges that follow it (src/lib/template-versions.test.ts
+      # fails when one moves without the other).
+      - dependency-name: '@velastack/patterns'
   - package-ecosystem: github-actions
     directory: /
     schedule:
