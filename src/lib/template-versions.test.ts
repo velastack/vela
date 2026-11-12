@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { VERSIONS } from '@velastack/patterns';
+import { NODE_FLOOR as PROJECT_NODE_FLOOR, VERSIONS } from '@velastack/patterns';
 import { minVersion, compareVersions } from './package-json.ts';
+import { NODE_FLOOR } from './kit3-migrate.ts';
 import { listProjectTemplates } from './templates.ts';
 
 /**
@@ -54,5 +55,26 @@ describe('migrate floors', () => {
 			}
 		}
 		expect(above).toEqual([]);
+	});
+});
+
+/**
+ * The oldest Node a project may run on is decided in the same list (`node`):
+ * no package in it may require a later one, since projects set
+ * `engine-strict`. The templates' `engines` and the floor `vela migrate`
+ * raises a project to are copies of it.
+ */
+describe('Node floor', () => {
+	for (const template of listProjectTemplates()) {
+		test(`${template.name} sets the engines floor patterns lists`, () => {
+			const pkg = JSON.parse(
+				fs.readFileSync(path.join(template.dir, 'package.template.json'), 'utf8')
+			);
+			expect(minVersion(pkg.engines.node)).toEqual(minVersion(PROJECT_NODE_FLOOR));
+		});
+	}
+
+	test('migrate raises a project to the same floor', () => {
+		expect(NODE_FLOOR).toBe(PROJECT_NODE_FLOOR);
 	});
 });
