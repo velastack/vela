@@ -377,6 +377,6 @@ describe('adoptNodeAdapter', () => {
 	});
 
 	test('writes the adapter-node major SvelteKit 3 needs', () => {
-		expect(ADAPTER_NODE_RANGE).toBe('^6.0.0');
+		expect(ADAPTER_NODE_RANGE).toMatch(/^\^6\.\d+\.\d+$/);
 	});
 });

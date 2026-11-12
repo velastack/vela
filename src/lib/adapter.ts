@@ -10,6 +10,7 @@ import {
 	type SourceFile
 } from 'ts-morph';
 import { detect, type AgentName } from 'package-manager-detector';
+import { ADAPTER_NODE as ADAPTER_NODE_SPEC } from '@velastack/patterns';
 import {
 	createSveltekitArg,
 	findSvelteConfig,
@@ -36,8 +37,11 @@ import { getUserAgent, installDependencies, isInstalled } from './package-manage
 export const ADAPTER_NODE = '@sveltejs/adapter-node';
 export const ADAPTER_AUTO = '@sveltejs/adapter-auto';
 export const ADAPTER_STATIC = '@sveltejs/adapter-static';
-/** The range written into a project that had no adapter-node before. */
-export const ADAPTER_NODE_RANGE = '^6.0.0';
+/**
+ * The range written into a project that had no adapter-node before: the one
+ * patterns installs (`vela enable backend`), so there is a single copy of it.
+ */
+export const ADAPTER_NODE_RANGE = ADAPTER_NODE_SPEC.slice(ADAPTER_NODE_SPEC.lastIndexOf('@') + 1);
 
 export type AdapterKind = 'node' | 'auto' | 'static' | 'other' | 'none';
 

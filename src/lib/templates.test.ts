@@ -262,14 +262,16 @@ describe('SvelteKit 3', () => {
 		}
 	});
 
-	test('package.json maps #lib and requires the Node that Kit 3 does', () => {
+	test('package.json maps #lib, is on SvelteKit 3 and requires the Node it does', () => {
 		for (const template of listProjectTemplates()) {
 			const pkg = JSON.parse(
 				fs.readFileSync(path.join(template.dir, 'package.template.json'), 'utf8')
 			);
 			expect(pkg.imports).toEqual({ '#lib': './src/lib/index.js', '#lib/*': './src/lib/*' });
 			expect(pkg.engines).toEqual({ node: '>=22.17' });
-			expect(pkg.devDependencies['@sveltejs/kit']).toBe('^3.0.0');
+			// Any 3.x floor: the range itself is checked against patterns' list.
+			expect(rangeAdmits(pkg.devDependencies['@sveltejs/kit'], '2.99.0')).toBe(false);
+			expect(rangeAdmits(pkg.devDependencies['@sveltejs/kit'], '3.99.0')).toBe(true);
 		}
 	});
 
@@ -285,7 +287,9 @@ describe('SvelteKit 3', () => {
 			if (!pkg.devDependencies.formsnap) continue;
 			expect(rangeAdmits(pkg.devDependencies.formsnap, '2.0.1')).toBe(false);
 			expect(rangeAdmits(pkg.devDependencies.formsnap, '2.1.0')).toBe(true);
-			expect(pkg.devDependencies['sveltekit-superforms']).toMatch(/^\d+\.\d+\.\d+$/);
+			// A release line formsnap's `^3.0.0` peer admits, not a `next` build.
+			expect(rangeAdmits(pkg.devDependencies['sveltekit-superforms'], '3.0.0-next.1')).toBe(false);
+			expect(rangeAdmits(pkg.devDependencies['sveltekit-superforms'], '3.99.0')).toBe(true);
 			expect(pkg.overrides?.formsnap).toBeUndefined();
 		}
 	});

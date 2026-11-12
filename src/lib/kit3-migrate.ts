@@ -742,6 +742,11 @@ const FLOORS: Array<[string, string]> = [
 	['shadcn-svelte', '^1.7.0'],
 	// 2.1 is the first formsnap whose superforms peer admits 3.x.
 	splitSpec(FORMSNAP),
+	// The form libraries' Kit 3 lines. Floors like the rest: a project on
+	// superforms 2, or on one of the `3.0.0-next` prereleases vela pinned
+	// exactly before the release, moves up; one already past the floor stays.
+	['sveltekit-superforms', SUPERFORMS_VERSION],
+	splitSpec(FLASH),
 	splitSpec(VELASTACK_KIT),
 	splitSpec(VELASTACK_POCKETBASE),
 	splitSpec(VELASTACK_CMS),
@@ -749,15 +754,6 @@ const FLOORS: Array<[string, string]> = [
 	['sveltekit-negotiate', '^0.3.1'],
 	// 0.3 peers @velastack/pocketbase ^0.3, which the floor above moves past.
 	['@velastack/patterns', pkg.dependencies['@velastack/patterns']]
-];
-
-/**
- * Installed exactly, as the `next` prereleases vela pinned before them were,
- * so a project on one of those moves onto the release.
- */
-const EXACT_PINS: Array<[string, string]> = [
-	['sveltekit-superforms', SUPERFORMS_VERSION],
-	splitSpec(FLASH)
 ];
 
 const ENGINES_FLOOR = '>=22.17';
@@ -771,14 +767,6 @@ function packageFixup(root: string, cliVersion: string): Fixup {
 	for (const [name, range] of [...FLOORS, ['vela', `^${cliVersion}`] as [string, string]]) {
 		const before = depRange(data, name);
 		if (raiseFloor(data, name, range)) changed.push(`${name} ${before} → ${range}`);
-	}
-	for (const [name, version] of EXACT_PINS) {
-		for (const kind of ['dependencies', 'devDependencies'] as const) {
-			const current = data[kind]?.[name];
-			if (current === undefined || current === version || current.includes(':')) continue;
-			data[kind]![name] = version;
-			changed.push(`${name} ${current} → ${version}`);
-		}
 	}
 
 	const engines = (data.engines ?? {}) as Record<string, string>;
@@ -849,8 +837,7 @@ function bumpedHere(name: string): boolean {
 		name.startsWith('@sveltejs/') ||
 		name.startsWith('@velastack/') ||
 		name.startsWith('@types/') ||
-		FLOORS.some(([floor]) => floor === name) ||
-		EXACT_PINS.some(([pin]) => pin === name)
+		FLOORS.some(([floor]) => floor === name)
 	);
 }
 

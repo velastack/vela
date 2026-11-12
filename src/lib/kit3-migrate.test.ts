@@ -17,6 +17,18 @@ import {
 import { commitAll, copyKit2Fixture, snapshot } from './kit2-fixture.ts';
 import type { PeerLookup, PeerManifest } from './kit-peers.ts';
 import cliPackage from '../../package.json' with { type: 'json' };
+import {
+	ADAPTER_NODE,
+	ADAPTER_STATIC,
+	FLASH,
+	FORMSNAP,
+	SUPERFORMS_VERSION,
+	VELASTACK_KIT,
+	VELASTACK_POCKETBASE
+} from '@velastack/patterns';
+
+/** The range of a patterns `name@range` spec. */
+const rangeOf = (spec: string) => spec.slice(spec.lastIndexOf('@') + 1);
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -646,12 +658,13 @@ describe('vela steps', () => {
 		expect(pkg.engines).toEqual({ node: '>=22.17' });
 		expect(pkg.devDependencies).toMatchObject({
 			'@sveltejs/kit': '^3.0.0',
-			'@sveltejs/adapter-node': '^6.0.0',
-			'@velastack/kit': '^0.4.0',
-			'@velastack/pocketbase': '^0.4.2',
-			'sveltekit-superforms': '3.0.0',
-			'sveltekit-flash-message': '3.0.0',
-			formsnap: '^2.1.0',
+			// Whatever patterns lists: the floors come from its constants.
+			'@sveltejs/adapter-node': rangeOf(ADAPTER_NODE),
+			'@velastack/kit': rangeOf(VELASTACK_KIT),
+			'@velastack/pocketbase': rangeOf(VELASTACK_POCKETBASE),
+			'sveltekit-superforms': SUPERFORMS_VERSION,
+			'sveltekit-flash-message': rangeOf(FLASH),
+			formsnap: rangeOf(FORMSNAP),
 			svelte: '^5.57.1',
 			'svelte-check': '^4.7.6',
 			'shadcn-svelte': '^1.7.0',
@@ -684,13 +697,13 @@ describe('vela steps', () => {
 		const result = await runKit3Migration(dir, { ...base, gitCheck: false, skipSv: true });
 		const pkg = readJson(dir, 'package.json');
 		expect(pkg.overrides).toEqual({ cookie: '1.0.0', formsnap: { 'bits-ui': '2.0.0' } });
-		expect(pkg.devDependencies['sveltekit-superforms']).toBe('3.0.0');
-		expect(pkg.devDependencies.formsnap).toBe('^2.1.0');
+		expect(pkg.devDependencies['sveltekit-superforms']).toBe(SUPERFORMS_VERSION);
+		expect(pkg.devDependencies.formsnap).toBe(rangeOf(FORMSNAP));
 		const details = result.fixups.find((f) => f.name === 'package.json')!.details;
 		expect(details).toEqual(
 			expect.arrayContaining([
-				'formsnap ^2.0.1 → ^2.1.0',
-				'sveltekit-superforms 3.0.0-next.1 → 3.0.0',
+				`formsnap ^2.0.1 → ${rangeOf(FORMSNAP)}`,
+				`sveltekit-superforms 3.0.0-next.1 → ${SUPERFORMS_VERSION}`,
 				'overrides formsnap → sveltekit-superforms dropped (formsnap 2.1 peers superforms 3)'
 			])
 		);
@@ -701,7 +714,7 @@ describe('vela steps', () => {
 		const result = await runKit3Migration(dir, { ...base, gitCheck: false, skipSv: true });
 		expect(readJson(dir, 'tsconfig.json').include).toEqual(['src', 'vite.config.ts']);
 		const pkg = readJson(dir, 'package.json');
-		expect(pkg.devDependencies['@sveltejs/adapter-static']).toBe('^4.0.0');
+		expect(pkg.devDependencies['@sveltejs/adapter-static']).toBe(rangeOf(ADAPTER_STATIC));
 		expect(pkg.overrides).toBeUndefined();
 		expect(result.genericFollowUps).toEqual([]);
 		expect(fs.existsSync(path.join(dir, 'src', 'env.ts'))).toBe(false);
