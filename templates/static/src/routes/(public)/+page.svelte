@@ -21,9 +21,9 @@
 			<p class="text-muted-foreground mt-4 text-lg">
 				A SvelteKit site that prerenders to static HTML, so there is no server to run and nothing to
 				keep alive. This page is
-				<code class="bg-muted rounded px-1.5 py-0.5 font-mono text-base"
-					>src/routes/(public)/+page.svelte</code
-				>, and it is yours to delete.
+				<code class="bg-muted rounded px-1.5 py-0.5 font-mono text-base">
+					src/routes/(public)/+page.svelte
+				</code>, and it is yours to delete.
 			</p>
 
 			<div class="mt-8 flex items-center justify-center gap-3">
@@ -53,8 +53,9 @@
 				</p>
 				<code
 					class="bg-muted text-muted-foreground mt-4 block overflow-x-auto rounded-md px-3 py-2 font-mono text-xs"
-					>src/lib/site.ts</code
 				>
+					src/lib/site.ts
+				</code>
 			</div>
 			<div class="bg-card text-card-foreground rounded-lg border p-6">
 				<h3 class="font-medium">Your interface</h3>
@@ -64,8 +65,9 @@
 				</p>
 				<code
 					class="bg-muted text-muted-foreground mt-4 block overflow-x-auto rounded-md px-3 py-2 font-mono text-xs"
-					>vela ui add button card dialog</code
 				>
+					vela ui add button card dialog
+				</code>
 			</div>
 			<div class="bg-card text-card-foreground rounded-lg border p-6">
 				<h3 class="font-medium">Your deploy</h3>
@@ -74,8 +76,9 @@
 				</p>
 				<code
 					class="bg-muted text-muted-foreground mt-4 block overflow-x-auto rounded-md px-3 py-2 font-mono text-xs"
-					>vela build &amp;&amp; vela deploy</code
 				>
+					vela build &amp;&amp; vela deploy
+				</code>
 			</div>
 		</div>
 	</section>

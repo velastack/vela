@@ -21,9 +21,9 @@
 			<p class="text-muted-foreground mt-4 text-lg">
 				A SvelteKit app with a PocketBase backend already migrated behind it, and types synced from
 				your schema as it changes. This page is
-				<code class="bg-muted rounded px-1.5 py-0.5 font-mono text-base"
-					>src/routes/(public)/+page.svelte</code
-				>, and it is yours to delete.
+				<code class="bg-muted rounded px-1.5 py-0.5 font-mono text-base">
+					src/routes/(public)/+page.svelte
+				</code>, and it is yours to delete.
 			</p>
 
 			<div class="mt-8 flex items-center justify-center gap-3">
@@ -52,8 +52,9 @@
 				</p>
 				<code
 					class="bg-muted text-muted-foreground mt-4 block overflow-x-auto rounded-md px-3 py-2 font-mono text-xs"
-					>vela generate scaffold post title:text body:editor</code
 				>
+					vela generate scaffold post title:text body:editor
+				</code>
 			</div>
 			<div class="bg-card text-card-foreground rounded-lg border p-6">
 				<h3 class="font-medium">Your users</h3>
@@ -62,8 +63,9 @@
 				</p>
 				<code
 					class="bg-muted text-muted-foreground mt-4 block overflow-x-auto rounded-md px-3 py-2 font-mono text-xs"
-					>vela enable auth</code
 				>
+					vela enable auth
+				</code>
 			</div>
 			<div class="bg-card text-card-foreground rounded-lg border p-6">
 				<h3 class="font-medium">Your interface</h3>
@@ -73,8 +75,9 @@
 				</p>
 				<code
 					class="bg-muted text-muted-foreground mt-4 block overflow-x-auto rounded-md px-3 py-2 font-mono text-xs"
-					>vela ui add button card dialog</code
 				>
+					vela ui add button card dialog
+				</code>
 			</div>
 		</div>
 	</section>
