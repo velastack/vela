@@ -494,6 +494,55 @@ caddy_reload() {
 	systemctl reload caddy >/dev/null 2>&1 || systemctl restart caddy
 }
 
+# Whether the server's Caddy is at least <major>.<minor>. `caddy version` prints
+# `v2.11.7 h1:...` from Caddy's own packages and a bare `2.6.2` from Ubuntu's.
+#
+# usage: caddy_at_least <major> <minor>
+caddy_at_least() {
+	local want_major=$1 want_minor=$2 version major minor
+	command -v caddy >/dev/null 2>&1 || return 1
+	version=$(caddy version 2>/dev/null | head -n1 | awk '{print $1}') || return 1
+	version=${version#v}
+	major=${version%%.*}
+	minor=${version#*.}
+	minor=${minor%%.*}
+	[[ $major =~ ^[0-9]+$ && $minor =~ ^[0-9]+$ ]] || return 1
+	[ "$major" -gt "$want_major" ] && return 0
+	[ "$major" -eq "$want_major" ] && [ "$minor" -ge "$want_minor" ]
+}
+
+# The Caddy that holds every request through a restart. Measured with a
+# request held against a port nothing listened on for four seconds: Ubuntu
+# 24.04's package (2.6.2) answered a GET once the port opened but a POST with
+# a body got a 502; 2.11.7 answered both. Nothing in between was tried, so the
+# floor is the version that was seen to work. `vela provision` moves an older
+# one to Caddy's current package.
+# shellcheck disable=SC2034 # read by apply.sh and provision.sh
+CADDY_HOLD_MAJOR=2
+# shellcheck disable=SC2034
+CADDY_HOLD_MINOR=11
+
+# The `reverse_proxy` options that turn a restart into a pause.
+#
+# A deploy, rollback or restore stops the app before it touches the database
+# and starts it last, so for those seconds nothing listens on the app's port.
+# Without these Caddy answers each request in that window with a 502. With
+# them a refused connection is tried again every quarter second for up to
+# VELA_PROXY_HOLD, and the request is answered by whichever release comes up:
+# a visitor sees one slow page instead of an error. Only a connection that was
+# never made is retried, so nothing is ever sent to the app twice.
+#
+# The hold has to outlast the stopped window: the app's drain (SHUTDOWN_TIMEOUT
+# in vela-web@.service), migrations, and both services starting. It also
+# applies when the app is simply down, where it delays the 502 by as long.
+#
+# usage: caddy_proxy_hold <indent>
+VELA_PROXY_HOLD=${VELA_PROXY_HOLD:-30s}
+caddy_proxy_hold() {
+	printf '%slb_try_duration %s\n' "$1" "$VELA_PROXY_HOLD"
+	printf '%slb_try_interval 250ms\n' "$1"
+}
+
 # Serialize every change to the Caddy config across instances.
 #
 # `caddy_valid` checks the whole Caddyfile, so two scripts installing snippets

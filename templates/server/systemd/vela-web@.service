@@ -10,6 +10,12 @@ User=vela
 Group=vela
 WorkingDirectory=/var/lib/vela/apps/%i/current
 
+# How long the app lets open responses finish once it is told to stop
+# (adapter-node's default is 30). It stops listening at once, so this is time
+# every other visitor spends waiting on a deploy, and one open event stream is
+# enough to use all of it. Set before the env files so `vela env` can override.
+Environment=SHUTDOWN_TIMEOUT=5
+
 # Production secrets first, vela-generated runtime settings second, so PORT and
 # POCKETBASE_URL always match what the server actually assigned.
 # Three layers, each secret and public, then what vela derives. Later wins.

@@ -150,19 +150,39 @@ install_node() {
 }
 install_node
 
+# Caddy comes from its own apt repository, not the distribution's: Ubuntu 24.04
+# ships 2.6.2, which cannot hold a request with a body while an app restarts
+# (see CADDY_HOLD_MAJOR in lib.sh), so a form posted during a deploy gets a
+# 502. A server whose Caddy is older than that is moved to the current package.
+# Certificates and the Caddyfile are kept: both packages run as the `caddy`
+# user out of /var/lib/caddy, and dpkg is told to keep the Caddyfile as it is.
 install_caddy() {
+	local had=""
 	if command -v caddy >/dev/null 2>&1; then
-		log "caddy $(caddy version | head -1) already installed"
-		return 0
+		had=$(caddy version | head -1 | awk '{print $1}')
+		if caddy_at_least "$CADDY_HOLD_MAJOR" "$CADDY_HOLD_MINOR"; then
+			log "caddy $had already installed"
+			return 0
+		fi
+		log "upgrading caddy $had - it answers 502 to form posts while an app restarts"
+	else
+		log "installing caddy"
 	fi
-	log "installing caddy"
 	curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-		| gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+		| gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 	curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
 		> /etc/apt/sources.list.d/caddy-stable.list
 	apt_get update -qq
-	apt_get install -y -qq caddy >/dev/null
 	APT_UPDATED=1
+	apt_get install -y -qq \
+		-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+		caddy >/dev/null
+	caddy_at_least "$CADDY_HOLD_MAJOR" "$CADDY_HOLD_MINOR" \
+		|| die "Caddy is $(caddy version 2>/dev/null | head -1 | awk '{print $1}') after installing from Caddy's repository - check for a held caddy package"
+	# The package restarts a running Caddy itself, but only when its own
+	# maintainer script decides to; an upgrade that left the old binary
+	# serving would look done and change nothing.
+	if [ -n "$had" ]; then systemctl restart caddy; fi
 }
 install_caddy
 

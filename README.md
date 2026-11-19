@@ -80,7 +80,7 @@ vela admin create -t production    # a login for the admin panel
 vela seeds load -t production      # the records in data/seeds, where missing
 ```
 
-Each deploy uploads an immutable release, runs migrations, restarts the app and health-checks it. A release that does not come up healthy is rolled back before the command exits, migrations included.
+Each deploy uploads an immutable release, runs migrations, restarts the app and health-checks it. A release that does not come up healthy is rolled back before the command exits, migrations included. The restart takes a few seconds; Caddy holds requests that arrive during it and passes them to the new release, so visitors see one slow page, not an error.
 
 Once the release is live, the deploy loads the project's seeds (`data/seeds`) into the target's database. Seeds are the records the app needs to function, such as plans and roles, and loading only ever adds: a record whose `id` is already there is left as it is, so an edit made in the admin panel survives every later deploy and a changed seed file does not overwrite it. Each record needs an `id`, and `vela seeds save` writes them, leaving fixtures out. Read `data/seeds` before committing it, because every copy of the app gets what is in it. An account in a seed file is created with a random password for its owner to reset. A seed file the database refuses does not undo the deploy: the command exits non-zero, and `vela seeds load -t production` loads the rest once the file is fixed. Pages are prerendered before seeds load, so one that renders a record seeded for the first time shows it from the next deploy.
 
