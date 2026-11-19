@@ -382,8 +382,23 @@ on_exit() {
 }
 trap on_exit EXIT
 
+# The units come from the same upload as this script, so a server provisioned
+# by an older CLI gets the current ones on its next deploy rather than running
+# the old env file list against new layers nothing reads. Installed before
+# anything stops: they do not belong to a release, and every second between the
+# stop below and the app answering again is one a visitor spends waiting.
+for unit in vela-web@.service vela-pb@.service; do
+	cmp -s "$SCRIPT_DIR/systemd/$unit" "/etc/systemd/system/$unit" \
+		|| install -m 0644 "$SCRIPT_DIR/systemd/$unit" "/etc/systemd/system/$unit"
+done
+systemctl daemon-reload
+
 IN_TRANSACTION=1
 
+# From this stop until the app answers its health check, nothing listens on the
+# app's port. Caddy holds requests that arrive in between and hands them to the
+# release that comes up (`caddy_proxy_hold`), so the order matters: the app
+# goes down first and comes back last, and is never up while PocketBase is not.
 log "stopping services"
 systemctl stop "$WEB_UNIT" >/dev/null 2>&1 || true
 if [ "$BACKEND" = "1" ]; then
@@ -441,15 +456,6 @@ if [ -n "$LINK_NAME" ]; then
 	{ ln -sfn "$APP" "$link_tmp" && mv -Tf "$link_tmp" "$VELA_ROOT/by-name/$LINK_NAME"; } \
 		|| rm -f "$link_tmp" || true
 fi
-
-# The units come from the same upload as this script, so a server provisioned
-# by an older CLI gets the current ones on its next deploy rather than running
-# the old env file list against new layers nothing reads.
-for unit in vela-web@.service vela-pb@.service; do
-	cmp -s "$SCRIPT_DIR/systemd/$unit" "/etc/systemd/system/$unit" \
-		|| install -m 0644 "$SCRIPT_DIR/systemd/$unit" "/etc/systemd/system/$unit"
-done
-systemctl daemon-reload
 
 if [ "$BACKEND" = "1" ]; then
 	log "starting PocketBase on 127.0.0.1:$PB_PORT"
@@ -525,6 +531,9 @@ CADDY_SNIPPET="$VELA_ETC/caddy/$INSTANCE.caddy"
 ROUTE_SNIPPET="$VELA_ETC/caddy/routes/$INSTANCE.route"
 ROUTING_CHANGED=0
 
+{ [ -z "$DOMAIN$MANAGED" ] || caddy_at_least "$CADDY_HOLD_MAJOR" "$CADDY_HOLD_MINOR"; } \
+	|| log "warning: this server's Caddy ($(caddy version 2>/dev/null | head -n1 | awk '{print $1}')) answers 502 to form posts and uploads while an app restarts - run 'vela provision' to upgrade it"
+
 # From here the release is live and stays live: a routing failure below
 # exits non-zero with the site running the new release and its routes as
 # they were, which is what the messages say.
@@ -544,7 +553,9 @@ if [ -n "$DOMAIN" ]; then
 		# forever; `?` leaves whatever the app or PocketBase set alone.
 		printf '\t@static path *.jpg *.jpeg *.png *.gif *.webp *.avif *.svg *.ico *.woff *.woff2\n'
 		printf '\theader @static ?Cache-Control "public, max-age=3600"\n'
-		printf '\treverse_proxy 127.0.0.1:%s\n' "$WEB_PORT"
+		printf '\treverse_proxy 127.0.0.1:%s {\n' "$WEB_PORT"
+		caddy_proxy_hold $'\t\t'
+		printf '\t}\n'
 		printf '}\n'
 	} > "$tmp"
 	caddy_install "$tmp" "$CADDY_SNIPPET" \
@@ -573,6 +584,7 @@ if [ -n "$MANAGED" ]; then
 		printf '\treverse_proxy 127.0.0.1:%s {\n' "$WEB_PORT"
 		printf '\t\theader_up Host {http.request.header.X-Velastack-Host}\n'
 		printf '\t\theader_up X-Forwarded-For {http.request.header.X-Velastack-Client-IP}\n'
+		caddy_proxy_hold $'\t\t'
 		printf '\t}\n}\n'
 	} > "$tmp"
 	caddy_install "$tmp" "$ROUTE_SNIPPET" \

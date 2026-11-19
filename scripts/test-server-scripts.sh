@@ -163,6 +163,34 @@ mkdir -p "$SCRATCH/empty-path"
 expect_die "node floor: no node at all is not enough" env PATH="$SCRATCH/empty-path" "$BASH" -c \
 	". '$ROOT/templates/server/lib.sh' && node_at_least 22 17"
 
+# ------------------------------------------------------------ caddy floor
+#
+# The same stand-in for `caddy version`, in both shapes it prints: Caddy's own
+# packages say `v2.11.7 h1:...`, Ubuntu's says `2.6.2`.
+
+fake_caddy_dir="$SCRATCH/fake-caddy"
+mkdir -p "$fake_caddy_dir"
+printf '#!/bin/sh\nprintf "%%s\\n" "$FAKE_CADDY_VERSION"\n' > "$fake_caddy_dir/caddy"
+chmod +x "$fake_caddy_dir/caddy"
+with_caddy() {
+	local version=$1; shift
+	FAKE_CADDY_VERSION=$version PATH="$fake_caddy_dir:$PATH" "$@"
+}
+expect_die "caddy floor: Ubuntu's 2.6.2 is too old" with_caddy 2.6.2 caddy_at_least 2 11
+expect_die "caddy floor: 2.10 is too old" with_caddy 'v2.10.2 h1:abc=' caddy_at_least 2 11
+expect_ok "caddy floor: 2.11.0 is enough" with_caddy 'v2.11.0 h1:abc=' caddy_at_least 2 11
+expect_ok "caddy floor: 2.11.7 is enough" with_caddy 'v2.11.7 h1:yj0Y4fYZ=' caddy_at_least 2 11
+expect_ok "caddy floor: 3.0 is enough" with_caddy v3.0.0 caddy_at_least 2 11
+expect_die "caddy floor: an unreadable version is not enough" with_caddy garbage caddy_at_least 2 11
+expect_die "caddy floor: no caddy at all is not enough" env PATH="$SCRATCH/empty-path" "$BASH" -c \
+	". '$ROOT/templates/server/lib.sh' && caddy_at_least 2 11"
+
+# What apply.sh writes inside each reverse_proxy block: requests that arrive
+# while the app is restarting wait for it instead of failing.
+expect_lines "proxy hold: retries a refused connection for 30s" \
+	$'\t\tlb_try_duration 30s\n\t\tlb_try_interval 250ms' \
+	caddy_proxy_hold $'\t\t'
+
 mkdir -p "$(dirname "$(state_file hosted)")"
 printf '{"url":"https://velastack.dev"}' > "$(state_file hosted)"
 mkdir -p "$(dirname "$(state_file bare)")"
