@@ -209,6 +209,19 @@ export function getPocketbaseMetadata(
 }
 
 /**
+ * Whether there is a local database to talk to: one on disk, or one a running
+ * `vela dev` has recorded the address of.
+ *
+ * A fresh checkout has neither. `data/` itself is there (hooks and seeds are
+ * tracked) but `data/data.db` is not, and starting PocketBase on it would only
+ * create an empty database with no superuser to sign in as.
+ */
+export function hasLocalDatabase(cwd: string): boolean {
+	if (fs.existsSync(path.join(cwd, DATA_DIR, 'data.db'))) return true;
+	return Boolean(getPocketbaseMetadata(cwd)?.pocketbaseUrl);
+}
+
+/**
  * Run the PocketBase binary once and wait for it. Throws when it exits
  * non-zero, quoting the command.
  */
