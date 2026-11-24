@@ -135,7 +135,11 @@ export function checkFlagsForTemplate(template: TemplateInfo, options: Options):
 export const create = new Command('create')
 	.description('scaffold a new velastack project')
 	.argument('[path]', 'where the project will be created')
-	.option('--template <type>', 'template to scaffold (built-in or from the registry)', 'minimal')
+	.option(
+		'--template <type>',
+		'template to scaffold, built-in or from the registry (`vela templates` lists them)',
+		'minimal'
+	)
 	.option(
 		'--schema <slug>',
 		'start from a schema in the gallery (https://velastack.dev/schemas), e.g. gym-memberships'
@@ -155,6 +159,10 @@ export const create = new Command('create')
 	)
 	.addOption(installOption)
 	.configureHelp(helpConfig)
+	.addHelpText(
+		'after',
+		'\nRun `vela templates` to list the templates: what each one is, and whether it has a backend.'
+	)
 	.action((projectPath: string | undefined, rawOpts) => {
 		return runCommand(async () => {
 			const listing = await listAllTemplates();

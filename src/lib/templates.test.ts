@@ -5,10 +5,13 @@ import {
 	DEFAULT_TEMPLATE,
 	TEMPLATE_MANIFEST,
 	findProjectTemplate,
+	formatTemplateList,
 	listProjectTemplates,
 	projectTemplateNames,
+	summarizeTemplates,
 	templateChoicesMessage,
-	templatesDir
+	templatesDir,
+	type TemplateInfo
 } from './templates.ts';
 import { rangeAdmits } from './package-json.ts';
 
@@ -121,6 +124,83 @@ describe('categories', () => {
 			{ name: 'minimal', description: '', backend: true, source: 'builtin', category: 'starter' }
 		]);
 		expect(message).toBe('starter: minimal, static; blog: broadsheet, confetti');
+	});
+});
+
+describe('vela templates listing', () => {
+	const templates: TemplateInfo[] = [
+		{
+			name: 'broadsheet',
+			description: 'A newspaper blog',
+			backend: false,
+			source: 'remote',
+			category: 'blog',
+			price: 49
+		},
+		{
+			name: 'static',
+			description: 'Frontend only',
+			backend: false,
+			source: 'builtin',
+			category: 'starter'
+		},
+		{
+			name: 'minimal',
+			description: 'With PocketBase',
+			backend: true,
+			source: 'builtin',
+			category: 'starter'
+		}
+	];
+
+	test('groups by category, starters first, and marks the backend', () => {
+		expect(formatTemplateList(templates)).toBe(
+			[
+				'starter',
+				'  minimal     backend            With PocketBase',
+				'  static      no backend         Frontend only',
+				'',
+				'blog',
+				'  broadsheet  no backend, US$49  A newspaper blog'
+			].join('\n')
+		);
+	});
+
+	test('is plain text: no escape sequences', () => {
+		expect(formatTemplateList(templates)).not.toContain('\x1b');
+	});
+
+	test('the JSON form carries the same facts', () => {
+		expect(summarizeTemplates(templates)).toEqual([
+			{
+				name: 'minimal',
+				category: 'starter',
+				description: 'With PocketBase',
+				backend: true,
+				source: 'builtin'
+			},
+			{
+				name: 'static',
+				category: 'starter',
+				description: 'Frontend only',
+				backend: false,
+				source: 'builtin'
+			},
+			{
+				name: 'broadsheet',
+				category: 'blog',
+				description: 'A newspaper blog',
+				backend: false,
+				source: 'remote',
+				price: 49
+			}
+		]);
+	});
+
+	test('the built-in templates list without the registry', () => {
+		const text = formatTemplateList(listProjectTemplates());
+		expect(text).toMatch(/^starter\n {2}minimal +backend /);
+		expect(text).toMatch(/\n {2}static +no backend /);
 	});
 });
 

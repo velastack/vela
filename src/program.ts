@@ -13,6 +13,7 @@ import {
 } from './lib/backend-gate.ts';
 import { bless } from './commands/bless.ts';
 import { create } from './commands/create.ts';
+import { templates } from './commands/templates.ts';
 import { generate } from './commands/generate.ts';
 import { enable } from './commands/enable.ts';
 import { disable } from './commands/disable.ts';
@@ -53,6 +54,7 @@ import { workflows } from './commands/workflows.ts';
 const NO_BACKEND_COMMMANDS = new Set([
 	'bless',
 	'create',
+	'templates',
 	'signup',
 	'login',
 	'logout',
@@ -199,6 +201,7 @@ function getCommandPath(cmd: Command): string {
 for (const command of [
 	bless,
 	create,
+	templates,
 	generate,
 	enable,
 	disable,
