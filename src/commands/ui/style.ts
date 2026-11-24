@@ -6,6 +6,7 @@ import { runCommand } from '../../lib/run.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
 import { assertShadcn } from '../../lib/require-ui.ts';
 import { reportResult } from '../../lib/result-report.ts';
+import { taskLog, type TaskLog } from '../../lib/task-log.ts';
 import { STYLES } from '../../lib/ui-add.ts';
 import { uiStyleReport } from '../../lib/ui-style.ts';
 
@@ -25,7 +26,7 @@ export const style = new Command('style')
 			// that is confirmed does the task log take over the output.
 			const spinner = p.spinner();
 			spinner.start(`Reading the ${name} registry...`);
-			let log: ReturnType<typeof p.taskLog> | undefined;
+			let log: TaskLog | undefined;
 			let outcome: SwitchStyleResult;
 			try {
 				outcome = await switchStyle({
@@ -48,7 +49,7 @@ export const style = new Command('style')
 							const ok = await p.confirm({ message: `Switch to ${name}?`, initialValue: false });
 							if (p.isCancel(ok) || !ok) return false;
 						}
-						log = p.taskLog({ title: `Switching to the ${name} style...` });
+						log = taskLog({ title: `Switching to the ${name} style...` });
 						return true;
 					}
 				});
