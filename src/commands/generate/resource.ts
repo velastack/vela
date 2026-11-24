@@ -4,7 +4,7 @@ import { runCommand } from '../../lib/run.ts';
 import { runPattern } from '../../lib/pattern-runner.ts';
 
 export const resource = new Command('resource')
-	.description('generate a resource (model + CRUD pages)')
+	.description('generate a resource (collection, migration and zod schema; no pages)')
 	.argument('<model>', 'model name')
 	.argument('[fields...]', 'field definitions')
 	.allowExcessArguments(true)
@@ -20,8 +20,8 @@ export const resource = new Command('resource')
 						summary: `Created ${model} resource.`,
 						nextSteps: [
 							`Run \`vela fixtures generate\` to create some ${model} records for development.`,
-							`Run \`vela dev\` and visit /${model} to see the CRUD pages.`,
-							`Customize the UI in src/routes/${model}/+page.svelte.`
+							`Edit field types and validation in src/lib/schemas/${model}.ts.`,
+							`A resource has no pages. Run \`vela generate scaffold ${model}\` with the same fields to add list, detail and form pages.`
 						],
 						task: {
 							title: 'Generating resource',

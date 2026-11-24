@@ -9,6 +9,8 @@ vi.mock('../lib/pattern-runner.ts', () => ({
 // backend gate) run: these only check which pattern each flag selects.
 const { auth } = await import('./enable/auth.ts');
 const { workflow } = await import('./generate/workflow.ts');
+const { resource } = await import('./generate/resource.ts');
+const { migration } = await import('./generate/migration.ts');
 
 describe('pattern flags', () => {
 	beforeEach(() => {
@@ -33,5 +35,22 @@ describe('pattern flags', () => {
 		await workflow.parseAsync(['nightly', '--cron', '0 3 * * *'], { from: 'user' });
 		expect(runPattern.mock.calls[0][0]).toBe('generate-workflow');
 		expect(runPattern.mock.calls[0][1]).toEqual(['nightly', '--cron', '0 3 * * *']);
+	});
+
+	test('generate resource promises no pages and points at scaffold', async () => {
+		expect(resource.description()).not.toMatch(/CRUD pages/);
+		await resource.parseAsync(['bracket', 'name:text'], { from: 'user' });
+		const steps: string[] = runPattern.mock.calls[0][3].nextSteps;
+		expect(steps.join('\n')).not.toMatch(/\+page\.svelte|visit \//);
+		expect(steps.join('\n')).toContain('vela generate scaffold bracket');
+	});
+
+	test('generate migration says the change is applied and names the schema', async () => {
+		await migration.parseAsync(['songs', 'add', 'year:number'], { from: 'user' });
+		const steps: string[] = runPattern.mock.calls[0][3].nextSteps;
+		expect(steps.join('\n')).toContain('already applied to the local database');
+		expect(steps.join('\n')).toContain('src/lib/schemas/');
+		expect(steps.join('\n')).toContain('vela generate schema <model>');
+		expect(steps.join('\n')).not.toMatch(/^Run `vela migrate up`/m);
 	});
 });
