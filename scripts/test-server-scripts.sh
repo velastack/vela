@@ -269,6 +269,18 @@ else
 	bad "install failure: 137 names the out-of-memory killer, the memory and the way out" "$killed"
 fi
 
+# What `vela status` reports as runtimeDependencies, and `vela provision` reads
+# to name the apps a new Node major leaves needing a redeploy.
+rel="$SCRATCH/rel"; mkdir -p "$rel/empty" "$rel/bookkeeping" "$rel/full" "$rel/linked" "$rel/none" "$rel/deps/node_modules/argon2"
+mkdir -p "$rel/empty/node_modules" "$rel/bookkeeping/node_modules" "$rel/full/node_modules/argon2"
+: > "$rel/bookkeeping/node_modules/.package-lock.json"
+ln -s "$rel/deps/node_modules" "$rel/linked/node_modules"
+expect_die "release modules: an empty node_modules has none" release_has_modules "$rel/empty"
+expect_die "release modules: npm's bookkeeping alone is none" release_has_modules "$rel/bookkeeping"
+expect_die "release modules: no node_modules at all is none" release_has_modules "$rel/none"
+expect_ok "release modules: an installed package is some" release_has_modules "$rel/full"
+expect_ok "release modules: seen through the link into deps/" release_has_modules "$rel/linked"
+
 # --------------------------------------------------------------------- swap
 #
 # `vela provision` adds a swapfile to a server with under 2 GB of memory and no

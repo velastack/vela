@@ -446,6 +446,17 @@ fstab_add_swap() {
 	printf '%s none swap sw 0 0\n' "$file" >> "$fstab"
 }
 
+# Whether a release has anything installed in its node_modules. An app with no
+# runtime dependencies gets an empty one (see install_deps in apply.sh), and
+# such an app has nothing compiled for a particular Node: it does not need a
+# redeploy when `vela provision` moves the server to a new major. npm's own
+# bookkeeping (`.package-lock.json`) does not count.
+#
+# usage: release_has_modules <release-dir>
+release_has_modules() {
+	[ -n "$(find "$1/node_modules/" -mindepth 1 -maxdepth 1 ! -name '.*' -print -quit 2>/dev/null)" ]
+}
+
 # How many migrations the current release has that the target release does not.
 # PocketBase reverts by count, so this is what `migrate down` needs.
 migrations_ahead() {

@@ -166,8 +166,11 @@ ensure_packages build-essential python3
 # Moving a major leaves the hosted apps on dependencies compiled for the old
 # one. Their running processes keep working, but each needs a redeploy (which
 # installs afresh for the new ABI, see apply.sh) before it next restarts.
+# The major Node was moved up from, when this run moved it: the CLI then names
+# the apps to redeploy.
+NODE_UPGRADED_FROM=""
 install_node() {
-	local current=0 line=$NODE_MAJOR
+	local current=0 line=$NODE_MAJOR previous
 	if command -v node >/dev/null 2>&1; then
 		current=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
 	fi
@@ -178,7 +181,7 @@ install_node() {
 	if [ "$current" -gt 0 ] 2>/dev/null; then
 		log "upgrading Node.js $(node -v) to the latest $line.x - builds use $line"
 		if [ "$current" -lt "$line" ]; then
-			log "redeploy every app on this server now: their dependencies were installed for Node $current"
+			log "apps here whose dependencies were installed for Node $current need a redeploy - they are listed at the end"
 		fi
 	else
 		log "installing Node.js $line"
@@ -198,12 +201,14 @@ install_node() {
 	# `install` upgrades a nodejs that is already there to the candidate the
 	# setup script just made available.
 	apt_get install -y -qq nodejs >/dev/null
+	previous=$current
 	# A held package or another repository pinned above nodesource can leave the
 	# old version in place with apt reporting success. Caught here, it names the
 	# problem; caught by the next deploy, it would only name the symptom.
 	current=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
 	{ [ "$current" -ge "$line" ] 2>/dev/null && node_at_least 22 22; } \
 		|| die "Node.js is $(node -v 2>/dev/null || echo 'missing') after installing $line.x - check for a held nodejs package or another repository pinned above nodesource"
+	if [ "$previous" -gt 0 ] && [ "$previous" -lt "$current" ]; then NODE_UPGRADED_FROM=$previous; fi
 }
 install_node
 
@@ -303,4 +308,6 @@ emit_result \
 	--arg pocketbase "$PB_VERSION" \
 	--arg memory "$(meminfo_mb MemTotal)" \
 	--arg swap "$(meminfo_mb SwapTotal)" \
-	'{node: $node, caddy: $caddy, pocketbase: $pocketbase, memoryMb: $memory, swapMb: $swap}'
+	--arg from "$NODE_UPGRADED_FROM" \
+	'{node: $node, caddy: $caddy, pocketbase: $pocketbase, memoryMb: $memory, swapMb: $swap,
+	  nodeUpgradedFrom: $from}'
