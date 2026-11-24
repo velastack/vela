@@ -24,8 +24,31 @@ const OptionsSchema = v.object({
 	// name like `lts` would never count as reached.
 	nodeMajor: v.optional(
 		v.pipe(v.string(), v.regex(/^\d+$/, 'must be a major version number, like 26'))
-	)
+	),
+	// commander's `--no-swap`: true unless the flag is given.
+	swap: v.optional(v.boolean())
 });
+
+/** What provision.sh is run with. */
+export function provisionArgs(
+	options: { nodeMajor?: string; swap?: boolean },
+	pbVersion: string
+): string[] {
+	return [
+		'--pb-version',
+		pbVersion,
+		'--node-major',
+		options.nodeMajor ?? NODE_MAJOR,
+		'--cli-version',
+		pkg.version,
+		...(options.swap === false ? ['--no-swap'] : [])
+	];
+}
+
+/** `Swap` in megabytes for the summary, or nothing when the server has none. */
+function megabytes(value: string | undefined): string | undefined {
+	return value && /^\d+$/.test(value) && value !== '0' ? `${value} MB` : undefined;
+}
 
 export const provision = addSshOptions(
 	new Command('provision')
@@ -39,6 +62,10 @@ export const provision = addSshOptions(
 		'--node-major <version>',
 		'Node.js major version to bring the server up to (match the one you build with)',
 		NODE_MAJOR
+	)
+	.option(
+		'--no-swap',
+		'do not add a swapfile (one is added when the server has under 2 GB of memory and no swap)'
 	)
 	.action((target: string, raw: unknown) =>
 		runCommand(async () => {
@@ -66,23 +93,21 @@ export const provision = addSshOptions(
 					node: string;
 					caddy: string;
 					pocketbase: string;
+					memoryMb?: string;
+					swapMb?: string;
 				}>(session, 'provision.sh', {
-					args: [
-						'--pb-version',
-						pbVersion,
-						'--node-major',
-						options.nodeMajor ?? NODE_MAJOR,
-						'--cli-version',
-						pkg.version
-					],
+					args: provisionArgs(options, pbVersion),
 					stream: true
 				});
 
+				const memory = megabytes(result?.memoryMb);
+				const swap = megabytes(result?.swapMb);
 				p.log.success(
 					`${target} is ready.\n\n` +
 						`  Node        ${result?.node ?? 'installed'}\n` +
 						`  Caddy       ${result?.caddy ?? 'installed'}\n` +
-						`  PocketBase  ${result?.pocketbase ?? pbVersion}`
+						`  PocketBase  ${result?.pocketbase ?? pbVersion}` +
+						(memory ? `\n  Memory      ${memory}${swap ? ` + ${swap} swap` : ', no swap'}` : '')
 				);
 			});
 

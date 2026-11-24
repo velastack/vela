@@ -269,6 +269,42 @@ else
 	bad "install failure: 137 names the out-of-memory killer, the memory and the way out" "$killed"
 fi
 
+# --------------------------------------------------------------------- swap
+#
+# `vela provision` adds a swapfile to a server with under 2 GB of memory and no
+# swap, sized by what the disk can spare. The numbers are kilobytes, as
+# /proc/meminfo and `df -k` give them.
+
+gb=$((1024 * 1024))
+expect_lines "swap: 458 MB, no swap, plenty of disk gets 2 GB" '2048' swap_plan 468356 0 $((20 * gb))
+expect_lines "swap: a nominal 2 GB server reports less, and gets it too" '2048' swap_plan 2014300 0 $((40 * gb))
+expect_lines "swap: under 8 GB free gets 1 GB" '1024' swap_plan 468356 0 $((6 * gb))
+expect_lines "swap: exactly 8 GB free gets 2 GB" '2048' swap_plan 468356 0 $((8 * gb))
+expect_lines "swap: under 4 GB free gets none, with a reason" 'disk' swap_plan 468356 0 $((3 * gb))
+expect_lines "swap: exactly 4 GB free gets 1 GB" '1024' swap_plan 468356 0 $((4 * gb))
+expect_lines "swap: 2 GB of memory needs none" 'none' swap_plan $((2 * gb)) 0 $((20 * gb))
+expect_lines "swap: 8 GB of memory needs none" 'none' swap_plan $((8 * gb)) 0 $((20 * gb))
+expect_lines "swap: swap that is already on is left alone" 'none' swap_plan 468356 524284 $((20 * gb))
+expect_lines "swap: an existing swap outranks a full disk" 'none' swap_plan 468356 524284 $((1 * gb))
+expect_lines "swap: numbers that cannot be read change nothing" 'none' swap_plan '' 0 $((20 * gb))
+expect_lines "swap: an unreadable disk changes nothing" 'none' swap_plan 468356 0 ''
+
+fstab="$SCRATCH/fstab"
+printf 'LABEL=cloudimg-rootfs / ext4 discard,errors=remount-ro 0 1' > "$fstab"
+fstab_add_swap /swapfile "$fstab"
+fstab_add_swap /swapfile "$fstab"
+[ "$(cat "$fstab")" = "$(printf 'LABEL=cloudimg-rootfs / ext4 discard,errors=remount-ro 0 1\n/swapfile none swap sw 0 0')" ] \
+	&& ok "swap: the fstab line is added once, on a line of its own" \
+	|| bad "swap: the fstab line is added once, on a line of its own" "$(cat "$fstab")"
+fstab_add_swap /swapfile "$SCRATCH/fstab-new"
+[ "$(cat "$SCRATCH/fstab-new")" = '/swapfile none swap sw 0 0' ] \
+	&& ok "swap: a missing fstab is created" || bad "swap: a missing fstab is created"
+printf '/swapfile2 none swap sw 0 0\n' > "$SCRATCH/fstab-other"
+fstab_add_swap /swapfile "$SCRATCH/fstab-other"
+[ "$(grep -c . "$SCRATCH/fstab-other")" = 2 ] \
+	&& ok "swap: another swapfile's line is not taken for this one" \
+	|| bad "swap: another swapfile's line is not taken for this one" "$(cat "$SCRATCH/fstab-other")"
+
 # ------------------------------------------------------------- health gate
 #
 # A one-shot HTTP server that answers every request with one status code.

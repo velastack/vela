@@ -17,12 +17,14 @@ PB_VERSION=""
 NODE_MAJOR=26
 CLI_VERSION="unknown"
 LAYOUT_VERSION=1
+SWAP=1
 
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--pb-version) PB_VERSION=$2; shift 2 ;;
 		--node-major) NODE_MAJOR=$2; shift 2 ;;
 		--cli-version) CLI_VERSION=$2; shift 2 ;;
+		--no-swap) SWAP=0; shift ;;
 		*) die "unknown argument: $1" ;;
 	esac
 done
@@ -49,6 +51,61 @@ if command -v cloud-init >/dev/null 2>&1; then
 	log "waiting for cloud-init to finish"
 	cloud-init status --wait >/dev/null 2>&1 || true
 fi
+
+# A small server gets a swapfile before anything is installed on it: the
+# installs below, and every deploy after them, are what it is for (see
+# swap_plan in lib.sh). Whatever goes wrong here is not a reason to fail the
+# provision - the server is no worse off than it was. Inside a container, and
+# wherever else the kernel will not take a swapfile, nothing is done or said.
+SWAPFILE=/swapfile
+in_container() {
+	if command -v systemd-detect-virt >/dev/null 2>&1; then
+		systemd-detect-virt --container --quiet 2>/dev/null
+		return
+	fi
+	[ -f /.dockerenv ] || [ -f /run/.containerenv ]
+}
+ensure_swap() {
+	local mem swap free plan
+	[ "$SWAP" = "1" ] || return 0
+	[ -r /proc/meminfo ] || return 0
+	command -v swapon >/dev/null 2>&1 || return 0
+	command -v mkswap >/dev/null 2>&1 || return 0
+	if in_container; then return 0; fi
+	mem=$(awk '$1 == "MemTotal:" { print $2; exit }' /proc/meminfo)
+	swap=$(awk '$1 == "SwapTotal:" { print $2; exit }' /proc/meminfo)
+	free=$(df -Pk "$(dirname "$SWAPFILE")" 2>/dev/null | awk 'NR == 2 { print $4 }' || true)
+	plan=$(swap_plan "$mem" "$swap" "$free")
+	case "$plan" in
+		none) return 0 ;;
+		disk)
+			log "not adding swap: this server has $((mem / 1024)) MB of memory and no swap, but only $((free / 1024)) MB of disk is free"
+			return 0
+			;;
+	esac
+	if [ -e "$SWAPFILE" ]; then
+		log "not adding swap: $SWAPFILE exists but is not in use"
+		return 0
+	fi
+	# Created empty and private first, so its contents are never readable.
+	if ! (umask 077 && : > "$SWAPFILE") 2>/dev/null; then return 0; fi
+	chmod 600 "$SWAPFILE"
+	# A file with holes is refused by swapon on some filesystems; where
+	# fallocate cannot allocate one for real, write it out.
+	if ! fallocate -l "${plan}M" "$SWAPFILE" 2>/dev/null \
+		&& ! dd if=/dev/zero of="$SWAPFILE" bs=1M count="$plan" status=none 2>/dev/null; then
+		rm -f "$SWAPFILE"
+		log "could not create $SWAPFILE - carrying on without swap"
+		return 0
+	fi
+	if ! mkswap "$SWAPFILE" >/dev/null 2>&1 || ! swapon "$SWAPFILE" 2>/dev/null; then
+		rm -f "$SWAPFILE"
+		return 0
+	fi
+	log "added $plan MB of swap at $SWAPFILE - this server has $((mem / 1024)) MB of memory and had none"
+	fstab_add_swap "$SWAPFILE" || log "swap is on, but /etc/fstab could not be updated - it will be off after a reboot"
+}
+ensure_swap
 
 APT_LOCK_TIMEOUT=${APT_LOCK_TIMEOUT:-600}
 # Block until no other process holds an apt/dpkg lock, up to APT_LOCK_TIMEOUT
@@ -244,4 +301,6 @@ emit_result \
 	--arg node "$(node -v)" \
 	--arg caddy "$(caddy version | head -1 | awk '{print $1}')" \
 	--arg pocketbase "$PB_VERSION" \
-	'{node: $node, caddy: $caddy, pocketbase: $pocketbase}'
+	--arg memory "$(meminfo_mb MemTotal)" \
+	--arg swap "$(meminfo_mb SwapTotal)" \
+	'{node: $node, caddy: $caddy, pocketbase: $pocketbase, memoryMb: $memory, swapMb: $swap}'

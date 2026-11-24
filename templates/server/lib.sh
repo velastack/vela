@@ -403,6 +403,49 @@ install_failure_message() {
 		" Add swap ('vela provision' now creates a swapfile on small servers) or move to a larger server, then deploy again."
 }
 
+# Whether `vela provision` should add a swapfile, and how big.
+#
+# A server with less than 2 GB of memory and no swap has no slack at all: one
+# `npm install` or one build of a native module beside the running apps is
+# enough for the kernel to start killing processes, and it does not pick only
+# the newcomer. Swap that is already there, of any size and kind, is somebody's
+# decision and is left alone. The file must not be what fills the disk either.
+#
+# Prints one of:
+#   none  enough memory, or swap is already active
+#   disk  wanted, but under 4 GB is free where the file would go
+#   1024  megabytes to create (under 8 GB free)
+#   2048  megabytes to create
+#
+# usage: swap_plan <mem-total-kb> <swap-total-kb> <free-disk-kb>
+swap_plan() {
+	local mem=$1 swap=$2 free=$3
+	if ! [[ $mem =~ ^[0-9]+$ && $swap =~ ^[0-9]+$ && $free =~ ^[0-9]+$ ]]; then
+		printf 'none'
+	elif [ "$mem" -ge $((2 * 1024 * 1024)) ] || [ "$swap" -gt 0 ]; then
+		printf 'none'
+	elif [ "$free" -lt $((4 * 1024 * 1024)) ]; then
+		printf 'disk'
+	elif [ "$free" -lt $((8 * 1024 * 1024)) ]; then
+		printf '1024'
+	else
+		printf '2048'
+	fi
+}
+
+# Have a swapfile turned on at boot, adding its line to fstab once.
+#
+# usage: fstab_add_swap <swapfile> [fstab]
+fstab_add_swap() {
+	local file=$1 fstab=${2:-/etc/fstab}
+	if [ -f "$fstab" ] && awk -v file="$file" '$1 == file { found = 1 } END { exit !found }' "$fstab"; then
+		return 0
+	fi
+	# A last line without its newline would otherwise swallow this one.
+	if [ -s "$fstab" ] && [ -n "$(tail -c1 "$fstab")" ]; then printf '\n' >> "$fstab"; fi
+	printf '%s none swap sw 0 0\n' "$file" >> "$fstab"
+}
+
 # How many migrations the current release has that the target release does not.
 # PocketBase reverts by count, so this is what `migrate down` needs.
 migrations_ahead() {
