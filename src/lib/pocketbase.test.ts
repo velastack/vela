@@ -2,7 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { createSuperuser, pocketbaseBinaryPath, upsertSuperuser } from './pocketbase.ts';
+import {
+	createSuperuser,
+	exposePocketbaseBinary,
+	pocketbaseBinaryPath,
+	upsertSuperuser
+} from './pocketbase.ts';
 
 describe('the PocketBase binary', () => {
 	test("is resolved from vela's own dependency, as an absolute path to a file", () => {
@@ -16,6 +21,28 @@ describe('the PocketBase binary', () => {
 		expect(() => pocketbaseBinaryPath('plan9', 'mips')).toThrow(
 			/PocketBase binary for plan9-mips is not installed[\s\S]*Reinstall/
 		);
+	});
+});
+
+describe('VELA_POCKETBASE_BIN, which patterns spawn', () => {
+	test('is set to the resolved binary', () => {
+		const env: NodeJS.ProcessEnv = {};
+		exposePocketbaseBinary(env);
+		expect(env.VELA_POCKETBASE_BIN).toBe(pocketbaseBinaryPath());
+	});
+
+	test('is left alone when the user set it', () => {
+		const env: NodeJS.ProcessEnv = { VELA_POCKETBASE_BIN: '/opt/pocketbase/pocketbase' };
+		exposePocketbaseBinary(env);
+		expect(env.VELA_POCKETBASE_BIN).toBe('/opt/pocketbase/pocketbase');
+	});
+
+	test('stays unset when there is no binary to point at', () => {
+		const env: NodeJS.ProcessEnv = {};
+		exposePocketbaseBinary(env, () => {
+			throw new Error('not installed');
+		});
+		expect('VELA_POCKETBASE_BIN' in env).toBe(false);
 	});
 });
 

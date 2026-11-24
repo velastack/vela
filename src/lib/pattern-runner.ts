@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as p from '@clack/prompts';
 import { bySlug, type Pattern, type Slug } from '@velastack/patterns';
-import { withPocketbase } from './pocketbase.ts';
+import { exposePocketbaseBinary, withPocketbase } from './pocketbase.ts';
 import { detectWorkspace } from './workspace.ts';
 import { reportResult, type ReportFailure } from './result-report.ts';
 import { checkProviderInput } from './providers.ts';
@@ -122,6 +122,9 @@ export async function runPattern(
 	const migrationsBefore = listMigrations(workspaceRootDir);
 
 	const log = p.taskLog({ title: report.task.title });
+
+	// Patterns that run PocketBase (to write a migration, say) spawn vela's own.
+	exposePocketbaseBinary();
 
 	let result;
 	try {

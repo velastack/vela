@@ -42,6 +42,27 @@ export function pocketbaseBinaryPath(
 }
 
 /**
+ * Tell the code vela runs in-process where that binary is.
+ *
+ * `@velastack/patterns` reads `VELA_POCKETBASE_BIN` and spawns it directly
+ * rather than going through `npx pocketbase-server`, for the reasons above. A
+ * value that is already set is the user's and is kept. A binary that cannot be
+ * found leaves the variable unset: most patterns never start PocketBase, and
+ * the ones that do then report it themselves.
+ */
+export function exposePocketbaseBinary(
+	env: NodeJS.ProcessEnv = process.env,
+	resolve: () => string = pocketbaseBinaryPath
+): void {
+	if (env.VELA_POCKETBASE_BIN) return;
+	try {
+		env.VELA_POCKETBASE_BIN = resolve();
+	} catch {
+		// Left unset.
+	}
+}
+
+/**
  * The first free port at or after `start`, probed the way vite does before it
  * listens. Used to know the dev server's port before anything that needs it
  * (PocketBase's `ORIGIN`) is started, by then passing the answer to vite with
