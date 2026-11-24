@@ -11,6 +11,8 @@ const { auth } = await import('./enable/auth.ts');
 const { workflow } = await import('./generate/workflow.ts');
 const { resource } = await import('./generate/resource.ts');
 const { migration } = await import('./generate/migration.ts');
+const { scaffold } = await import('./generate/scaffold.ts');
+const { schema } = await import('./generate/schema.ts');
 
 describe('pattern flags', () => {
 	beforeEach(() => {
@@ -52,5 +54,29 @@ describe('pattern flags', () => {
 		expect(steps.join('\n')).toContain('src/lib/schemas/');
 		expect(steps.join('\n')).toContain('vela generate schema <model>');
 		expect(steps.join('\n')).not.toMatch(/^Run `vela migrate up`/m);
+	});
+
+	test('generate resource --rules reaches the pattern as input.rules', async () => {
+		await resource.parseAsync(['bracket', 'name:text', '--rules', 'superuser'], { from: 'user' });
+		expect(runPattern.mock.calls[0][1]).toEqual(['bracket', 'name:text']);
+		expect(runPattern.mock.calls[0][2]).toEqual({ rules: 'superuser' });
+	});
+
+	test('without --rules the pattern keeps its own default', async () => {
+		await resource.parseAsync(['bracket', 'name:text'], { from: 'user' });
+		expect(runPattern.mock.calls[0][2]).toEqual({ rules: undefined });
+	});
+
+	test.each([
+		['resource', resource],
+		['scaffold', scaffold]
+	])('generate %s lists the --rules choices in help', (_name, command) => {
+		const option = command.options.find((o) => o.long === '--rules')!;
+		expect(option.argChoices).toEqual(['auth', 'owner', 'superuser']);
+		expect(option.description).toMatch(/signed-in user.*owner.*server only/);
+	});
+
+	test('generate schema creates no collection, so it takes no --rules', () => {
+		expect(schema.options.find((o) => o.long === '--rules')).toBeUndefined();
 	});
 });

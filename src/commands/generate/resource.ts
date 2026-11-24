@@ -2,20 +2,22 @@ import { Command } from 'commander';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { runPattern } from '../../lib/pattern-runner.ts';
+import { rulesOption, type Rules } from '../../lib/rules-option.ts';
 
 export const resource = new Command('resource')
 	.description('generate a resource (collection, migration and zod schema; no pages)')
 	.argument('<model>', 'model name')
 	.argument('[fields...]', 'field definitions')
+	.addOption(rulesOption())
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
-	.action((model: string, fields: string[]) =>
+	.action((model: string, fields: string[], options: { rules?: Rules }) =>
 		runCommand(
 			() =>
 				runPattern(
 					'generate-resource',
 					[model, ...fields],
-					{},
+					{ rules: options.rules },
 					{
 						summary: `Created ${model} resource.`,
 						nextSteps: [
