@@ -214,6 +214,61 @@ state_merge withflag '{"webPort": 4103, "pbPort": 8103, "backend": true}'
 expect_ok "require_backend passes with a database" require_backend withdb
 expect_die "require_backend refuses without one" require_backend nodb
 
+# ------------------------------------------------------- dependency install
+#
+# apply.sh skips npm altogether for a release that asks for nothing at runtime,
+# drops devDependencies from the manifest it installs from when there is no
+# package-lock.json, and names the out-of-memory killer when npm dies of it.
+
+pkgs="$SCRATCH/pkgs"; mkdir -p "$pkgs"
+pkg() { printf '%s' "$2" > "$pkgs/$1.json"; printf '%s' "$pkgs/$1.json"; }
+expect_ok "runtime deps: devDependencies alone are none" package_without_runtime_deps \
+	"$(pkg dev-only '{"scripts":{"prepare":"svelte-kit sync"},"devDependencies":{"vite":"^8.0.0"}}')"
+expect_ok "runtime deps: empty objects are none" package_without_runtime_deps \
+	"$(pkg empty '{"dependencies":{},"optionalDependencies":{},"devDependencies":{"vite":"^8.0.0"}}')"
+expect_ok "runtime deps: a bare package.json has none" package_without_runtime_deps "$(pkg bare '{}')"
+expect_die "runtime deps: a dependency is one" package_without_runtime_deps \
+	"$(pkg dep '{"dependencies":{"argon2":"^0.44.0"}}')"
+expect_die "runtime deps: an optional dependency is one" package_without_runtime_deps \
+	"$(pkg optional '{"optionalDependencies":{"fsevents":"^2.3.3"}}')"
+expect_die "runtime deps: a peer dependency is one" package_without_runtime_deps \
+	"$(pkg peer '{"peerDependencies":{"svelte":"^5.0.0"}}')"
+expect_die "runtime deps: workspaces are left to npm" package_without_runtime_deps \
+	"$(pkg workspaces '{"workspaces":["packages/*"]}')"
+expect_die "runtime deps: an unreadable package.json is left to npm" package_without_runtime_deps \
+	"$(pkg broken '{not json')"
+expect_die "runtime deps: a missing package.json is left to npm" package_without_runtime_deps "$pkgs/none.json"
+
+manifest='{"scripts":{"prepare":"svelte-kit sync","start":"node build"},"dependencies":{"argon2":"^0.44.0"},"devDependencies":{"vite":"^8.0.0"}}'
+manifest_after() { prepare_install_manifest "$1" "$2" && jq -c . "$1"; }
+expect_lines "install manifest: without a lockfile, prepare and devDependencies go" \
+	'{"scripts":{"start":"node build"},"dependencies":{"argon2":"^0.44.0"}}' \
+	manifest_after "$(pkg no-lock "$manifest")" 1
+expect_lines "install manifest: with a lockfile, only prepare goes" \
+	'{"scripts":{"start":"node build"},"dependencies":{"argon2":"^0.44.0"},"devDependencies":{"vite":"^8.0.0"}}' \
+	manifest_after "$(pkg with-lock "$manifest")" 0
+untouched=$(pkg untouched '{"dependencies":{"argon2":"^0.44.0"}}')
+prepare_install_manifest "$untouched" 1
+[ "$(cat "$untouched")" = '{"dependencies":{"argon2":"^0.44.0"}}' ] \
+	&& ok "install manifest: nothing to drop leaves the file as it was" \
+	|| bad "install manifest: nothing to drop leaves the file as it was" "$(cat "$untouched")"
+expect_die "install manifest: an unreadable package.json fails" prepare_install_manifest "$pkgs/broken.json" 1
+
+printf 'MemTotal:         468356 kB\nMemFree:           12000 kB\nSwapTotal:             0 kB\n' > "$SCRATCH/meminfo"
+expect_lines "meminfo: a field in megabytes" '457' meminfo_mb MemTotal "$SCRATCH/meminfo"
+expect_lines "meminfo: no swap is 0" '0' meminfo_mb SwapTotal "$SCRATCH/meminfo"
+expect_lines "meminfo: an unknown field is ?" '?' meminfo_mb Nope "$SCRATCH/meminfo"
+expect_lines "meminfo: an unreadable file is ?" '?' meminfo_mb MemTotal "$SCRATCH/no-meminfo"
+expect_lines "install failure: any other status keeps the plain message, with the code" \
+	'dependency install failed (exit 1)' install_failure_message 1 "$SCRATCH/meminfo"
+killed=$(install_failure_message 137 "$SCRATCH/meminfo")
+if grep -q 'npm was killed (exit 137)' <<<"$killed" && grep -q 'out-of-memory killer' <<<"$killed" \
+	&& grep -q '457 MB of memory and 0 MB of swap' <<<"$killed" && grep -q 'vela provision' <<<"$killed"; then
+	ok "install failure: 137 names the out-of-memory killer, the memory and the way out"
+else
+	bad "install failure: 137 names the out-of-memory killer, the memory and the way out" "$killed"
+fi
+
 # ------------------------------------------------------------- health gate
 #
 # A one-shot HTTP server that answers every request with one status code.

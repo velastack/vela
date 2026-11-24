@@ -324,6 +324,85 @@ node_at_least() {
 	[ "$major" -eq "$want_major" ] && [ "$minor" -ge "$want_minor" ]
 }
 
+# Whether a release's package.json asks for nothing at runtime: it parses, and
+# has no `dependencies`, `optionalDependencies` or `peerDependencies` (npm
+# installs a project's peers too) and no `workspaces`. An empty object counts
+# as none. A file that cannot be read answers no, so the install runs and
+# reports the problem itself.
+#
+# A scaffolded vela app is like this: its build is bundled and everything it
+# needs to produce one is a devDependency, which the server never installs.
+#
+# usage: package_without_runtime_deps <package.json>
+package_without_runtime_deps() {
+	node -e '
+		const pkg = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+		const some = (value) =>
+			value != null && typeof value === "object" && Object.keys(value).length > 0;
+		const wanted =
+			some(pkg.dependencies) || some(pkg.optionalDependencies) ||
+			some(pkg.peerDependencies) || pkg.workspaces != null;
+		process.exit(wanted ? 1 : 0);
+	' "$1" 2>/dev/null
+}
+
+# Rewrite the copy of package.json that the server installs from.
+#
+# `prepare` always goes: it is a development hook (`svelte-kit sync`, husky)
+# whose tools are devDependencies, which are not installed here, so it can only
+# print "svelte-kit: not found". Dependencies' own install scripts still run.
+#
+# `devDependencies` go when asked, which is when there is no package-lock.json
+# to replay: `npm install --omit=dev` resolves the whole development tree
+# before leaving it out, and on a small server that is what runs it out of
+# memory. With a lockfile the file has to stay as the lockfile describes it.
+#
+# usage: prepare_install_manifest <package.json> <drop-dev: 0|1>
+prepare_install_manifest() {
+	node -e '
+		const fs = require("fs");
+		const [file, dropDev] = process.argv.slice(1);
+		const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+		let changed = false;
+		if (pkg.scripts && pkg.scripts.prepare) {
+			delete pkg.scripts.prepare;
+			changed = true;
+		}
+		if (dropDev === "1" && pkg.devDependencies) {
+			delete pkg.devDependencies;
+			changed = true;
+		}
+		if (changed) fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+	' "$1" "${2:-0}"
+}
+
+# One field of /proc/meminfo in whole megabytes, or `?` when it cannot be read.
+#
+# usage: meminfo_mb <field> [meminfo-file]
+meminfo_mb() {
+	local kb
+	kb=$(awk -v field="$1:" '$1 == field { print $2; exit }' "${2:-/proc/meminfo}" 2>/dev/null)
+	if [[ $kb =~ ^[0-9]+$ ]]; then printf '%s' $((kb / 1024)); else printf '?'; fi
+}
+
+# What to say when the dependency install exits non-zero. 137 is 128 + SIGKILL,
+# and on a server nobody is logged in to, the sender is the kernel's
+# out-of-memory killer; the shell's own report of that is the single word
+# "Killed".
+#
+# usage: install_failure_message <exit-status> [meminfo-file]
+install_failure_message() {
+	local status=$1 meminfo=${2:-/proc/meminfo}
+	if [ "$status" != 137 ]; then
+		printf 'dependency install failed (exit %s)' "$status"
+		return 0
+	fi
+	printf '%s' \
+		"dependency install failed: npm was killed (exit 137), most likely by the kernel's out-of-memory killer." \
+		" This server has $(meminfo_mb MemTotal "$meminfo") MB of memory and $(meminfo_mb SwapTotal "$meminfo") MB of swap." \
+		" Add swap ('vela provision' now creates a swapfile on small servers) or move to a larger server, then deploy again."
+}
+
 # How many migrations the current release has that the target release does not.
 # PocketBase reverts by count, so this is what `migrate down` needs.
 migrations_ahead() {
