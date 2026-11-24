@@ -10,6 +10,7 @@ import { i18n } from './enable/i18n.ts';
 import { teams } from './enable/teams.ts';
 import { payments } from './enable/payments.ts';
 import { ecommerce } from './enable/ecommerce.ts';
+import { email } from './enable/email.ts';
 import { subscriptions } from './enable/subscriptions.ts';
 import { orders } from './enable/orders.ts';
 import { notifications } from './enable/notifications.ts';
@@ -34,6 +35,7 @@ export const enable = new Command('enable')
 	.addCommand(teams)
 	.addCommand(payments)
 	.addCommand(ecommerce)
+	.addCommand(email)
 	.addCommand(subscriptions)
 	.addCommand(orders)
 	.addCommand(notifications)

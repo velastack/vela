@@ -84,6 +84,10 @@ const NO_BACKEND_COMMMANDS = new Set([
 	// its `requires` says, so a static project is refused there instead.
 	'enable ecommerce',
 	'disable ecommerce',
+	// Writes PB_SMTP_* to `.env` or to a target's environment; the database is
+	// never opened, and the command says so itself when there is no backend.
+	'enable email',
+	'disable email',
 	// Only wires hooks, reroute and the root layout; no collections involved.
 	'enable content-negotiation',
 	'disable content-negotiation',

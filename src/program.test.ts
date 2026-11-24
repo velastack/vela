@@ -63,6 +63,7 @@ const EXPECTED_ENABLE_SUBCOMMANDS = [
 	'teams',
 	'payments',
 	'ecommerce',
+	'email',
 	'subscriptions',
 	'notifications',
 	'og',
@@ -85,6 +86,7 @@ const EXPECTED_DISABLE_SUBCOMMANDS = [
 	'teams',
 	'payments',
 	'ecommerce',
+	'email',
 	'subscriptions',
 	'whatsapp'
 ];
