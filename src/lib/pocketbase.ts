@@ -5,10 +5,41 @@ import process from 'node:process';
 import { createRequire } from 'node:module';
 import { spawn, type ChildProcess } from 'node:child_process';
 import PocketBase from 'pocketbase';
-import { detect } from 'package-manager-detector';
-import { resolveCommand } from 'package-manager-detector/commands';
 import { x } from 'tinyexec';
 import { DATA_DIR, MIGRATIONS_DIR } from './constants.ts';
+
+/**
+ * The PocketBase executable that ships with vela, as an absolute path.
+ *
+ * `pocketbase-server` is vela's dependency, not the project's, so this is the
+ * only place it can be found reliably: `npx pocketbase-server` works when the
+ * project's node_modules happens to hoist it and exits 127 when it does not,
+ * and `pnpm dlx` downloads some other version. Each platform's binary is an
+ * optional dependency of `pocketbase-server`, resolved from there.
+ *
+ * `pocketbase-server`'s own `getBinaryPath()` ends the process when that
+ * package is missing; this throws something a command can report instead.
+ * The arguments are for tests.
+ */
+export function pocketbaseBinaryPath(
+	platform: string = process.platform,
+	arch: string = process.arch
+): string {
+	const key = `${platform}-${arch}`;
+	const binary = platform === 'win32' ? 'pocketbase.exe' : 'pocketbase';
+	try {
+		const require = createRequire(import.meta.url);
+		const fromServer = createRequire(require.resolve('pocketbase-server/package.json'));
+		return fromServer.resolve(`pocketbase-server-${key}/bin/${binary}`);
+	} catch {
+		throw new Error(
+			`The PocketBase binary for ${key} is not installed.\n\n` +
+				`It comes with vela as an optional dependency (pocketbase-server-${key}), which an install\n` +
+				`with --omit=optional or --no-optional, or one copied from another platform, leaves out.\n` +
+				`Reinstall the project's dependencies (remove node_modules and install again).`
+		);
+	}
+}
 
 /**
  * The first free port at or after `start`, probed the way vite does before it
@@ -106,8 +137,7 @@ export async function startPocketbaseServe(opts: StartPocketbaseServeOptions): P
 	port: number;
 	url: string;
 }> {
-	const { getBinaryPath } = await import('pocketbase-server');
-	const binaryPath = getBinaryPath();
+	const binaryPath = pocketbaseBinaryPath();
 	const host = opts.host ?? 'localhost';
 	const stdio = opts.stdio ?? 'inherit';
 	const maxAttempts = opts.maxAttempts ?? 5;
@@ -178,13 +208,12 @@ export function getPocketbaseMetadata(
 	return null;
 }
 
-async function execPackageBin(cwd: string, args: string[], stdio: 'inherit' | 'pipe' = 'pipe') {
-	const packageManager = (await detect({ cwd }))?.name ?? 'npm';
-	const resolved = resolveCommand(packageManager, 'execute', args);
-	if (!resolved) throw new Error(`Could not resolve command for ${packageManager}`);
-	const { command, args: resolvedArgs } = resolved;
-	if (packageManager === 'npm') resolvedArgs.unshift('--yes');
-	return x(command, resolvedArgs, { nodeOptions: { cwd, stdio }, throwOnError: true });
+/**
+ * Run the PocketBase binary once and wait for it. Throws when it exits
+ * non-zero, quoting the command.
+ */
+function runPocketbase(cwd: string, args: string[], stdio: 'inherit' | 'pipe' = 'pipe') {
+	return x(pocketbaseBinaryPath(), args, { nodeOptions: { cwd, stdio }, throwOnError: true });
 }
 
 /**
@@ -250,19 +279,9 @@ async function runSuperuserCommand(
 	fs.mkdirSync(migrationsDir, { recursive: true });
 
 	try {
-		await execPackageBin(
+		await runPocketbase(
 			cwd,
-			[
-				'pocketbase-server',
-				'--dir',
-				dir,
-				'--migrationsDir',
-				migrationsDir,
-				'superuser',
-				action,
-				email,
-				password
-			],
+			['--dir', dir, '--migrationsDir', migrationsDir, 'superuser', action, email, password],
 			'pipe'
 		);
 	} catch (e) {
@@ -308,25 +327,15 @@ export async function launchPocketbase(
 	fs.mkdirSync(dir, { recursive: true });
 	fs.mkdirSync(migrationsDir, { recursive: true });
 
-	await execPackageBin(
+	await runPocketbase(
 		cwd,
-		[
-			'pocketbase-server',
-			'--dir',
-			dir,
-			'--migrationsDir',
-			migrationsDir,
-			'superuser',
-			'create',
-			email,
-			password
-		],
+		['--dir', dir, '--migrationsDir', migrationsDir, 'superuser', 'create', email, password],
 		'pipe'
 	);
 
-	await execPackageBin(
+	await runPocketbase(
 		cwd,
-		['pocketbase-server', '--dir', dir, '--migrationsDir', migrationsDir, 'migrate', 'up'],
+		['--dir', dir, '--migrationsDir', migrationsDir, 'migrate', 'up'],
 		'inherit'
 	);
 
@@ -373,9 +382,8 @@ export async function ensureSuperuser(cwd: string): Promise<void> {
 	const dir = path.join(cwd, DATA_DIR);
 	if (!fs.existsSync(dir)) return;
 
-	const { getBinaryPath } = await import('pocketbase-server');
 	await x(
-		getBinaryPath(),
+		pocketbaseBinaryPath(),
 		[
 			'--dir',
 			dir,

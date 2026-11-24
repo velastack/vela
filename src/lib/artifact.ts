@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { detect } from 'package-manager-detector';
-import { resolveCommand } from 'package-manager-detector/commands';
 import { spawnCapture } from './ssh.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from './constants.ts';
+import { runScriptCommand } from './package-manager.ts';
 
 export const DEFAULT_OUTPUT_DIR = 'build';
 
@@ -38,9 +37,7 @@ export async function runBuild(
 		return;
 	}
 
-	const pm = (await detect({ cwd }))?.name ?? 'npm';
-	const resolved = resolveCommand(pm, 'run', ['build']);
-	if (!resolved) throw new BuildError(`Could not work out how to run a build with ${pm}.`);
+	const resolved = await runScriptCommand(cwd, 'build');
 	const result = await spawnCapture(resolved.command, resolved.args, {
 		cwd,
 		stream: true,
@@ -113,6 +110,55 @@ export function hasLockfile(cwd: string): boolean {
 export function foreignLockfile(cwd: string): string | undefined {
 	if (hasLockfile(cwd)) return undefined;
 	return FOREIGN_LOCKFILES.find((name) => fs.existsSync(path.join(cwd, name)));
+}
+
+/**
+ * Whether the server has anything to install for this project. Mirrors
+ * `package_without_runtime_deps` in templates/server/lib.sh: `dependencies`,
+ * `optionalDependencies` and `peerDependencies` (npm installs a project's own
+ * peers), empty objects counting as none, and `workspaces` left to npm. A
+ * package.json that cannot be read counts as having some, as it does there.
+ */
+export function hasRuntimeDependencies(cwd: string): boolean {
+	let pkg: Record<string, unknown>;
+	try {
+		pkg = JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8'));
+	} catch {
+		return true;
+	}
+	const some = (value: unknown) =>
+		value != null && typeof value === 'object' && Object.keys(value).length > 0;
+	return (
+		some(pkg.dependencies) ||
+		some(pkg.optionalDependencies) ||
+		some(pkg.peerDependencies) ||
+		pkg.workspaces != null
+	);
+}
+
+/** Generates a package-lock.json away from the project's node_modules. */
+export const WRITE_LOCKFILE_COMMAND =
+	'dir=$(mktemp -d) && cp package.json "$dir" && (cd "$dir" && npm install --package-lock-only --ignore-scripts) && cp "$dir/package-lock.json" .';
+
+/**
+ * What `vela deploy` says about a project pinned by pnpm, yarn or bun, or
+ * undefined when there is nothing to say: npm's lockfile is there, there is no
+ * lockfile, or the server installs nothing for this app (a scaffolded app has
+ * only devDependencies, and those never reach the server).
+ */
+export function lockfileAdvice(cwd: string): string | undefined {
+	const foreign = foreignLockfile(cwd);
+	if (!foreign || !hasRuntimeDependencies(cwd)) return undefined;
+	return (
+		`Dependencies are pinned by ${foreign}, which the server cannot replay: it installs with npm.\n` +
+		`At deploy time npm resolves this app's runtime dependencies (\`dependencies\` in package.json;\n` +
+		`devDependencies are never installed there) from their ranges, so versions may differ from yours.\n` +
+		`A committed package-lock.json makes that reproducible. \`npm install --package-lock-only\` fails\n` +
+		`inside a node_modules another package manager laid out, so generate it from a clean copy:\n\n` +
+		`  ${WRITE_LOCKFILE_COMMAND}\n\n` +
+		`Run it again whenever dependencies change. With a package-lock.json present, vela runs the\n` +
+		`project's scripts with npm.`
+	);
 }
 
 /** Best-effort git metadata, recorded on the release for traceability. */

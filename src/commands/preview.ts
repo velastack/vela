@@ -6,8 +6,7 @@ import { Command } from 'commander';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import { x } from 'tinyexec';
-import { detect } from 'package-manager-detector';
-import { resolveCommand } from 'package-manager-detector/commands';
+import { localExecCommand } from '../lib/package-manager.ts';
 import { helpConfig } from '../lib/help.ts';
 import { onTerminate, stopChild } from '../lib/terminate.ts';
 import { DATA_DIR, MIGRATIONS_DIR } from '../lib/constants.ts';
@@ -59,11 +58,8 @@ export const preview = new Command('preview')
 		}
 
 		try {
-			const pm = (await detect({ cwd }))?.name ?? 'npm';
-			const resolved = resolveCommand(pm, 'execute', ['vite', 'preview'])!;
-			const args = resolved.args.slice();
-			if (pm === 'npm') args.unshift('--yes');
-			const vite = x(resolved.command, args, {
+			const { command, args } = await localExecCommand(cwd, ['vite', 'preview']);
+			const vite = x(command, args, {
 				nodeOptions: { cwd, stdio: 'inherit' },
 				throwOnError: true
 			});
