@@ -374,3 +374,27 @@ describe('SvelteKit 3', () => {
 		}
 	});
 });
+
+describe('test/setup.ts of the minimal template', () => {
+	const setup = fs.readFileSync(path.join(templatesDir(), 'minimal', 'test', 'setup.ts'), 'utf8');
+	const helper = setup.slice(
+		setup.indexOf('async function authenticateUser'),
+		setup.indexOf('beforeAll(')
+	);
+
+	// Posting the /login form broke every authenticated test once an app
+	// replaced that page.
+	test('authenticateUser signs in against PocketBase and sets the cookie', () => {
+		expect(helper).toContain('new PocketBase(process.env.POCKETBASE_URL!)');
+		expect(helper).toContain(".collection('users').authWithPassword(user.email, testUserPassword)");
+		expect(helper).toContain(
+			"agent.set('Cookie', client.authStore.exportToCookie().split(';')[0])"
+		);
+		expect(helper).not.toMatch(/\.post\(/);
+		expect(setup).not.toContain("'/login'");
+	});
+
+	test('says that pages are stubbed and how to render them', () => {
+		expect(setup).toContain('VELA_TEST_RENDER_PAGES');
+	});
+});

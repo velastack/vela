@@ -24,17 +24,18 @@ const pb = new PocketBase(servers.pocketbaseUrl) as App.Locals['pb'];
 
 const testUserPassword = 'password';
 
+// Signs in against PocketBase and carries the session the way the browser
+// does, in the `pb_auth` cookie. Nothing goes through the app's own /login
+// page, so replacing that page does not break authenticated tests.
 async function authenticateUser(agent: Agent, user: { email?: string }) {
 	// Logs in with the password, so it needs the email (made optional by
 	// enable-whatsapp, for accounts that sign in with a phone number).
 	if (!user.email) {
 		throw new Error('authenticateUser needs a user with an email');
 	}
-	await agent.post('/login').type('form').send({
-		type: 'password',
-		email: user.email,
-		password: testUserPassword
-	});
+	const client = new PocketBase(process.env.POCKETBASE_URL!);
+	await client.collection('users').authWithPassword(user.email, testUserPassword);
+	agent.set('Cookie', client.authStore.exportToCookie().split(';')[0]);
 }
 
 beforeAll(async () => {
