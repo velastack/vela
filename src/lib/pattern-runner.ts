@@ -186,6 +186,7 @@ export async function runPattern(
 		migrationsBefore
 	);
 	const deleted = result.deletes.filter(isSuccess);
+	const notes = (result as { notes?: string[] }).notes ?? [];
 
 	const totalChanges =
 		created.length +
@@ -207,6 +208,9 @@ export async function runPattern(
 			componentsAdded: result.components,
 			packagesInstalled: result.packages,
 			collectionsAdded: result.collections.map((c: { name: string }) => c.name),
+			// Things the pattern wants read, such as what `--rules superuser`
+			// means for the pages that use the collection.
+			sections: notes.length > 0 ? [{ label: 'Notes', items: notes }] : undefined,
 			failures,
 			// Next steps assume the pattern applied; when part of it didn't, the
 			// remediation snippets above are the actual next step.
