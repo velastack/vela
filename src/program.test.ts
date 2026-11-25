@@ -521,6 +521,25 @@ describe('backend gate', () => {
 		expect(ran).toBe(true);
 	});
 
+	test('outside any project the gate says so, not `vela enable backend`', async () => {
+		let written = '';
+		vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+			written += String(chunk);
+			return true;
+		});
+		const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-no-project-'));
+		process.chdir(outside);
+		try {
+			expect(await runs(['seeds', 'save'])).toBe(false);
+		} finally {
+			process.chdir(tmpDir);
+			fs.rmSync(outside, { recursive: true, force: true });
+		}
+		expect(written).toContain('There is no vela project here');
+		expect(written).toContain('vela create');
+		expect(written).not.toContain('vela enable backend');
+	});
+
 	test.each(['save', 'clear'])('seeds %s still needs a backend', async (sub) => {
 		vi.spyOn(console, 'log').mockImplementation(() => {});
 		vi.spyOn(process.stdout, 'write').mockImplementation(() => true);

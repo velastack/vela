@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { helpConfig } from '../lib/help.ts';
 import { listRoutes, type Route } from '../lib/routes.ts';
 import { runCommand } from '../lib/run.ts';
-import { findWorkspaceRoot } from '../lib/workspace.ts';
+import { findWorkspaceRoot, noProjectMessage } from '../lib/workspace.ts';
 
 export const routes = new Command('routes')
 	.description('list routes')
@@ -10,7 +10,7 @@ export const routes = new Command('routes')
 	.action(() =>
 		runCommand(() => {
 			const root = findWorkspaceRoot();
-			if (!root) throw new Error('Could not find workspace root (no package.json found)');
+			if (!root) throw new Error(noProjectMessage());
 			printTable(listRoutes(root));
 		})
 	);

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import pc from 'picocolors';
 import { APP_DIR, PUBLIC_DIR, DATA_DIR } from './constants.ts';
 import { readComponentsJson } from './components-json.ts';
 import { readPackageJson } from './package-json.ts';
@@ -136,11 +137,22 @@ export function localDataDir(from: string = process.cwd()): string {
 	return path.join(findWorkspaceRoot(from) ?? from, DATA_DIR);
 }
 
+/**
+ * What a command run outside any project says: where it looked, and the two
+ * ways out. One wording for every command, whichever check finds it first.
+ */
+export function noProjectMessage(from: string = process.cwd()): string {
+	return (
+		`There is no vela project here: no package.json in ${from} or any parent directory.\n\n` +
+		`cd into your app, or run ${pc.cyan('vela create')} to start one.`
+	);
+}
+
 export async function getWorkspace(): Promise<Workspace> {
 	const workspaceRootDir = findWorkspaceRoot();
 
 	if (!workspaceRootDir) {
-		throw new Error('Could not find workspace root (no package.json found)');
+		throw new Error(noProjectMessage());
 	}
 
 	const routesDir = path.join('src', 'routes');

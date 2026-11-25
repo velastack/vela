@@ -5,7 +5,7 @@ import nodePath from 'node:path';
 import dotenv from 'dotenv';
 import pkg from '../package.json' with { type: 'json' };
 import { helpConfig } from './lib/help.ts';
-import { findWorkspaceRoot, hasBackend } from './lib/workspace.ts';
+import { findWorkspaceRoot, hasBackend, noProjectMessage } from './lib/workspace.ts';
 import {
 	hasSuperuserCredentials,
 	missingBackendMessage,
@@ -162,6 +162,14 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 	if (PROVIDER_GATED_COMMANDS.has(path)) return;
 	const top = path.split(' ', 1)[0];
 	if (NO_BACKEND_COMMMANDS.has(top)) return;
+
+	// Outside any project the answer is not `vela enable backend`.
+	if (!findWorkspaceRoot()) {
+		p.log.error(noProjectMessage());
+		p.log.message();
+		p.cancel('Operation failed.');
+		process.exit(1);
+	}
 
 	// Frontend commands carry on without PocketBase; anything that needs the
 	// database says so plainly rather than sending the user off to look for a

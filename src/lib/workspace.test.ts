@@ -216,3 +216,20 @@ describe('detectRouteGroups', () => {
 		expect(detectRouteGroups(tmpDir)).toEqual({ public: '(public)', app: '(app)' });
 	});
 });
+
+describe('outside a project', () => {
+	test('getWorkspace names where it looked and what to do', async () => {
+		const { getWorkspace, noProjectMessage } = await import('./workspace.ts');
+		const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-no-project-'));
+		const cwd = process.cwd();
+		process.chdir(outside);
+		try {
+			await expect(getWorkspace()).rejects.toThrow('There is no vela project here');
+			await expect(getWorkspace()).rejects.toThrow('vela create');
+			expect(noProjectMessage('/somewhere')).toContain('no package.json in /somewhere');
+		} finally {
+			process.chdir(cwd);
+			fs.rmSync(outside, { recursive: true, force: true });
+		}
+	});
+});
