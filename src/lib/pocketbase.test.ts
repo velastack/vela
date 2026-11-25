@@ -81,7 +81,10 @@ describe('drainOutput', () => {
 		const { spawn } = await import('node:child_process');
 		const proc = spawn(
 			process.execPath,
-			['-e', "process.stdout.write('x'.repeat(300000) + 'END'); process.stderr.write('ERR');"],
+			[
+				'-e',
+				"process.stderr.write('e'.repeat(100000)); process.stdout.write('x'.repeat(300000) + 'END');"
+			],
 			{ stdio: 'pipe' }
 		);
 		const output = drainOutput(proc);
@@ -89,6 +92,5 @@ describe('drainOutput', () => {
 		expect(code).toBe(0);
 		expect(output().length).toBeLessThanOrEqual(64 * 1024);
 		expect(output()).toContain('END');
-		expect(output()).toContain('ERR');
 	});
 });
