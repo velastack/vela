@@ -8,6 +8,7 @@ import {
 	mergeOriginConfig,
 	ORIGIN_COMMENT,
 	mergeSvelteConfig,
+	migrateTsconfigTypesInclude,
 	mergeTsconfig,
 	mergeViteConfig
 } from './config-merge.ts';
@@ -479,11 +480,13 @@ describe('mergeTsconfig', () => {
 				'test',
 				'vite.config.ts',
 				'vitest.config.ts',
-				'.svelte-kit/types/pocketbase/*.d.ts'
+				'.svelte-kit/pocketbase/*.d.ts'
 			]
 		});
-		// Too long for one line at prettier's width, so one entry per line.
-		expect(after).toContain(`\t"include": [\n\t\t"src",\n`);
+		// Fits on one line at prettier's width now that the types path is shorter.
+		expect(after).toContain(
+			`\t"include": ["src", "test", "vite.config.ts", "vitest.config.ts", ".svelte-kit/pocketbase/*.d.ts"]\n`
+		);
 	});
 
 	test('a project without a backend, tests or vitest gets src and the vite config, on one line', () => {
@@ -504,12 +507,12 @@ describe('mergeTsconfig', () => {
 		const { first, after } = mergeTsconfigTwice(true);
 		expect(first).toMatchObject({
 			applied: true,
-			reason: 'include .svelte-kit/types/pocketbase/*.d.ts'
+			reason: 'include .svelte-kit/pocketbase/*.d.ts'
 		});
 		expect(JSON.parse(after).include).toEqual([
 			'src',
 			'vite.config.ts',
-			'.svelte-kit/types/pocketbase/*.d.ts'
+			'.svelte-kit/pocketbase/*.d.ts'
 		]);
 	});
 
@@ -700,5 +703,64 @@ export default {
 		expect(captureSvelteConfig(tmp)).toBeNull();
 		write('svelte.config.js', `import config from './shared.js';\nexport default make(config);\n`);
 		expect(captureSvelteConfig(tmp)).toEqual({ file: 'svelte.config.js', spreads: [] });
+	});
+});
+
+describe('PocketBase types moved out of .svelte-kit/types', () => {
+	const OLD = '.svelte-kit/types/pocketbase/*.d.ts';
+	const NEW = '.svelte-kit/pocketbase/*.d.ts';
+	const tsconfig = (include: string[], indent = '\t') =>
+		`{\n${indent}"extends": "$app/tsconfig",\n${indent}"include": ${JSON.stringify(include).replaceAll(',', ', ')}\n}\n`;
+
+	test('sync/dev replace the old include entry in place, keeping the indent', () => {
+		write('tsconfig.json', tsconfig(['src', OLD, 'vite.config.ts'], '  '));
+		expect(migrateTsconfigTypesInclude(tmp)).toBe(true);
+		expect(read('tsconfig.json')).toBe(tsconfig(['src', NEW, 'vite.config.ts'], '  '));
+		// Nothing left to do the second time.
+		expect(migrateTsconfigTypesInclude(tmp)).toBe(false);
+	});
+
+	test('a leading ./ is kept', () => {
+		write('tsconfig.json', tsconfig(['src', `./${OLD}`]));
+		expect(migrateTsconfigTypesInclude(tmp)).toBe(true);
+		expect(JSON.parse(read('tsconfig.json')).include).toEqual(['src', `./${NEW}`]);
+	});
+
+	test('never leaves both entries', () => {
+		write('tsconfig.json', tsconfig([NEW, 'src', OLD]));
+		expect(migrateTsconfigTypesInclude(tmp)).toBe(true);
+		expect(JSON.parse(read('tsconfig.json')).include).toEqual([NEW, 'src']);
+	});
+
+	test.each([
+		['neither entry', tsconfig(['src'])],
+		['the new entry already', tsconfig(['src', NEW])],
+		['comments', `{\n\t// mine\n\t"include": ["src", "${OLD}"]\n}\n`],
+		['no include', '{\n\t"extends": "$app/tsconfig"\n}\n']
+	])('a tsconfig with %s is left alone', (_label, content) => {
+		write('tsconfig.json', content);
+		expect(migrateTsconfigTypesInclude(tmp)).toBe(false);
+		expect(read('tsconfig.json')).toBe(content);
+	});
+
+	test('no tsconfig is not an error', () => {
+		expect(migrateTsconfigTypesInclude(tmp)).toBe(false);
+	});
+
+	test('mergeTsconfig swaps the old entry instead of adding the new one beside it', () => {
+		write('tsconfig.json', tsconfig(['src', 'vite.config.ts', OLD]));
+		write('vite.config.ts', '');
+		const { first, after } = mergeTsconfigTwice(true);
+		expect(first).toMatchObject({ applied: true, reason: `include ${NEW} in place of ${OLD}` });
+		expect(JSON.parse(after).include).toEqual(['src', 'vite.config.ts', NEW]);
+	});
+
+	test('the template tsconfig reads the new location only', () => {
+		const template = fs.readFileSync(
+			path.join(import.meta.dirname, '../../templates/minimal/tsconfig.json'),
+			'utf8'
+		);
+		expect(JSON.parse(template).include).toContain(NEW);
+		expect(template).not.toContain(OLD);
 	});
 });

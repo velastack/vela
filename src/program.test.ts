@@ -9,6 +9,7 @@ import { program } from './program.ts';
 const EXPECTED_COMMANDS = [
 	'bless',
 	'create',
+	'templates',
 	'generate',
 	'enable',
 	'disable',
@@ -32,6 +33,7 @@ const EXPECTED_COMMANDS = [
 	'status',
 	'logs',
 	'env',
+	'users',
 	'backup',
 	'restore',
 	'link',
@@ -58,10 +60,12 @@ const EXPECTED_ENABLE_SUBCOMMANDS = [
 	'auth',
 	'api',
 	'api-keys',
+	'ci',
 	'i18n',
 	'teams',
 	'payments',
 	'ecommerce',
+	'email',
 	'subscriptions',
 	'notifications',
 	'og',
@@ -84,6 +88,7 @@ const EXPECTED_DISABLE_SUBCOMMANDS = [
 	'teams',
 	'payments',
 	'ecommerce',
+	'email',
 	'subscriptions',
 	'whatsapp'
 ];
@@ -298,6 +303,7 @@ describe('target selection', () => {
 		['rollback', 'production'],
 		['destroy deployment', 'production'],
 		['admin create', 'local'],
+		['users create', 'local'],
 		['seeds load', 'local'],
 		['backup create', 'production'],
 		['backup list', 'production'],
@@ -499,6 +505,44 @@ describe('backend gate', () => {
 	// local path checks for a backend and its credentials itself.
 	test('seeds load is not held to local credentials', async () => {
 		expect(await runs(['seeds', 'load', '-t', 'production'])).toBe(true);
+	});
+
+	test('templates is not held to a backend or a project', () => {
+		const command = program.commands.find((c) => c.name() === 'templates')!;
+		const original = (command as unknown as { _actionHandler: unknown })._actionHandler;
+		let ran = false;
+		command.action(() => {
+			ran = true;
+		});
+		const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-no-project-'));
+		process.chdir(outside);
+		try {
+			program.parse(['templates'], { from: 'user' });
+		} finally {
+			(command as unknown as { _actionHandler: unknown })._actionHandler = original;
+			process.chdir(tmpDir);
+			fs.rmSync(outside, { recursive: true, force: true });
+		}
+		expect(ran).toBe(true);
+	});
+
+	test('outside any project the gate says so, not `vela enable backend`', async () => {
+		let written = '';
+		vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+			written += String(chunk);
+			return true;
+		});
+		const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'vela-no-project-'));
+		process.chdir(outside);
+		try {
+			expect(await runs(['seeds', 'save'])).toBe(false);
+		} finally {
+			process.chdir(tmpDir);
+			fs.rmSync(outside, { recursive: true, force: true });
+		}
+		expect(written).toContain('There is no vela project here');
+		expect(written).toContain('vela create');
+		expect(written).not.toContain('vela enable backend');
 	});
 
 	test.each(['save', 'clear'])('seeds %s still needs a backend', async (sub) => {

@@ -4,11 +4,15 @@ import process from 'node:process';
 import { exec, execSync } from 'tinyexec';
 import { Option } from 'commander';
 import * as p from '@clack/prompts';
+import { taskLog } from './task-log.ts';
 import {
 	AGENTS,
 	COMMANDS,
+	LOCKS,
 	constructCommand,
 	detect,
+	resolveCommand,
+	type Agent,
 	type AgentName
 } from 'package-manager-detector';
 
@@ -68,6 +72,97 @@ export function isInstalled(agent: AgentName): boolean {
 	return installed;
 }
 
+const NPM_LOCKFILES = ['package-lock.json', 'npm-shrinkwrap.json'];
+
+/**
+ * Whether the lockfile nearest to `cwd` (its own directory, or the closest
+ * parent that has any) includes npm's.
+ */
+function npmLockfileGoverns(cwd: string): boolean {
+	let dir = path.resolve(cwd);
+	for (;;) {
+		if (NPM_LOCKFILES.some((name) => fs.existsSync(path.join(dir, name)))) return true;
+		if (Object.keys(LOCKS).some((name) => fs.existsSync(path.join(dir, name)))) return false;
+		const parent = path.dirname(dir);
+		if (parent === dir) return false;
+		dir = parent;
+	}
+}
+
+/**
+ * The package manager to run this project's scripts and installed binaries
+ * with. Not the one to install with: that stays whatever the project is pinned
+ * by.
+ *
+ * - npm when there is a `package-lock.json`, whatever else is beside it. The
+ *   detector ranks `pnpm-lock.yaml` and `yarn.lock` first, and a project that
+ *   carries both (a pnpm project that added npm's lockfile so servers and CI can
+ *   `npm ci`) then fails on a machine with only npm: `spawn pnpm ENOENT`.
+ * - Otherwise the detected one, when its executable is on the PATH.
+ * - Otherwise npm, which every machine with Node has. Running a script does not
+ *   need the manager that installed the tree.
+ *
+ * `installed` is for tests.
+ */
+export async function scriptAgent(
+	cwd: string,
+	installed: (agent: AgentName) => boolean = isInstalled
+): Promise<Agent> {
+	if (npmLockfileGoverns(cwd)) return 'npm';
+	const detected = await detect({ cwd });
+	if (!detected || detected.name === 'npm') return 'npm';
+	return installed(detected.name) ? detected.agent : 'npm';
+}
+
+export interface AgentCommand {
+	agent: Agent;
+	command: string;
+	args: string[];
+}
+
+/** How to run one of the project's package.json scripts: `npm run build`, `pnpm run build`. */
+export async function runScriptCommand(
+	cwd: string,
+	script: string,
+	args: string[] = [],
+	installed?: (agent: AgentName) => boolean
+): Promise<AgentCommand> {
+	const agent = await scriptAgent(cwd, installed);
+	const resolved =
+		resolveCommand(agent, 'run', [script, ...args]) ??
+		resolveCommand('npm', 'run', [script, ...args])!;
+	return { agent, command: resolved.command, args: resolved.args };
+}
+
+/**
+ * How to run a binary the project has installed (`vite`, `vitest`, `wuchale`):
+ * `pnpm exec`, `yarn exec` (Yarn 2 and later), `bun x`, and `npx` otherwise.
+ *
+ * The local form, not `pnpm dlx`/`yarn dlx`: those fetch a copy from the
+ * registry at whatever version is latest and never look at the project's
+ * `node_modules`. `npx` keeps `--yes`, as it always had here; it runs the
+ * installed binary when there is one.
+ */
+export async function localExecCommand(
+	cwd: string,
+	args: string[],
+	installed?: (agent: AgentName) => boolean
+): Promise<AgentCommand> {
+	const agent = await scriptAgent(cwd, installed);
+	// Everything else goes through npx, which reads node_modules/.bin whoever
+	// wrote it. Yarn 1 in particular: its `yarn exec` wants the binary's own
+	// arguments behind a `--`, which the binary then receives as well.
+	const own = /^(pnpm|bun|yarn@berry)(@|$)/.test(agent)
+		? resolveCommand(agent, 'execute-local', args)
+		: null;
+	const resolved = own ?? { command: 'npx', args };
+	return {
+		agent,
+		command: resolved.command,
+		args: resolved.command === 'npx' ? ['--yes', ...resolved.args] : resolved.args.slice()
+	};
+}
+
 /**
  * Run the package manager's install in `cwd`.
  *
@@ -89,9 +184,9 @@ export async function installDependencies(
 		return false;
 	}
 
-	const task = p.taskLog({
+	const task = taskLog({
 		title: `Installing dependencies with ${agent}...`,
-		limit: Math.ceil(process.stdout.rows / 2),
+		halfScreen: true,
 		spacing: 0,
 		retainLog: true
 	});

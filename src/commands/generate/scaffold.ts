@@ -6,6 +6,7 @@ import { runPattern } from '../../lib/pattern-runner.ts';
 import { assertShadcn } from '../../lib/require-ui.ts';
 import { resolveFormInput } from '../../lib/form-ui.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
+import { rulesOption, type Rules } from '../../lib/rules-option.ts';
 import {
 	runSchemaStage,
 	runLayoutStage,
@@ -30,13 +31,14 @@ export const scaffold = new Command('scaffold')
 		'--ai <description>',
 		'design the scaffold with AI from a natural-language description (two stages: schema → layout)'
 	)
+	.addOption(rulesOption())
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
 	.action(
 		(
 			model: string | undefined,
 			fields: string[],
-			options: { remote?: boolean; route?: string; ui?: string; ai?: string }
+			options: { remote?: boolean; route?: string; ui?: string; ai?: string; rules?: Rules }
 		) =>
 			runCommand(async () => {
 				// The remote scaffold has no plain variant. The pattern is refused the
@@ -99,7 +101,7 @@ export const scaffold = new Command('scaffold')
 				await runPattern(
 					slug,
 					argv,
-					{ route: options.route, ...formInput },
+					{ route: options.route, rules: options.rules, ...formInput },
 					{
 						summary: `Created ${modelName} scaffold.`,
 						nextSteps,

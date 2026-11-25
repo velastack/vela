@@ -1,11 +1,11 @@
 import { Command } from 'commander';
-import * as p from '@clack/prompts';
 import { applyBaseColor } from '@velastack/patterns';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
 import { assertShadcn } from '../../lib/require-ui.ts';
 import { reportResult } from '../../lib/result-report.ts';
+import { taskLog } from '../../lib/task-log.ts';
 import { BASE_COLORS } from '../../lib/ui-add.ts';
 
 export const base = new Command('base')
@@ -20,7 +20,7 @@ export const base = new Command('base')
 			// The palette is what `shadcn-svelte apply --only theme` produces for
 			// the project's own style, so the tokens never need hand-maintenance.
 			// The accepted colors come from the installed shadcn-svelte.
-			const log = p.taskLog({ title: `Applying the ${color} palette...` });
+			const log = taskLog({ title: `Applying the ${color} palette...` });
 			let outcome;
 			try {
 				outcome = await applyBaseColor({ root: workspaceRootDir, color });

@@ -20,10 +20,11 @@ That's a running app with a database behind it. No separate PocketBase install, 
 - **Describe it instead.** Pass `--ai "a blog post with tags and a cover image"` and review the collection it designs before anything is written.
 - **shadcn-svelte components** on tap, and fixtures and seeds for realistic data while you work.
 - **The app's name in code.** Every project keeps its name and public URL in `src/lib/site.ts`; canonical links, Open Graph images and feeds are built from it, and `vela dev` / `vela deploy` hand the name to PocketBase as `APP_NAME` for the emails it sends. Nothing is written into its settings behind the admin panel's back.
-- **Themed templates.** `vela create --template broadsheet` pulls a finished blog design from the template registry; `--template` lists what is available, grouped by category.
+- **Themed templates.** `vela create --template broadsheet` pulls a finished blog design from the template registry; `vela templates` lists what is available, grouped by category, and says which have a backend.
 - **Linked from the start.** Logged in to velastack.dev, `vela create` links the new project there (`.vela/project.json`), so `vela deploy` reports to it and a CMS-ready template such as `hearth` reads from the project's free hosted CMS right away. `vela login` first if you are not; `vela link` does the same for a project you already have.
 
 ```sh
+vela templates                                     # every template, by category, and which have a backend
 vela create my-site --template hearth              # linked, CMS endpoint written into src/lib/site.ts
 vela create my-site --template hearth --link none  # keep it local; fill in `cmsEndpoint` later
 vela create my-site --template hearth --cms https://cms.example/v1/projects/<id>/cms
@@ -37,6 +38,7 @@ Off a terminal nothing is created on velastack.dev unless `--link new` or `--lin
 ```sh
 vela enable auth                                     # sign-in, sessions, OAuth scaffold
 vela enable whatsapp                                 # sign in with a code on WhatsApp, next to email
+vela enable email                                    # SMTP for verification and reset emails, by provider
 vela generate scaffold post title:text body:editor   # model, forms, list and detail pages
 vela migrate up                                      # schema, versioned and in git
 vela ui add button card dialog                       # shadcn-svelte components, into your project
@@ -53,7 +55,7 @@ Changed your mind? `vela destroy` and `vela disable` take it back out.
 Deploys go to a server you own, over SSH. Prepare the box once, then deploy as often as you like.
 
 ```sh
-vela provision root@your-server                        # Caddy, Node, PocketBase, systemd, TLS
+vela provision root@your-server                        # Caddy, Node, PocketBase, systemd, TLS, swap on a small box
 vela deploy --server root@your-server --domain example.com
 ```
 
@@ -64,8 +66,11 @@ config: a server needs `@sveltejs/adapter-node`, so a project still on `adapter-
 installed, and you are asked to commit the change. At a terminal the deploy asks before
 it edits the config file and `package.json`; in CI it goes ahead. A project on
 `adapter-static` or a hosting platform's adapter is left alone and told why. The server
-installs dependencies with npm, so a pnpm, yarn or bun project should commit a
-`package-lock.json` for a reproducible deploy; the deploy warns when it finds only theirs.
+installs only what the app needs at runtime, with npm: an app with no `dependencies`
+(a scaffolded one bundles everything) gets no install at all. A pnpm, yarn or bun
+project with runtime dependencies should commit a `package-lock.json` for a reproducible
+deploy; the deploy warns when it finds only theirs and prints the command that writes one.
+When both lockfiles are present, vela builds with npm.
 Nothing on the server assumes a database: run `vela enable backend` whenever you want
 one and deploy again, and the same instance gains its PocketBase.
 
@@ -76,7 +81,8 @@ machine again. Every command takes the same selector — `-t local`, `-t product
 ```sh
 vela targets                       # what exists, and where
 vela env set STRIPE_SECRET_KEY -t production
-vela admin create -t production    # a login for the admin panel
+vela admin create -t production    # a PocketBase superuser, for the admin panel
+vela users create -t production    # an account in the app itself
 vela seeds load -t production      # the records in data/seeds, where missing
 ```
 
@@ -128,7 +134,98 @@ PocketBase reads its own settings from the same environment — `APP_NAME` (from
 in the repo carries environment but `.env.example`, and there is no project
 config file.
 
-Same thing from CI with [`velastack/action`](https://github.com/velastack/action).
+| Variable                                         | What it sets                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------ |
+| `PB_SMTP_HOST`                                   | SMTP server to send email through. Setting it turns SMTP on.       |
+| `PB_SMTP_PORT`                                   | SMTP port, usually `587` or `465`.                                 |
+| `PB_SMTP_USERNAME`                               | SMTP login name.                                                   |
+| `PB_SMTP_PASSWORD`                               | SMTP password. With a provider such as Resend this is the API key. |
+| `PB_SMTP_TLS`                                    | `true` to connect over TLS; unset for STARTTLS.                    |
+| `PB_SENDER_ADDRESS`                              | The address emails are sent from.                                  |
+| `PB_SENDER_NAME`                                 | The name shown next to that address.                               |
+| `PB_S3_ENDPOINT`, `PB_S3_BUCKET`, `PB_S3_REGION` | Where uploads are stored, on S3 or anything compatible.            |
+| `PB_S3_ACCESS_KEY`, `PB_S3_SECRET`               | The credentials for that bucket.                                   |
+| `PB_S3_FORCE_PATH_STYLE`                         | `true` for providers that address buckets by path.                 |
+
+`PB_BACKUPS_S3_*` takes the same six names for where backups go. A new project's
+`.env.example` lists the email and storage variables, commented out.
+
+### Email
+
+`vela enable email` fills in the SMTP variables for a provider (`resend`,
+`postmark`, `sendgrid`, `mailgun`, `ses`, or `smtp` for anything else), asking
+only for the key and the sender:
+
+```sh
+vela enable email --provider resend --from hello@example.com   # into .env
+vela enable email -t production                                # into a target, and restarts it
+```
+
+A provider's API key is the SMTP password, so it is stored once, as
+`PB_SMTP_PASSWORD`. Values in `.env` are not deployed: run the command once per
+target. `vela disable email` removes the variables again.
+
+## App users
+
+`vela admin create` makes a PocketBase superuser: a login for `/admin`. It is not
+an account in your app. A fresh deploy has no app users, so create the first one:
+
+```sh
+vela users create -t production                                   # asks for email, password, name
+vela users create -t production --email ada@example.com --set admin=true
+```
+
+Leave the password empty and one is generated and printed once. The account is
+marked verified. `--set key=value` sets any other field of the collection,
+`--collection <name>` picks an auth collection other than `users`, and `--update`
+changes an existing account instead of failing.
+
+## Deploy on push
+
+```sh
+vela deploy --server root@your-server --domain example.com   # once, from your machine
+vela enable ci
+```
+
+`vela enable ci` writes `.github/workflows/deploy.yml` for
+[`velastack/action`](https://github.com/velastack/action): every push to the
+current branch deploys production. The workflow names no server, domain or
+target; the action reads them from the committed `.vela/project.json`. The
+command lists what the workflow needs and what is missing.
+
+The workflow needs one secret, `SSH_PRIVATE_KEY`. `vela enable ci --setup-key`
+makes it: a new ed25519 keypair for CI, the public key appended to the server's
+`authorized_keys`, the private key stored as the repository secret with the `gh`
+CLI. It shows that plan and asks first. Without the flag it prints the same steps
+to run by hand. `--previews` also deploys a preview of every pull request.
+
+The app's environment lives on the server, not in GitHub secrets:
+`vela env import <file> -t production`. Only what the build reads at build time
+has to be on the runner too.
+
+## Testing
+
+```sh
+vela test:server                    # the server tests, against a throwaway PocketBase and the app
+vela test:server src/routes/api     # extra arguments go to vitest
+npx vitest                          # the same servers, in watch mode or from an editor
+```
+
+Server tests are the files named `server.test.ts` or `*.server.test.ts`. The
+`vela/testing` global setup in `vitest.config.ts` starts a throwaway PocketBase
+(migrated, with your hooks, seeds and fixtures) and the app before the first
+test file, and removes them after the last.
+
+Under those servers every page is stubbed: each `+page.svelte`, `+layout.svelte`
+and `+error.svelte` renders an empty body. Server tests check endpoints, form
+actions, redirects and load data, and skipping the components keeps them fast.
+A response therefore has its status, headers and serialized load data, but no
+markup. To test rendered HTML, set `VELA_TEST_RENDER_PAGES=1`, in the environment
+or under `test.env` in `vitest.config.ts`:
+
+```ts
+test: { globalSetup: ['vela/testing'], env: { VELA_TEST_RENDER_PAGES: '1' } }
+```
 
 ## Already have a project?
 

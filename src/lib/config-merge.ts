@@ -20,6 +20,7 @@ import {
 	type ViteSveltekit
 } from './config-target.ts';
 import { KIT3_MIGRATE_COMMAND } from './kit-version.ts';
+import { LEGACY_TYPES_INCLUDE, TYPES_INCLUDE } from './pocketbase-types.ts';
 
 export interface MergeOutcome {
 	applied: boolean;
@@ -593,7 +594,7 @@ export interface TsconfigOptions {
 const APP_TSCONFIG = '$app/tsconfig';
 /** What Kit 2 projects extended; SvelteKit 3 generates `$app/tsconfig` instead. */
 const GENERATED_TSCONFIG = /(^|\/)\.svelte-kit\/tsconfig\.json$/;
-const POCKETBASE_TYPES = '.svelte-kit/types/pocketbase/*.d.ts';
+const POCKETBASE_TYPES = TYPES_INCLUDE;
 const VITEST_CONFIG_CANDIDATES = [
 	'vitest.config.ts',
 	'vitest.config.js',
@@ -679,12 +680,17 @@ export function mergeTsconfig(root: string, { backend }: TsconfigOptions): Merge
 			file
 		};
 	}
-	const normalize = (entry: unknown) =>
-		typeof entry === 'string' ? entry.replace(/^\.\//, '').replace(/\/$/, '') : entry;
-	const present = new Set(include.map(normalize));
+	// The types' old location is replaced, not kept next to the new one: both
+	// in `include` would declare everything twice.
+	const moved = movePocketbaseTypesInclude(include);
+	if (moved.changed) {
+		config.include = moved.include;
+		changes.push(`include ${POCKETBASE_TYPES} in place of ${LEGACY_TYPES_INCLUDE}`);
+	}
+	const present = new Set(moved.include.map(normalizeInclude));
 	const missing = wanted.filter((entry) => !present.has(entry));
 	if (missing.length > 0) {
-		config.include = [...include, ...missing];
+		config.include = [...moved.include, ...missing];
 		changes.push(`include ${missing.join(', ')}`);
 	}
 
@@ -704,6 +710,64 @@ export function mergeTsconfig(root: string, { backend }: TsconfigOptions): Merge
 	fs.writeFileSync(filePath, updated);
 	return { applied: true, reason: changes.join('; '), file };
 }
+
+const normalizeInclude = (entry: unknown) =>
+	typeof entry === 'string' ? entry.replace(/^\.\//, '').replace(/\/$/, '') : entry;
+
+/**
+ * An `include` with the PocketBase types' old entry swapped, in place, for the
+ * new one. When the new entry is already there the old one is dropped. Never
+ * both, and nothing is added to an `include` that had neither.
+ */
+export function movePocketbaseTypesInclude(include: unknown[]): {
+	include: unknown[];
+	changed: boolean;
+} {
+	const isLegacy = (entry: unknown) => normalizeInclude(entry) === LEGACY_TYPES_INCLUDE;
+	if (!include.some(isLegacy)) return { include, changed: false };
+
+	let placed = include.some((entry) => normalizeInclude(entry) === POCKETBASE_TYPES);
+	const result: unknown[] = [];
+	for (const entry of include) {
+		if (!isLegacy(entry)) {
+			result.push(entry);
+		} else if (!placed) {
+			// Keeps a leading `./` when the entry had one.
+			result.push((entry as string).replace(LEGACY_TYPES_INCLUDE, POCKETBASE_TYPES));
+			placed = true;
+		}
+	}
+	return { include: result, changed: true };
+}
+
+/**
+ * Point an existing project's tsconfig at the PocketBase types' new location
+ * (`vela sync` and `vela dev` run this). Only a plain-JSON tsconfig whose
+ * `include` has the old entry is touched; anything else is left as it is,
+ * and keeps working because the old location is still written. Returns
+ * whether the file was rewritten.
+ */
+export function migrateTsconfigTypesInclude(root: string): boolean {
+	const filePath = path.join(root, 'tsconfig.json');
+	let original: string;
+	let data: unknown;
+	try {
+		original = fs.readFileSync(filePath, 'utf8');
+		data = JSON.parse(original);
+	} catch {
+		return false;
+	}
+	if (!isObject(data) || !Array.isArray(data.include)) return false;
+
+	const moved = movePocketbaseTypesInclude(data.include);
+	if (!moved.changed) return false;
+	const updated = `${stringifyJson({ ...data, include: moved.include }, detectJsonIndent(original))}\n`;
+	fs.writeFileSync(filePath, updated);
+	return true;
+}
+
+/** The line `vela sync` and `vela dev` print after `migrateTsconfigTypesInclude`. */
+export const TSCONFIG_TYPES_MOVED = `Updated tsconfig.json: PocketBase types are now read from ${POCKETBASE_TYPES} (was ${LEGACY_TYPES_INCLUDE}).`;
 
 function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);

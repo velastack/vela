@@ -324,6 +324,139 @@ node_at_least() {
 	[ "$major" -eq "$want_major" ] && [ "$minor" -ge "$want_minor" ]
 }
 
+# Whether a release's package.json asks for nothing at runtime: it parses, and
+# has no `dependencies`, `optionalDependencies` or `peerDependencies` (npm
+# installs a project's peers too) and no `workspaces`. An empty object counts
+# as none. A file that cannot be read answers no, so the install runs and
+# reports the problem itself.
+#
+# A scaffolded vela app is like this: its build is bundled and everything it
+# needs to produce one is a devDependency, which the server never installs.
+#
+# usage: package_without_runtime_deps <package.json>
+package_without_runtime_deps() {
+	node -e '
+		const pkg = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+		const some = (value) =>
+			value != null && typeof value === "object" && Object.keys(value).length > 0;
+		const wanted =
+			some(pkg.dependencies) || some(pkg.optionalDependencies) ||
+			some(pkg.peerDependencies) || pkg.workspaces != null;
+		process.exit(wanted ? 1 : 0);
+	' "$1" 2>/dev/null
+}
+
+# Rewrite the copy of package.json that the server installs from.
+#
+# `prepare` always goes: it is a development hook (`svelte-kit sync`, husky)
+# whose tools are devDependencies, which are not installed here, so it can only
+# print "svelte-kit: not found". Dependencies' own install scripts still run.
+#
+# `devDependencies` go when asked, which is when there is no package-lock.json
+# to replay: `npm install --omit=dev` resolves the whole development tree
+# before leaving it out, and on a small server that is what runs it out of
+# memory. With a lockfile the file has to stay as the lockfile describes it.
+#
+# usage: prepare_install_manifest <package.json> <drop-dev: 0|1>
+prepare_install_manifest() {
+	node -e '
+		const fs = require("fs");
+		const [file, dropDev] = process.argv.slice(1);
+		const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+		let changed = false;
+		if (pkg.scripts && pkg.scripts.prepare) {
+			delete pkg.scripts.prepare;
+			changed = true;
+		}
+		if (dropDev === "1" && pkg.devDependencies) {
+			delete pkg.devDependencies;
+			changed = true;
+		}
+		if (changed) fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+	' "$1" "${2:-0}"
+}
+
+# One field of /proc/meminfo in whole megabytes, or `?` when it cannot be read.
+#
+# usage: meminfo_mb <field> [meminfo-file]
+meminfo_mb() {
+	local kb
+	kb=$(awk -v field="$1:" '$1 == field { print $2; exit }' "${2:-/proc/meminfo}" 2>/dev/null)
+	if [[ $kb =~ ^[0-9]+$ ]]; then printf '%s' $((kb / 1024)); else printf '?'; fi
+}
+
+# What to say when the dependency install exits non-zero. 137 is 128 + SIGKILL,
+# and on a server nobody is logged in to, the sender is the kernel's
+# out-of-memory killer; the shell's own report of that is the single word
+# "Killed".
+#
+# usage: install_failure_message <exit-status> [meminfo-file]
+install_failure_message() {
+	local status=$1 meminfo=${2:-/proc/meminfo}
+	if [ "$status" != 137 ]; then
+		printf 'dependency install failed (exit %s)' "$status"
+		return 0
+	fi
+	printf '%s' \
+		"dependency install failed: npm was killed (exit 137), most likely by the kernel's out-of-memory killer." \
+		" This server has $(meminfo_mb MemTotal "$meminfo") MB of memory and $(meminfo_mb SwapTotal "$meminfo") MB of swap." \
+		" Add swap ('vela provision' now creates a swapfile on small servers) or move to a larger server, then deploy again."
+}
+
+# Whether `vela provision` should add a swapfile, and how big.
+#
+# A server with less than 2 GB of memory and no swap has no slack at all: one
+# `npm install` or one build of a native module beside the running apps is
+# enough for the kernel to start killing processes, and it does not pick only
+# the newcomer. Swap that is already there, of any size and kind, is somebody's
+# decision and is left alone. The file must not be what fills the disk either.
+#
+# Prints one of:
+#   none  enough memory, or swap is already active
+#   disk  wanted, but under 4 GB is free where the file would go
+#   1024  megabytes to create (under 8 GB free)
+#   2048  megabytes to create
+#
+# usage: swap_plan <mem-total-kb> <swap-total-kb> <free-disk-kb>
+swap_plan() {
+	local mem=$1 swap=$2 free=$3
+	if ! [[ $mem =~ ^[0-9]+$ && $swap =~ ^[0-9]+$ && $free =~ ^[0-9]+$ ]]; then
+		printf 'none'
+	elif [ "$mem" -ge $((2 * 1024 * 1024)) ] || [ "$swap" -gt 0 ]; then
+		printf 'none'
+	elif [ "$free" -lt $((4 * 1024 * 1024)) ]; then
+		printf 'disk'
+	elif [ "$free" -lt $((8 * 1024 * 1024)) ]; then
+		printf '1024'
+	else
+		printf '2048'
+	fi
+}
+
+# Have a swapfile turned on at boot, adding its line to fstab once.
+#
+# usage: fstab_add_swap <swapfile> [fstab]
+fstab_add_swap() {
+	local file=$1 fstab=${2:-/etc/fstab}
+	if [ -f "$fstab" ] && awk -v file="$file" '$1 == file { found = 1 } END { exit !found }' "$fstab"; then
+		return 0
+	fi
+	# A last line without its newline would otherwise swallow this one.
+	if [ -s "$fstab" ] && [ -n "$(tail -c1 "$fstab")" ]; then printf '\n' >> "$fstab"; fi
+	printf '%s none swap sw 0 0\n' "$file" >> "$fstab"
+}
+
+# Whether a release has anything installed in its node_modules. An app with no
+# runtime dependencies gets an empty one (see install_deps in apply.sh), and
+# such an app has nothing compiled for a particular Node: it does not need a
+# redeploy when `vela provision` moves the server to a new major. npm's own
+# bookkeeping (`.package-lock.json`) does not count.
+#
+# usage: release_has_modules <release-dir>
+release_has_modules() {
+	[ -n "$(find "$1/node_modules/" -mindepth 1 -maxdepth 1 ! -name '.*' -print -quit 2>/dev/null)" ]
+}
+
 # How many migrations the current release has that the target release does not.
 # PocketBase reverts by count, so this is what `migrate down` needs.
 migrations_ahead() {

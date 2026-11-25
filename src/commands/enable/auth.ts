@@ -2,6 +2,8 @@ import { Command } from 'commander';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { runPattern } from '../../lib/pattern-runner.ts';
+import { missingLegalSteps } from '../../lib/legal-routes.ts';
+import { findWorkspaceRoot } from '../../lib/workspace.ts';
 
 export const auth = new Command('auth')
 	.description('enable authentication (email/password + OAuth scaffold)')
@@ -27,7 +29,9 @@ export const auth = new Command('auth')
 						nextSteps: [
 							'Run `vela dev` and visit /login to try the new sign-in flow.',
 							'Customize sign-in copy and providers in src/routes/(public)/(auth)/.',
-							'Add OAuth providers in the PocketBase admin UI.'
+							'Add OAuth providers in the PocketBase admin UI.',
+							// The pages link to /terms and /privacy whether or not they exist.
+							...missingLegalSteps(findWorkspaceRoot())
 						],
 						task: {
 							title: 'Enabling auth',

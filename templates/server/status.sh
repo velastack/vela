@@ -17,16 +17,18 @@ describe() {
 	local state="$app/state.json"
 	[ -f "$state" ] || return 0
 
-	local web_state pb_state releases current
+	local web_state pb_state releases current modules
 	web_state=$(systemctl is-active "$(unit_web "$instance")" 2>/dev/null || true)
 	pb_state=$(systemctl is-active "$(unit_pb "$instance")" 2>/dev/null || true)
 	current=$([ -L "$app/current" ] && basename "$(readlink -f "$app/current")" || echo "")
 	releases=$(ls -1 "$app/releases" 2>/dev/null | sort -r | jq -R . | jq -sc .)
+	if release_has_modules "$app/current"; then modules=true; else modules=false; fi
 
 	jq -c \
 		--arg web "$web_state" --arg pb "$pb_state" --arg current "$current" \
-		--argjson releases "$releases" \
-		'. + {services: {web: $web, pocketbase: $pb}, current: $current, releases: $releases}' \
+		--argjson releases "$releases" --argjson modules "$modules" \
+		'. + {services: {web: $web, pocketbase: $pb}, current: $current, releases: $releases,
+		  runtimeDependencies: $modules}' \
 		"$state"
 }
 

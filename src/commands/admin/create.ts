@@ -15,9 +15,20 @@ import { readLocalEnv } from '../../lib/local-env.ts';
 /** PocketBase's own minimum for a superuser password. */
 const MIN_PASSWORD = 10;
 
+/**
+ * Said every time, because the two get confused: a superuser administers the
+ * database and cannot sign in to the app's own pages.
+ */
+const NOT_AN_APP_USER = pc.dim(
+	'A superuser is for the /admin panel only; it is not an account in the app.\n' +
+		'To create someone who can sign in to the app itself: vela users create'
+);
+
 export const adminCreate = addTargetOptions(
 	new Command('create')
-		.description('create a login for the admin panel')
+		.description(
+			'create a PocketBase superuser: a login for the /admin panel, not an app user (for those, see `vela users create`)'
+		)
 		.argument('[email]', 'email to sign in with — prompted for when omitted')
 		.configureHelp(helpConfig),
 	'local'
@@ -115,12 +126,18 @@ async function upsertSuperuser(pb: PocketBase, email: string, password: string):
 			process.exit(0);
 		}
 		await pb.collection('_superusers').update(existing, { password, passwordConfirm: password });
-		p.log.success(`Password updated for ${pc.cyan(email)}, you can sign in now`);
+		p.log.success(
+			`Password updated for the PocketBase superuser ${pc.cyan(email)}, who can sign in to /admin now`
+		);
+		p.log.message(NOT_AN_APP_USER);
 		return;
 	}
 
 	await pb.collection('_superusers').create({ email, password, passwordConfirm: password });
-	p.log.success(`${pc.cyan(email)} can now sign in`);
+	p.log.success(
+		`Created the PocketBase superuser ${pc.cyan(email)}, who can now sign in to /admin`
+	);
+	p.log.message(NOT_AN_APP_USER);
 }
 
 /**

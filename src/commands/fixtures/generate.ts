@@ -19,8 +19,17 @@ import {
 	dataDir,
 	getFixtureFiles,
 	hasLoadedFixtures,
+	readRecords,
 	readSeedIds
 } from '../../lib/data.ts';
+import {
+	INTERNAL_COLLECTIONS,
+	fillRequired,
+	parseCountFor,
+	prepareFixtureSchema,
+	selectFixtureCollections,
+	type FixtureSchema
+} from '../../lib/fixtures.ts';
 
 const SKIP_TYPES = new Set(['autodate', 'file', 'relation']);
 const AUTH_OVERRIDE_FIELDS = ['email', 'password', 'passwordConfirm', 'tokenKey'];
@@ -59,13 +68,30 @@ async function loadCollections(pb: PocketBase): Promise<CollectionSummary[]> {
 }
 
 export interface GenerateFixturesOptions {
+	/** Records per collection, unless `counts` names the collection. */
 	count: number;
 	seed?: number;
+	/** Records for one collection, by name: `{ songs: 64 }`. */
+	counts?: Record<string, number>;
+	/** Generate for these collections only, leaving every other fixture file as it is. */
+	only?: string[];
+	/** Leave these collections out, and their fixture files as they are. */
+	skip?: string[];
 }
 
 export interface GenerateFixturesResult {
 	writtenFiles: string[];
 	warnings: string[];
+	/** Pattern-internal collections that were left out (see `INTERNAL_COLLECTIONS`). */
+	internalSkipped: string[];
+}
+
+function collectCountFor(value: string, previous: Record<string, number> | undefined) {
+	try {
+		return parseCountFor(value, previous);
+	} catch (e) {
+		throw new InvalidArgumentError((e as Error).message);
+	}
 }
 
 export async function generateFixtureFiles(
@@ -73,10 +99,32 @@ export async function generateFixtureFiles(
 	workspaceRootDir: string,
 	opts: GenerateFixturesOptions
 ): Promise<GenerateFixturesResult> {
+	const collections = await loadCollections(pb);
+	const eligible = collections.filter((c) => !c.name.startsWith('_') && c.type !== 'view');
+	// Checked before any file is touched: a mistyped name must not cost the
+	// fixtures already there.
+	const { selected, internalSkipped } = selectFixtureCollections(collections, opts);
+	const selectedIds = new Set(selected.map((c) => c.id));
+
 	const fixturesDir = dataDir(workspaceRootDir, 'fixtures');
 	fs.mkdirSync(fixturesDir, { recursive: true });
-	for (const file of fs.readdirSync(fixturesDir)) {
-		if (file.endsWith('.json')) fs.unlinkSync(path.join(fixturesDir, file));
+
+	// A run for every collection starts from nothing and numbers the files in
+	// dependency order. A run narrowed with --only or --skip rewrites only its
+	// own files and leaves the rest, hand edits included, where they are.
+	const partial = Boolean(opts.only?.length || opts.skip?.length);
+	const existing = new Map<string, string>();
+	let fileIndex = 1;
+	if (partial) {
+		for (const file of fs.readdirSync(fixturesDir).filter((f) => f.endsWith('.json'))) {
+			existing.set(file.replace(/\.json$/i, '').replace(/^\d+[-_]?/, ''), file);
+			const prefix = /^(\d+)/.exec(file);
+			if (prefix) fileIndex = Math.max(fileIndex, Number(prefix[1]) + 1);
+		}
+	} else {
+		for (const file of fs.readdirSync(fixturesDir)) {
+			if (file.endsWith('.json')) fs.unlinkSync(path.join(fixturesDir, file));
+		}
 	}
 
 	if (opts.seed !== undefined) faker.seed(opts.seed);
@@ -86,8 +134,6 @@ export async function generateFixtureFiles(
 		...(opts.seed !== undefined ? { seed: opts.seed } : {})
 	});
 
-	const collections = await loadCollections(pb);
-	const eligible = collections.filter((c) => !c.name.startsWith('_') && c.type !== 'view');
 	const { ids } = dependencyOrder(eligible);
 
 	// Fixtures load after seeds, so a relation may point at a seeded record —
@@ -95,14 +141,21 @@ export async function generateFixtureFiles(
 	const seedIds = readSeedIds(workspaceRootDir);
 	const recordIds = new Map<string, string[]>();
 	for (const collection of eligible) {
-		recordIds.set(collection.id, [...(seedIds.get(collection.name) ?? [])]);
+		const pool = [...(seedIds.get(collection.name) ?? [])];
+		// The fixtures a narrowed run leaves alone are still there to relate to.
+		const kept = existing.get(collection.name);
+		if (kept && !selectedIds.has(collection.id)) {
+			for (const record of readRecords(path.join(fixturesDir, kept))) {
+				if (typeof record.id === 'string' && record.id) pool.push(record.id);
+			}
+		}
+		recordIds.set(collection.id, pool);
 	}
 
 	const writtenFiles: string[] = [];
 	const warnings: string[] = [];
-	let fileIndex = 1;
 	for (const collectionId of ids) {
-		const collection = eligible.find((c) => c.id === collectionId);
+		const collection = selected.find((c) => c.id === collectionId);
 		if (!collection) continue;
 
 		for (const f of collection.fields) {
@@ -128,11 +181,20 @@ export async function generateFixtureFiles(
 		}
 		schema.required = schema.required.filter((name) => name in properties);
 
-		const annotated = annotate(schema as JsonSchema, collection.name);
+		// Bounded after the name hints are added: a hint on a field that is not
+		// text is dropped there, and unbounded numbers get a range.
+		const annotated = prepareFixtureSchema(
+			annotate(schema as JsonSchema, collection.name) as unknown as FixtureSchema
+		);
 
+		const count = opts.counts?.[collection.name] ?? opts.count;
 		const items: Record<string, unknown>[] = [];
-		for (let idx = 0; idx < opts.count; idx++) {
-			const record = (await generator.generate(annotated)) as Record<string, unknown>;
+		for (let idx = 0; idx < count; idx++) {
+			const record = (await generator.generate(annotated as unknown as JsonSchema)) as Record<
+				string,
+				unknown
+			>;
+			fillRequired(record, annotated);
 
 			const shortName = collection.name.slice(0, 6);
 			const remaining = 15 - shortName.length - FIXTURE_PREFIX.length;
@@ -159,22 +221,53 @@ export async function generateFixtureFiles(
 			items.push(record);
 		}
 
-		const filename = `${padZeros(fileIndex, 2)}-${collection.name}.json`;
+		const filename =
+			existing.get(collection.name) ?? `${padZeros(fileIndex++, 2)}-${collection.name}.json`;
 		fs.writeFileSync(path.join(fixturesDir, filename), JSON.stringify(items, null, 2));
 		writtenFiles.push(`${path.join(DATA_DIR, 'fixtures', filename)} (${items.length} records)`);
-		fileIndex++;
 	}
 
-	return { writtenFiles, warnings };
+	return { writtenFiles, warnings, internalSkipped };
+}
+
+/** The note printed when pattern-internal collections were left out. */
+export function internalSkippedNote(names: string[]): string {
+	return `Left out ${names.join(', ')}: the app fills ${names.length === 1 ? 'this collection' : 'these collections'} itself. Pass \`--only ${names[0]}\` to generate records anyway.`;
+}
+
+interface GenerateOptions {
+	count: number;
+	countFor?: Record<string, number>;
+	only?: string[];
+	skip?: string[];
+	seed?: number;
+	force?: boolean;
 }
 
 export const generate = new Command('generate')
 	.description('generate fixture data')
 	.option('-c, --count <count>', 'number of records per collection', parseCount, 10)
+	.option(
+		'--count-for <collection=count...>',
+		'records for one collection, overriding --count; repeat or list several, e.g. --count-for songs=64 participants=13',
+		collectCountFor
+	)
+	.option(
+		'--only <collections...>',
+		'generate for these collections only, leaving the other fixture files as they are'
+	)
+	.option(
+		'--skip <collections...>',
+		'leave these collections out, and their fixture files as they are'
+	)
 	.option('-s, --seed <seed>', 'seed for deterministic output', parseSeed)
 	.option('-f, --force', 'overwrite existing fixture files and clear loaded fixtures')
 	.configureHelp(helpConfig)
-	.action((opts: { count: number; seed?: number; force?: boolean }) =>
+	.addHelpText(
+		'after',
+		`\nCollections the app fills itself are left out unless --only names them:\n${INTERNAL_COLLECTIONS.map((name) => `  ${name}`).join('\n')}`
+	)
+	.action((opts: GenerateOptions) =>
 		runCommand(async () => {
 			const { workspaceRootDir } = await getWorkspace();
 			const existing = getFixtureFiles(workspaceRootDir);
@@ -195,7 +288,7 @@ export const generate = new Command('generate')
 				return;
 			}
 
-			let result: GenerateFixturesResult = { writtenFiles: [], warnings: [] };
+			let result: GenerateFixturesResult = { writtenFiles: [], warnings: [], internalSkipped: [] };
 			let cleared: string[] = [];
 			await withPocketbase(workspaceRootDir, async (pb) => {
 				if (opts.force) {
@@ -203,11 +296,16 @@ export const generate = new Command('generate')
 				}
 				result = await generateFixtureFiles(pb, workspaceRootDir, {
 					count: opts.count,
+					counts: opts.countFor,
+					only: opts.only,
+					skip: opts.skip,
 					seed: opts.seed
 				});
 			});
 
 			for (const warning of result.warnings) p.log.warn(warning);
+			if (result.internalSkipped.length > 0)
+				p.log.info(internalSkippedNote(result.internalSkipped));
 
 			if (result.writtenFiles.length === 0) {
 				reportResult({

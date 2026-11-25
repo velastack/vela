@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as p from '@clack/prompts';
 import { bySlug, type Pattern, type Slug } from '@velastack/patterns';
-import { withPocketbase } from './pocketbase.ts';
+import { exposePocketbaseBinary, withPocketbase } from './pocketbase.ts';
 import { detectWorkspace } from './workspace.ts';
 import { reportResult, type ReportFailure } from './result-report.ts';
 import { checkProviderInput } from './providers.ts';
@@ -10,6 +10,7 @@ import { assertShadcn } from './require-ui.ts';
 import { assertRequires } from './require-features.ts';
 import { assertKit3 } from './kit-version.ts';
 import { MIGRATIONS_DIR } from './constants.ts';
+import { taskLog } from './task-log.ts';
 
 export interface PatternReport {
 	summary?: string;
@@ -121,7 +122,10 @@ export async function runPattern(
 
 	const migrationsBefore = listMigrations(workspaceRootDir);
 
-	const log = p.taskLog({ title: report.task.title });
+	const log = taskLog({ title: report.task.title });
+
+	// Patterns that run PocketBase (to write a migration, say) spawn vela's own.
+	exposePocketbaseBinary();
 
 	let result;
 	try {
@@ -182,6 +186,7 @@ export async function runPattern(
 		migrationsBefore
 	);
 	const deleted = result.deletes.filter(isSuccess);
+	const notes = (result as { notes?: string[] }).notes ?? [];
 
 	const totalChanges =
 		created.length +
@@ -203,6 +208,9 @@ export async function runPattern(
 			componentsAdded: result.components,
 			packagesInstalled: result.packages,
 			collectionsAdded: result.collections.map((c: { name: string }) => c.name),
+			// Things the pattern wants read, such as what `--rules superuser`
+			// means for the pages that use the collection.
+			sections: notes.length > 0 ? [{ label: 'Notes', items: notes }] : undefined,
 			failures,
 			// Next steps assume the pattern applied; when part of it didn't, the
 			// remediation snippets above are the actual next step.

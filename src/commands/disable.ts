@@ -13,6 +13,7 @@ import { og } from './disable/og.ts';
 import { teams } from './disable/teams.ts';
 import { payments } from './disable/payments.ts';
 import { ecommerce } from './disable/ecommerce.ts';
+import { email } from './disable/email.ts';
 import { subscriptions } from './disable/subscriptions.ts';
 import { orders } from './disable/orders.ts';
 import { whatsapp } from './disable/whatsapp.ts';
@@ -33,6 +34,7 @@ export const disable = new Command('disable')
 	.addCommand(teams)
 	.addCommand(payments)
 	.addCommand(ecommerce)
+	.addCommand(email)
 	.addCommand(subscriptions)
 	.addCommand(orders)
 	.addCommand(whatsapp);

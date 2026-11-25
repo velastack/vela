@@ -214,6 +214,199 @@ state_merge withflag '{"webPort": 4103, "pbPort": 8103, "backend": true}'
 expect_ok "require_backend passes with a database" require_backend withdb
 expect_die "require_backend refuses without one" require_backend nodb
 
+# ------------------------------------------------------- dependency install
+#
+# apply.sh skips npm altogether for a release that asks for nothing at runtime,
+# drops devDependencies from the manifest it installs from when there is no
+# package-lock.json, and names the out-of-memory killer when npm dies of it.
+
+pkgs="$SCRATCH/pkgs"; mkdir -p "$pkgs"
+pkg() { printf '%s' "$2" > "$pkgs/$1.json"; printf '%s' "$pkgs/$1.json"; }
+expect_ok "runtime deps: devDependencies alone are none" package_without_runtime_deps \
+	"$(pkg dev-only '{"scripts":{"prepare":"svelte-kit sync"},"devDependencies":{"vite":"^8.0.0"}}')"
+expect_ok "runtime deps: empty objects are none" package_without_runtime_deps \
+	"$(pkg empty '{"dependencies":{},"optionalDependencies":{},"devDependencies":{"vite":"^8.0.0"}}')"
+expect_ok "runtime deps: a bare package.json has none" package_without_runtime_deps "$(pkg bare '{}')"
+expect_die "runtime deps: a dependency is one" package_without_runtime_deps \
+	"$(pkg dep '{"dependencies":{"argon2":"^0.44.0"}}')"
+expect_die "runtime deps: an optional dependency is one" package_without_runtime_deps \
+	"$(pkg optional '{"optionalDependencies":{"fsevents":"^2.3.3"}}')"
+expect_die "runtime deps: a peer dependency is one" package_without_runtime_deps \
+	"$(pkg peer '{"peerDependencies":{"svelte":"^5.0.0"}}')"
+expect_die "runtime deps: workspaces are left to npm" package_without_runtime_deps \
+	"$(pkg workspaces '{"workspaces":["packages/*"]}')"
+expect_die "runtime deps: an unreadable package.json is left to npm" package_without_runtime_deps \
+	"$(pkg broken '{not json')"
+expect_die "runtime deps: a missing package.json is left to npm" package_without_runtime_deps "$pkgs/none.json"
+
+manifest='{"scripts":{"prepare":"svelte-kit sync","start":"node build"},"dependencies":{"argon2":"^0.44.0"},"devDependencies":{"vite":"^8.0.0"}}'
+manifest_after() { prepare_install_manifest "$1" "$2" && jq -c . "$1"; }
+expect_lines "install manifest: without a lockfile, prepare and devDependencies go" \
+	'{"scripts":{"start":"node build"},"dependencies":{"argon2":"^0.44.0"}}' \
+	manifest_after "$(pkg no-lock "$manifest")" 1
+expect_lines "install manifest: with a lockfile, only prepare goes" \
+	'{"scripts":{"start":"node build"},"dependencies":{"argon2":"^0.44.0"},"devDependencies":{"vite":"^8.0.0"}}' \
+	manifest_after "$(pkg with-lock "$manifest")" 0
+untouched=$(pkg untouched '{"dependencies":{"argon2":"^0.44.0"}}')
+prepare_install_manifest "$untouched" 1
+[ "$(cat "$untouched")" = '{"dependencies":{"argon2":"^0.44.0"}}' ] \
+	&& ok "install manifest: nothing to drop leaves the file as it was" \
+	|| bad "install manifest: nothing to drop leaves the file as it was" "$(cat "$untouched")"
+expect_die "install manifest: an unreadable package.json fails" prepare_install_manifest "$pkgs/broken.json" 1
+
+printf 'MemTotal:         468356 kB\nMemFree:           12000 kB\nSwapTotal:             0 kB\n' > "$SCRATCH/meminfo"
+expect_lines "meminfo: a field in megabytes" '457' meminfo_mb MemTotal "$SCRATCH/meminfo"
+expect_lines "meminfo: no swap is 0" '0' meminfo_mb SwapTotal "$SCRATCH/meminfo"
+expect_lines "meminfo: an unknown field is ?" '?' meminfo_mb Nope "$SCRATCH/meminfo"
+expect_lines "meminfo: an unreadable file is ?" '?' meminfo_mb MemTotal "$SCRATCH/no-meminfo"
+expect_lines "install failure: any other status keeps the plain message, with the code" \
+	'dependency install failed (exit 1)' install_failure_message 1 "$SCRATCH/meminfo"
+killed=$(install_failure_message 137 "$SCRATCH/meminfo")
+if grep -q 'npm was killed (exit 137)' <<<"$killed" && grep -q 'out-of-memory killer' <<<"$killed" \
+	&& grep -q '457 MB of memory and 0 MB of swap' <<<"$killed" && grep -q 'vela provision' <<<"$killed"; then
+	ok "install failure: 137 names the out-of-memory killer, the memory and the way out"
+else
+	bad "install failure: 137 names the out-of-memory killer, the memory and the way out" "$killed"
+fi
+
+# apply.sh's install_deps itself, lifted out of the script and run against a
+# stand-in npm that records how it was called and exits as told. Root-only
+# commands are stubbed; the decisions and the layout left behind are real.
+fake_npm_dir="$SCRATCH/fake-npm"; mkdir -p "$fake_npm_dir"
+cat > "$fake_npm_dir/npm" <<'NPM'
+#!/bin/sh
+if [ "$1" = "-v" ]; then echo 11.6.2; exit 0; fi
+printf '%s\n' "$*" > "$NPM_CALL_LOG"
+cp package.json "$NPM_CALL_LOG.package.json"
+mkdir -p node_modules/argon2
+exit "${FAKE_NPM_EXIT:-0}"
+NPM
+chmod +x "$fake_npm_dir/npm"
+# usage: run_install <name> <npm-exit> <package.json> [lockfile-name]
+# Leaves $SCRATCH/install/<name>/{app,calls}, prints install_deps' stderr.
+run_install() {
+	local name=$1 npm_exit=$2 manifest=$3 lockfile=${4:-}
+	local base="$SCRATCH/install/$name"
+	mkdir -p "$base/app/releases/r1" "$base/app/deps"
+	printf '%s' "$manifest" > "$base/app/releases/r1/package.json"
+	if [ -n "$lockfile" ]; then printf 'lock' > "$base/app/releases/r1/$lockfile"; fi
+	(
+		set -Eeuo pipefail
+		APP="$base/app" RELEASE_DIR="$base/app/releases/r1"
+		export NPM_CALL_LOG="$base/calls" FAKE_NPM_EXIT=$npm_exit PATH="$fake_npm_dir:$PATH"
+		chown() { :; }
+		runuser() { shift 3; "$@"; }
+		command -v sha256sum >/dev/null 2>&1 || sha256sum() { shasum -a 256; }
+		# BSD mv has no -T; the link being replaced does not exist yet here.
+		mv --version >/dev/null 2>&1 || mv() { shift; command mv -f "$@"; }
+		eval "$(sed -n '/^install_deps() {$/,/^}$/p' "$ROOT/templates/server/apply.sh")"
+		install_deps
+	) 2>&1
+}
+installed_dir() { dirname "$(readlink "$SCRATCH/install/$1/app/releases/r1/node_modules")"; }
+
+dev_only='{"scripts":{"prepare":"svelte-kit sync"},"devDependencies":{"vite":"^8.0.0"}}'
+with_dep='{"scripts":{"prepare":"svelte-kit sync"},"dependencies":{"argon2":"^0.44.0"},"devDependencies":{"vite":"^8.0.0"}}'
+
+out=$(run_install skip 0 "$dev_only" pnpm-lock.yaml); code=$?
+d=$(installed_dir skip)
+if [ "$code" = 0 ] && [ ! -e "$SCRATCH/install/skip/calls" ] && grep -q 'no runtime dependencies - skipping' <<<"$out" \
+	&& [ -d "$d/node_modules" ] && [ -z "$(ls -A "$d/node_modules")" ] && [ -f "$d/.vela-installed" ] \
+	&& [ "$(cat "$SCRATCH/install/skip/app/releases/r1/.vela-deps")" = "$(basename "$d")" ]; then
+	ok "install: no runtime dependencies - npm never starts, and the keyed tree is in place"
+else
+	bad "install: no runtime dependencies - npm never starts, and the keyed tree is in place" "$out"
+fi
+out=$(run_install skip 0 "$dev_only" pnpm-lock.yaml)
+grep -q 'dependencies already installed' <<<"$out" \
+	&& ok "install: the skipped tree is reused by the next deploy" \
+	|| bad "install: the skipped tree is reused by the next deploy" "$out"
+
+out=$(run_install skip-lock 0 "$dev_only" package-lock.json); code=$?
+[ "$code" = 0 ] && [ ! -e "$SCRATCH/install/skip-lock/calls" ] \
+	&& ok "install: no runtime dependencies with a package-lock.json skips npm ci too" \
+	|| bad "install: no runtime dependencies with a package-lock.json skips npm ci too" "$out"
+
+out=$(run_install locked 0 "$with_dep" package-lock.json); code=$?
+if [ "$code" = 0 ] && grep -q '^ci --omit=dev ' "$SCRATCH/install/locked/calls" \
+	&& [ "$(jq -c 'del(.scripts)' "$SCRATCH/install/locked/calls.package.json")" = '{"dependencies":{"argon2":"^0.44.0"},"devDependencies":{"vite":"^8.0.0"}}' ] \
+	&& [ "$(jq -r '.scripts.prepare // "gone"' "$SCRATCH/install/locked/calls.package.json")" = gone ] \
+	&& [ -d "$(installed_dir locked)/node_modules/argon2" ] && [ -f "$(installed_dir locked)/.vela-installed" ]; then
+	ok "install: with a package-lock.json it is npm ci on the manifest the lockfile describes"
+else
+	bad "install: with a package-lock.json it is npm ci on the manifest the lockfile describes" "$out $(cat "$SCRATCH/install/locked/calls" 2>&1)"
+fi
+
+out=$(run_install foreign 0 "$with_dep" pnpm-lock.yaml); code=$?
+if [ "$code" = 0 ] && grep -q '^install --omit=dev ' "$SCRATCH/install/foreign/calls" \
+	&& [ "$(jq -c 'del(.scripts)' "$SCRATCH/install/foreign/calls.package.json")" = '{"dependencies":{"argon2":"^0.44.0"}}' ]; then
+	ok "install: without one it is npm install on a manifest with no devDependencies"
+else
+	bad "install: without one it is npm install on a manifest with no devDependencies" "$out"
+fi
+
+out=$(run_install killed 137 "$with_dep" pnpm-lock.yaml); code=$?
+if [ "$code" = 1 ] && grep -q 'error: dependency install failed: npm was killed (exit 137)' <<<"$out" \
+	&& grep -q 'out-of-memory killer' <<<"$out" \
+	&& [ ! -e "$SCRATCH/install/killed/app/releases/r1/node_modules" ] \
+	&& [ -z "$(find "$SCRATCH/install/killed/app/deps" -name .vela-installed)" ]; then
+	ok "install: a killed npm fails the deploy, names the cause and leaves no finished tree"
+else
+	bad "install: a killed npm fails the deploy, names the cause and leaves no finished tree" "code=$code $out"
+fi
+out=$(run_install failed 1 "$with_dep" package-lock.json); code=$?
+[ "$code" = 1 ] && grep -q 'error: dependency install failed (exit 1)$' <<<"$out" \
+	&& ok "install: any other failure keeps its message, with the exit code" \
+	|| bad "install: any other failure keeps its message, with the exit code" "code=$code $out"
+
+# What `vela status` reports as runtimeDependencies, and `vela provision` reads
+# to name the apps a new Node major leaves needing a redeploy.
+rel="$SCRATCH/rel"; mkdir -p "$rel/empty" "$rel/bookkeeping" "$rel/full" "$rel/linked" "$rel/none" "$rel/deps/node_modules/argon2"
+mkdir -p "$rel/empty/node_modules" "$rel/bookkeeping/node_modules" "$rel/full/node_modules/argon2"
+: > "$rel/bookkeeping/node_modules/.package-lock.json"
+ln -s "$rel/deps/node_modules" "$rel/linked/node_modules"
+expect_die "release modules: an empty node_modules has none" release_has_modules "$rel/empty"
+expect_die "release modules: npm's bookkeeping alone is none" release_has_modules "$rel/bookkeeping"
+expect_die "release modules: no node_modules at all is none" release_has_modules "$rel/none"
+expect_ok "release modules: an installed package is some" release_has_modules "$rel/full"
+expect_ok "release modules: seen through the link into deps/" release_has_modules "$rel/linked"
+
+# --------------------------------------------------------------------- swap
+#
+# `vela provision` adds a swapfile to a server with under 2 GB of memory and no
+# swap, sized by what the disk can spare. The numbers are kilobytes, as
+# /proc/meminfo and `df -k` give them.
+
+gb=$((1024 * 1024))
+expect_lines "swap: 458 MB, no swap, plenty of disk gets 2 GB" '2048' swap_plan 468356 0 $((20 * gb))
+expect_lines "swap: a nominal 2 GB server reports less, and gets it too" '2048' swap_plan 2014300 0 $((40 * gb))
+expect_lines "swap: under 8 GB free gets 1 GB" '1024' swap_plan 468356 0 $((6 * gb))
+expect_lines "swap: exactly 8 GB free gets 2 GB" '2048' swap_plan 468356 0 $((8 * gb))
+expect_lines "swap: under 4 GB free gets none, with a reason" 'disk' swap_plan 468356 0 $((3 * gb))
+expect_lines "swap: exactly 4 GB free gets 1 GB" '1024' swap_plan 468356 0 $((4 * gb))
+expect_lines "swap: 2 GB of memory needs none" 'none' swap_plan $((2 * gb)) 0 $((20 * gb))
+expect_lines "swap: 8 GB of memory needs none" 'none' swap_plan $((8 * gb)) 0 $((20 * gb))
+expect_lines "swap: swap that is already on is left alone" 'none' swap_plan 468356 524284 $((20 * gb))
+expect_lines "swap: an existing swap outranks a full disk" 'none' swap_plan 468356 524284 $((1 * gb))
+expect_lines "swap: numbers that cannot be read change nothing" 'none' swap_plan '' 0 $((20 * gb))
+expect_lines "swap: an unreadable disk changes nothing" 'none' swap_plan 468356 0 ''
+
+fstab="$SCRATCH/fstab"
+printf 'LABEL=cloudimg-rootfs / ext4 discard,errors=remount-ro 0 1' > "$fstab"
+fstab_add_swap /swapfile "$fstab"
+fstab_add_swap /swapfile "$fstab"
+[ "$(cat "$fstab")" = "$(printf 'LABEL=cloudimg-rootfs / ext4 discard,errors=remount-ro 0 1\n/swapfile none swap sw 0 0')" ] \
+	&& ok "swap: the fstab line is added once, on a line of its own" \
+	|| bad "swap: the fstab line is added once, on a line of its own" "$(cat "$fstab")"
+fstab_add_swap /swapfile "$SCRATCH/fstab-new"
+[ "$(cat "$SCRATCH/fstab-new")" = '/swapfile none swap sw 0 0' ] \
+	&& ok "swap: a missing fstab is created" || bad "swap: a missing fstab is created"
+printf '/swapfile2 none swap sw 0 0\n' > "$SCRATCH/fstab-other"
+fstab_add_swap /swapfile "$SCRATCH/fstab-other"
+[ "$(grep -c . "$SCRATCH/fstab-other")" = 2 ] \
+	&& ok "swap: another swapfile's line is not taken for this one" \
+	|| bad "swap: another swapfile's line is not taken for this one" "$(cat "$SCRATCH/fstab-other")"
+
 # ------------------------------------------------------------- health gate
 #
 # A one-shot HTTP server that answers every request with one status code.

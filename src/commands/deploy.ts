@@ -40,7 +40,7 @@ import {
 	syncServerScripts,
 	type InstanceState
 } from '../lib/remote.ts';
-import { collectArtifact, foreignLockfile, gitSha, runBuild } from '../lib/artifact.ts';
+import { collectArtifact, gitSha, lockfileAdvice, runBuild } from '../lib/artifact.ts';
 import {
 	ADAPTER_AUTO,
 	ADAPTER_NODE,
@@ -114,14 +114,8 @@ export const deploy = addLockWaitOption(
 				const { workspaceRootDir } = await getWorkspace();
 				await prepareAdapter(workspaceRootDir);
 
-				const foreign = foreignLockfile(workspaceRootDir);
-				if (foreign) {
-					p.log.warn(
-						`Dependencies are pinned by ${pc.cyan(foreign)}, but the server installs with npm, which cannot replay it.\n` +
-							`Versions there are resolved from package.json ranges and may differ from yours. Commit a\n` +
-							`${pc.cyan('package-lock.json')} (${pc.dim('npm install --package-lock-only')}) for a reproducible deploy.`
-					);
-				}
+				const advice = lockfileAdvice(workspaceRootDir);
+				if (advice) p.log.warn(advice);
 			}
 			// With --no-build too: the build already there has the same bare imports.
 			ssrExternalPreflight(findWorkspaceRoot() ?? process.cwd());
@@ -430,6 +424,7 @@ export const deploy = addLockWaitOption(
 									`your own instead, ${pc.cyan('vela env set POCKETBASE_SUPERUSER_PASSWORD')}\n` +
 									`and deploy again.`
 							);
+							p.log.info(`No app users yet: ${pc.cyan(`vela users create -t ${ctx.targetName}`)}`);
 						}
 
 						if (!primaryHost) {

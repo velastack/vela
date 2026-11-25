@@ -5,7 +5,7 @@ import nodePath from 'node:path';
 import dotenv from 'dotenv';
 import pkg from '../package.json' with { type: 'json' };
 import { helpConfig } from './lib/help.ts';
-import { findWorkspaceRoot, hasBackend } from './lib/workspace.ts';
+import { findWorkspaceRoot, hasBackend, noProjectMessage } from './lib/workspace.ts';
 import {
 	hasSuperuserCredentials,
 	missingBackendMessage,
@@ -13,6 +13,7 @@ import {
 } from './lib/backend-gate.ts';
 import { bless } from './commands/bless.ts';
 import { create } from './commands/create.ts';
+import { templates } from './commands/templates.ts';
 import { generate } from './commands/generate.ts';
 import { enable } from './commands/enable.ts';
 import { disable } from './commands/disable.ts';
@@ -30,6 +31,7 @@ import { dev } from './commands/dev.ts';
 import { build } from './commands/build.ts';
 import { preview } from './commands/preview.ts';
 import { sync } from './commands/sync.ts';
+import { hasLocalDatabase } from './lib/pocketbase.ts';
 import { provision } from './commands/provision.ts';
 import { deploy } from './commands/deploy.ts';
 import { link } from './commands/link.ts';
@@ -38,6 +40,7 @@ import { status } from './commands/status.ts';
 import { rollback } from './commands/rollback.ts';
 import { logs } from './commands/logs.ts';
 import { admin } from './commands/admin.ts';
+import { users } from './commands/users.ts';
 import { backup } from './commands/backup.ts';
 import { restore } from './commands/restore.ts';
 import { targets } from './commands/targets.ts';
@@ -53,6 +56,7 @@ import { workflows } from './commands/workflows.ts';
 const NO_BACKEND_COMMMANDS = new Set([
 	'bless',
 	'create',
+	'templates',
 	'signup',
 	'login',
 	'logout',
@@ -83,6 +87,12 @@ const NO_BACKEND_COMMMANDS = new Set([
 	// its `requires` says, so a static project is refused there instead.
 	'enable ecommerce',
 	'disable ecommerce',
+	// Writes PB_SMTP_* to `.env` or to a target's environment; the database is
+	// never opened, and the command says so itself when there is no backend.
+	'enable email',
+	'disable email',
+	// Writes a GitHub Actions workflow and reads `.vela/project.json`.
+	'enable ci',
 	// Only wires hooks, reroute and the root layout; no collections involved.
 	'enable content-negotiation',
 	'disable content-negotiation',
@@ -104,6 +114,9 @@ const NO_BACKEND_COMMMANDS = new Set([
 	'rollback',
 	'logs',
 	'admin',
+	// Acts on whichever target `-t` names; the local path reads the project's own
+	// credentials itself, like `admin create`.
+	'users',
 	'targets',
 	'link',
 	// Acts on whichever target `-t` names; the local path reads the project's
@@ -161,6 +174,14 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 	const top = path.split(' ', 1)[0];
 	if (NO_BACKEND_COMMMANDS.has(top)) return;
 
+	// Outside any project the answer is not `vela enable backend`.
+	if (!findWorkspaceRoot()) {
+		p.log.error(noProjectMessage());
+		p.log.message();
+		p.cancel('Operation failed.');
+		process.exit(1);
+	}
+
 	// Frontend commands carry on without PocketBase; anything that needs the
 	// database says so plainly rather than sending the user off to look for a
 	// .env that would not help.
@@ -177,6 +198,11 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 	// The visual schema editor runs on a throwaway database with its own
 	// superuser; the project's credentials are not read.
 	if (path === 'generate migration' && actionCommand.opts().ai) return;
+
+	// `vela sync` with no local database has nothing to sign in to: it says so
+	// in one line and exits 0 (the scaffold's `prepare` script runs it on every
+	// install, a fresh CI checkout included).
+	if (path === 'sync' && !hasLocalDatabase(findWorkspaceRoot() ?? process.cwd())) return;
 
 	if (!hasSuperuserCredentials()) {
 		p.log.error(missingCredentialsMessage());
@@ -199,6 +225,7 @@ function getCommandPath(cmd: Command): string {
 for (const command of [
 	bless,
 	create,
+	templates,
 	generate,
 	enable,
 	disable,
@@ -223,6 +250,7 @@ for (const command of [
 	logs,
 	env,
 	admin,
+	users,
 	backup,
 	restore,
 	targets,
