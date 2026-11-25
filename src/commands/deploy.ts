@@ -26,7 +26,13 @@ import { withRemotePocketbase } from '../lib/remote-pocketbase.ts';
 import { DataLoadError, getSeedFiles, loadSeeds, summarizeSeedLoad } from '../lib/data.ts';
 import { instanceId, normalizeEnvTag, releaseId } from '../lib/instance.ts';
 import { ensureSuperuser, findFreePort, pocketbaseVersion } from '../lib/pocketbase.ts';
-import { buildOrigin, normalizeOrigin, splitHosts } from '../lib/origin.ts';
+import {
+	buildOrigin,
+	deployHosts,
+	normalizeOrigin,
+	shouldAnnounceDeploy,
+	splitHosts
+} from '../lib/origin.ts';
 import { readSite } from '../lib/site.ts';
 import { createDeployReporter, reportEnvironmentDestroyed } from '../lib/deploy-report.ts';
 import { TARGET_REMOVED_EXIT, TargetRemovedError } from '../lib/errors.ts';
@@ -208,22 +214,46 @@ export const deploy = addLockWaitOption(
 						// build renders its absolute URLs against the primary one.
 						const reporter = createDeployReporter(workspaceRootDir);
 						const server = await reporter.identifyServer(session);
-						const started = await reporter.start({
-							target: ctx.target.kind === 'preview' ? 'preview' : ctx.targetName,
-							env_tag: ctx.envTag,
-							branch: ctx.target.kind === 'preview' ? ctx.target.branch : undefined,
-							git_sha: sha || undefined,
-							hostnames: splitHosts(configured),
-							server: server ? { id: server.serverId, token: server.token } : undefined
-						});
+						const announce =
+							!reporter.enabled ||
+							shouldAnnounceDeploy({
+								serverIdentified: server !== null,
+								existingManaged: existing?.managed
+							});
+						if (!announce) {
+							p.log.warn(
+								`This server could not be identified to velastack.dev, so this deploy is not recorded there:\n` +
+									`recording it without the server would give up ${pc.cyan(existing?.managed ?? '')}.`
+							);
+						}
+						const started = !announce
+							? null
+							: await reporter.start({
+									target: ctx.target.kind === 'preview' ? 'preview' : ctx.targetName,
+									env_tag: ctx.envTag,
+									branch: ctx.target.kind === 'preview' ? ctx.target.branch : undefined,
+									git_sha: sha || undefined,
+									hostnames: splitHosts(configured),
+									server: server ? { id: server.serverId, token: server.token } : undefined
+								});
 						// Hosts Caddy serves directly: what is configured here plus any
 						// velastack.dev has recorded for the environment. Managed
 						// `<sub>.velastack.app` names arrive through the Worker at the
 						// server's origin site instead, and are routed by header.
-						const directHosts = [
-							...new Set([...splitHosts(configured), ...(started?.environment.direct ?? [])])
-						];
-						const managedHosts = started?.environment.managed ?? [];
+						const hosts = deployHosts({
+							configured,
+							answered: started?.environment,
+							existingManaged: existing?.managed
+						});
+						const directHosts = hosts.direct;
+						const managedHosts = hosts.managed;
+						if (hosts.keptManaged) {
+							p.log.warn(
+								`velastack.dev was not asked about this deploy's hostnames, so ${pc.cyan(managedHosts.join(', '))}\n` +
+									`stays as the server has it. Run ${pc.cyan('vela login')}, or set ${pc.cyan('VELA_API_KEY')}` +
+									` (in CI: ${pc.cyan('vela enable ci')}).`
+							);
+						}
 						const domain = directHosts.join(',');
 						const managed = managedHosts.join(',');
 						const primaryHost = directHosts[0] ?? managedHosts[0] ?? '';

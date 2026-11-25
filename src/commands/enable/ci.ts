@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { Command } from 'commander';
@@ -6,6 +7,7 @@ import pc from 'picocolors';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { addSshOptions, sshOptionsFrom } from '../../lib/ssh-options.ts';
+import { spawnCapture } from '../../lib/ssh.ts';
 import { isInteractive } from '../../lib/providers.ts';
 import { findWorkspaceRoot, hasBackend } from '../../lib/workspace.ts';
 import {
@@ -16,11 +18,14 @@ import {
 	SSH_KEY_SECRET,
 	WORKFLOW_PATH,
 	writeWorkflow,
+	type GithubRepo,
 	type Prerequisite,
 	type ProjectFacts,
 	type WriteOutcome
 } from '../../lib/ci-workflow.ts';
+import { readApiKey } from '../../lib/config.ts';
 import {
+	ciApiKeyLabel,
 	manualKeySteps,
 	realCiKeyEffects,
 	setupCiKey,
@@ -31,6 +36,8 @@ import {
 export interface EnableCiFlags {
 	branch?: string;
 	apiKeySecret?: boolean;
+	/** `--no-api-key`: the workflow does not pass one, and none is issued. */
+	apiKey?: boolean;
 	previews?: boolean;
 	force?: boolean;
 	setupKey?: boolean;
@@ -47,7 +54,20 @@ export interface EnableCiResult {
 	prerequisites: Prerequisite[];
 	key: CiKeyOutcome | { status: 'skipped' };
 	facts: ProjectFacts;
+	/** Where the workflow's velastack.dev API key stands. */
+	apiKey: ApiKeyState;
+	/** An existing workflow was kept, and it does not pass the API key the project needs. */
+	workflowIgnoresApiKey: boolean;
 }
+
+/**
+ * - `none`: the workflow passes no key (not linked, or `--no-api-key`).
+ * - `stored`: issued and stored by this run.
+ * - `present`: the repository already has the secret.
+ * - `missing`: the workflow passes the secret and the repository does not have it.
+ * - `unknown`: could not tell (no `gh`, no repository).
+ */
+export type ApiKeyState = 'none' | 'stored' | 'present' | 'missing' | 'unknown';
 
 /**
  * CLI-only: it writes a workflow file and, when asked, sets up a deploy key.
@@ -59,7 +79,7 @@ export interface EnableCiResult {
 export const ci = addSshOptions(
 	new Command('ci')
 		.description(
-			'deploy on push: write a GitHub Actions workflow for velastack/action, check what it needs, and optionally set up the deploy key'
+			'deploy on push: write a GitHub Actions workflow for velastack/action and set up what it needs: a deploy key for the server and, for a linked project, a velastack.dev API key'
 		)
 		.option(
 			'--branch <name>',
@@ -67,7 +87,11 @@ export const ci = addSshOptions(
 		)
 		.option(
 			'--api-key-secret',
-			`pass the ${API_KEY_SECRET} repository secret to the action, so deploys are recorded on velastack.dev`
+			`pass the ${API_KEY_SECRET} repository secret to the action and set it yourself, rather than have one issued`
+		)
+		.option(
+			'--no-api-key',
+			`leave velastack.dev out of the workflow: no ${API_KEY_SECRET}, deploys are not recorded, and a velastack.app hostname is only kept, never given`
 		)
 		.option(
 			'--previews',
@@ -76,9 +100,9 @@ export const ci = addSshOptions(
 		.option('--force', 'overwrite an existing .github/workflows/deploy.yml')
 		.option(
 			'--setup-key',
-			`create a deploy key for CI: add its public half to the server and store its private half as the ${SSH_KEY_SECRET} secret with \`gh\``
+			`only set up the secrets and leave an existing workflow as it is: the deploy key (${SSH_KEY_SECRET}) and, for a linked project, the API key (${API_KEY_SECRET})`
 		)
-		.option('-y, --yes', 'with --setup-key, go ahead without asking')
+		.option('-y, --yes', 'set up the secrets without asking')
 		.configureHelp(helpConfig)
 ).action((raw: EnableCiFlags) =>
 	runCommand(async () => {
@@ -88,8 +112,14 @@ export const ci = addSshOptions(
 		}
 		const result = await enableCi(root, raw, {
 			interactive: isInteractive(),
-			keyEffects: realCiKeyEffects(sshOptionsFrom(raw), { showPlan, confirm: confirmPlan }),
-			askSetupKey
+			keyEffects: realCiKeyEffects(
+				sshOptionsFrom(raw),
+				{ showPlan, confirm: confirmPlan },
+				readApiKey()
+			),
+			askSetupKey,
+			loggedIn: readApiKey() !== null,
+			secretExists
 		});
 		report(result, raw);
 	}, 'Failed to set up CI.')
@@ -102,6 +132,10 @@ export interface EnableCiDeps {
 	askSetupKey: () => Promise<boolean>;
 	/** Whether the project has a PocketBase backend; read from disk when unset. */
 	backend?: boolean;
+	/** Whether this machine has a velastack.dev API key to issue another with. */
+	loggedIn?: boolean;
+	/** Whether the repository has a secret of this name; null when it cannot be told. */
+	secretExists?: (repo: GithubRepo, name: string) => Promise<boolean | null>;
 }
 
 /**
@@ -113,6 +147,11 @@ export async function enableCi(
 	flags: EnableCiFlags,
 	deps: EnableCiDeps
 ): Promise<EnableCiResult> {
+	if (flags.previews && flags.apiKey === false) {
+		throw new Error(
+			`--previews needs the ${API_KEY_SECRET} secret (velastack.dev names each preview), so it cannot be combined with --no-api-key.`
+		);
+	}
 	const facts = await gatherProjectFacts(workspaceRootDir);
 	const branch = flags.branch?.trim() || facts.branch || 'main';
 
@@ -121,10 +160,18 @@ export async function enableCi(
 	const workingDirectory = path.relative(repoRoot, workspaceRootDir).split(path.sep).join('/');
 	const workflowFile = path.join(repoRoot, WORKFLOW_PATH);
 
+	// A linked project deploys with a key unless told not to: velastack.dev is
+	// where its deploys are recorded and its velastack.app hostname comes from.
+	const passApiKey =
+		flags.apiKey !== false &&
+		(facts.linked || flags.apiKeySecret === true || flags.previews === true);
+	// Issued here unless the user said they bring their own.
+	const issueApiKey = passApiKey && facts.linked && !flags.apiKeySecret && deps.loggedIn === true;
+
 	const content = renderDeployWorkflow({
 		branch,
 		backend: deps.backend ?? hasBackend(workspaceRootDir),
-		apiKeySecret: flags.apiKeySecret,
+		apiKeySecret: passApiKey,
 		previews: flags.previews,
 		workingDirectory:
 			workingDirectory && !workingDirectory.startsWith('..') ? workingDirectory : '',
@@ -148,6 +195,10 @@ export async function enableCi(
 				`--setup-key changes a server and a GitHub repository, and there is no terminal to confirm on. Pass ${pc.cyan('--yes')} to go ahead.`
 			);
 		}
+	}
+	// Before the workflow is written, on every path that will set secrets up
+	// without another question: a run that cannot finish leaves nothing behind.
+	if (canSetUpKey && (flags.setupKey || flags.yes)) {
 		await deps.keyEffects.checkGh(facts.github!);
 	}
 
@@ -159,8 +210,11 @@ export async function enableCi(
 		);
 	}
 
-	let wantsKey = flags.setupKey === true;
-	if (!wantsKey && canSetUpKey && deps.interactive && !flags.yes) {
+	// Setting the secrets up is the default: a workflow without them cannot
+	// deploy. It still changes a server and a repository, so it wants a yes -
+	// asked on a terminal, or given as `--yes`.
+	let wantsKey = flags.setupKey === true || (canSetUpKey && flags.yes === true);
+	if (!wantsKey && canSetUpKey && deps.interactive) {
 		wantsKey = await deps.askSetupKey();
 	}
 
@@ -174,19 +228,66 @@ export async function enableCi(
 				// The offer above was only a question about wanting one; the plan
 				// still gets its own yes.
 				yes: flags.yes === true,
-				interactive: deps.interactive
+				interactive: deps.interactive,
+				apiKey: issueApiKey ? { label: ciApiKeyLabel(facts.github!) } : undefined
 			},
 			deps.keyEffects
 		);
 	}
 
-	return { workflowFile, workflow, branch, prerequisites, key, facts };
+	let apiKey: ApiKeyState = 'none';
+	if (passApiKey) {
+		if (key.status === 'done' && key.apiKey) apiKey = 'stored';
+		else {
+			const exists =
+				facts.github && deps.secretExists
+					? await deps.secretExists(facts.github, API_KEY_SECRET)
+					: null;
+			apiKey = exists === null ? 'unknown' : exists ? 'present' : 'missing';
+		}
+	}
+
+	const workflowIgnoresApiKey =
+		passApiKey &&
+		workflow === 'kept' &&
+		!/^\s+api-key:\s*\S/m.test(fs.readFileSync(workflowFile, 'utf8'));
+
+	return {
+		workflowFile,
+		workflow,
+		branch,
+		prerequisites,
+		key,
+		facts,
+		apiKey,
+		workflowIgnoresApiKey
+	};
+}
+
+/** Best effort: `gh` missing, signed out or without access reads as "cannot tell". */
+async function secretExists(repo: GithubRepo, name: string): Promise<boolean | null> {
+	try {
+		const result = await spawnCapture('gh', [
+			'secret',
+			'list',
+			'--repo',
+			`${repo.owner}/${repo.repo}`,
+			'--json',
+			'name'
+		]);
+		if (result.exitCode !== 0) return null;
+		return (JSON.parse(result.stdout) as Array<{ name: string }>).some(
+			(secret) => secret.name === name
+		);
+	} catch {
+		return null;
+	}
 }
 
 async function askSetupKey(): Promise<boolean> {
 	const answer = await p.confirm({
-		message: `Set up a deploy key for CI now? (a new SSH key: public half to the server, private half to the ${SSH_KEY_SECRET} GitHub secret)`,
-		initialValue: false
+		message: `Set up the secrets the workflow deploys with now? (the exact steps are shown before anything changes)`,
+		initialValue: true
 	});
 	if (p.isCancel(answer)) {
 		p.cancel('Operation cancelled.');
@@ -198,7 +299,7 @@ async function askSetupKey(): Promise<boolean> {
 function showPlan(plan: string[]): void {
 	p.note(
 		plan.map((step, index) => `${index + 1}. ${step}`).join('\n'),
-		'Setting up the deploy key',
+		'Setting up what CI deploys with',
 		{
 			format: (line) => line
 		}
@@ -237,13 +338,21 @@ function report(result: EnableCiResult, flags: EnableCiFlags): void {
 			break;
 	}
 
+	if (result.workflowIgnoresApiKey) {
+		p.log.warn(
+			`${pc.cyan(relative)} does not pass ${API_KEY_SECRET} to the action, so CI deploys are not recorded on velastack.dev.\n` +
+				`Add ${pc.cyan(`api-key: \${{ secrets.${API_KEY_SECRET} }}`)} under the action's ${pc.cyan('with:')}, or pass ${pc.cyan('--force')} to rewrite the file.`
+		);
+	}
+
 	p.log.message(
 		[
 			'Before the first run:',
 			...result.prerequisites.map(
 				(check) => `  ${check.done ? pc.green('done ') : pc.yellow('to do')}  ${check.detail}`
 			),
-			keyLine(result)
+			keyLine(result),
+			...apiKeyLines(result, flags)
 		].join('\n')
 	);
 
@@ -253,6 +362,11 @@ function report(result: EnableCiResult, flags: EnableCiFlags): void {
 			`Deploy key set up: ${result.key.installed === 'added' ? 'added to' : 'already on'} ${result.facts.server}, ` +
 				`stored as ${SSH_KEY_SECRET} on ${repo}. The keypair is no longer on this machine.`
 		);
+		if (result.key.apiKey) {
+			p.log.success(
+				`API key issued: "${ciApiKeyLabel(result.facts.github!)}" on velastack.dev/api-keys, stored as ${API_KEY_SECRET} on ${repo}.`
+			);
+		}
 		p.log.message(
 			pc.dim(
 				`Running this again makes a new key and leaves the old line on the server; lines ending in "${result.key.comment}" that CI no longer uses can be removed from ~/.ssh/authorized_keys.`
@@ -290,17 +404,46 @@ function keyLine(result: EnableCiResult): string {
 		: `  ${pc.yellow('to do')}  ${SSH_KEY_SECRET} repository secret: a private key the server accepts (steps below)`;
 }
 
+/** The checklist line for the API key; nothing when the workflow passes none. */
+export function apiKeyLines(
+	result: Pick<EnableCiResult, 'apiKey' | 'facts'>,
+	flags: Pick<EnableCiFlags, 'apiKeySecret'>
+): string[] {
+	const repo = result.facts.github
+		? ` -R ${result.facts.github.owner}/${result.facts.github.repo}`
+		: '';
+	const byHand = `create a key at https://velastack.dev/api-keys/new and \`gh secret set ${API_KEY_SECRET}${repo}\``;
+	switch (result.apiKey) {
+		case 'none':
+			return [];
+		case 'stored':
+			return [
+				`  ${pc.green('done ')}  ${API_KEY_SECRET} repository secret holds an API key issued for this repository`
+			];
+		case 'present':
+			return [`  ${pc.green('done ')}  ${API_KEY_SECRET} repository secret is set`];
+		case 'unknown':
+			return [
+				`  ${pc.yellow('check')}  ${API_KEY_SECRET} repository secret: could not see whether it is set. Without it deploys are not recorded on velastack.dev and a velastack.app hostname is not given: ${byHand}`
+			];
+		case 'missing':
+			return [
+				`  ${pc.yellow('to do')}  ${API_KEY_SECRET} repository secret is not set, so deploys would not be recorded on velastack.dev and no velastack.app hostname given: ` +
+					(flags.apiKeySecret
+						? byHand
+						: result.facts.linked
+							? `\`vela login\`, then \`vela enable ci --setup-key\` issues and stores one (or ${byHand})`
+							: `\`vela link\` the project, then \`vela enable ci --setup-key\` issues and stores one (or ${byHand})`)
+			];
+	}
+}
+
 export function nextSteps(
 	result: Pick<EnableCiResult, 'branch' | 'facts'>,
 	flags: Pick<EnableCiFlags, 'apiKeySecret' | 'previews'>
 ): string[] {
 	const steps: string[] = [];
-	if (flags.apiKeySecret || flags.previews) {
-		steps.push(
-			`Create an API key at https://velastack.dev/api-keys/new and store it: \`gh secret set ${API_KEY_SECRET}\`.` +
-				(flags.previews ? ' Previews also need the project linked: `vela link`.' : '')
-		);
-	}
+	if (flags.previews) steps.push('Previews need the project linked: `vela link`.');
 	steps.push(
 		`Commit ${WORKFLOW_PATH} and .vela/project.json, then push \`${result.branch}\` to GitHub to run the first deploy.`,
 		"The app's environment lives on the server, not in GitHub secrets: `vela env import <file> -t production` (or `vela env set <NAME> -t production`).",

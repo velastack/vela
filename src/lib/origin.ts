@@ -83,3 +83,60 @@ export function splitHosts(value: string | null | undefined): string[] {
 		.map((host) => host.trim())
 		.filter(Boolean);
 }
+
+/** What velastack.dev answered about an environment's hostnames, when it answered. */
+export interface AnsweredHostnames {
+	managed?: string[];
+	direct?: string[];
+}
+
+export interface DeployHosts {
+	/** Hosts Caddy serves directly. */
+	direct: string[];
+	/** Managed `<sub>.velastack.app` hosts, reached through the Worker. */
+	managed: string[];
+	/** The managed hosts were carried over from the server, not confirmed by velastack.dev. */
+	keptManaged: boolean;
+}
+
+/**
+ * The hostnames a deploy activates with.
+ *
+ * Managed hostnames belong to velastack.dev, and a deploy hears about them only
+ * when it has an API key and the call goes through. "No answer" is not "none":
+ * a runner without the key, a revoked key or a network failure must not take a
+ * live hostname down. So with no answer, the ones the server is already
+ * serving stay; only an answer that leaves them out removes them.
+ */
+export function deployHosts(input: {
+	/** The `--domain` value or the recorded one. */
+	configured: string | null | undefined;
+	/** The environment velastack.dev answered with, or null when it was not asked or did not answer. */
+	answered: AnsweredHostnames | null | undefined;
+	/** The managed hostname(s) the server has for this instance now. */
+	existingManaged: string | null | undefined;
+}): DeployHosts {
+	const direct = [...new Set([...splitHosts(input.configured), ...(input.answered?.direct ?? [])])];
+	if (input.answered) {
+		return { direct, managed: input.answered.managed ?? [], keptManaged: false };
+	}
+	const managed = splitHosts(input.existingManaged);
+	return { direct, managed, keptManaged: managed.length > 0 };
+}
+
+/**
+ * Whether to announce a deploy to velastack.dev when the server could not be
+ * identified to it first.
+ *
+ * velastack.dev gives a managed hostname only to a deploy that names a
+ * registered server, and records the environment as having none otherwise. An
+ * environment that already has one must not be announced that way: the
+ * hostname would be taken away over a failed registration call. Such a deploy
+ * goes unrecorded instead, and keeps what the server has.
+ */
+export function shouldAnnounceDeploy(input: {
+	serverIdentified: boolean;
+	existingManaged: string | null | undefined;
+}): boolean {
+	return input.serverIdentified || splitHosts(input.existingManaged).length === 0;
+}

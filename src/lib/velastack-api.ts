@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { API_URL } from './constants.ts';
 
 export interface User {
@@ -78,6 +79,59 @@ export async function getCurrentUser(apiKey: string): Promise<User> {
 	const user = data.items[0];
 	if (!user) throw new Error('No user found. Run `vela login` to login.');
 	return user;
+}
+
+export interface IssuedApiKey {
+	/** The key's record id, which is also the part of the key before the dot. */
+	id: string;
+	/** The whole key. velastack.dev stores only a hash, so this is its one appearance. */
+	key: string;
+}
+
+/**
+ * Issue another API key for the account `apiKey` belongs to.
+ *
+ * The secret is made here and only its hash is sent, the way the dashboard's
+ * own form does it (`@velastack/pocketbase/api-key`): `sha256$` and the
+ * base64url digest. The label is how the key shows on velastack.dev/api-keys.
+ */
+export async function createApiKey(apiKey: string, label: string): Promise<IssuedApiKey> {
+	const user = await getCurrentUser(apiKey);
+	const secret = randomBytes(16).toString('hex');
+	const row = await apiFetch<{ id: string }>(apiKey, '/api/collections/api_keys/records', {
+		method: 'POST',
+		body: JSON.stringify({
+			key_hash: 'sha256$' + createHash('sha256').update(secret, 'utf8').digest('base64url'),
+			user: user.id,
+			label
+		})
+	});
+	return { id: row.id, key: `${row.id}.${secret}` };
+}
+
+export async function deleteApiKey(apiKey: string, id: string): Promise<void> {
+	const res = await fetch(`${API_URL}/api/collections/api_keys/records/${id}`, {
+		method: 'DELETE',
+		headers: { Authorization: `Bearer ${apiKey}` }
+	});
+	if (!res.ok && res.status !== 404) {
+		throw new ApiError(res.status, `Velastack API error (${res.status}): ${res.statusText}`);
+	}
+}
+
+/** Delete the account's keys carrying `label`, other than `keepId`. Returns how many went. */
+export async function deleteApiKeysLabelled(
+	apiKey: string,
+	label: string,
+	keepId: string
+): Promise<number> {
+	const data = await apiFetch<PaginatedResponse<{ id: string; label: string }>>(
+		apiKey,
+		'/api/collections/api_keys/records?perPage=200'
+	);
+	const stale = data.items.filter((item) => item.label === label && item.id !== keepId);
+	for (const item of stale) await deleteApiKey(apiKey, item.id);
+	return stale.length;
 }
 
 export async function listTeams(apiKey: string): Promise<Team[]> {

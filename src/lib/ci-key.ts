@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnCapture, withSsh, type SshOptions } from './ssh.ts';
-import { SSH_KEY_SECRET, type GithubRepo } from './ci-workflow.ts';
+import { API_KEY_SECRET, SSH_KEY_SECRET, type GithubRepo } from './ci-workflow.ts';
+import { createApiKey, deleteApiKey, deleteApiKeysLabelled } from './velastack-api.ts';
 
 /**
  * A deploy key for CI: a keypair of its own, the public half on the server and
@@ -24,6 +25,11 @@ export interface CiKeyInput {
 	yes: boolean;
 	/** Whether a confirmation can be shown at all. */
 	interactive: boolean;
+	/**
+	 * Also issue a velastack.dev API key for CI and store it as a secret. Set
+	 * for a linked project when this machine is logged in.
+	 */
+	apiKey?: { label: string };
 }
 
 export interface GeneratedKey {
@@ -43,6 +49,13 @@ export interface CiKeyEffects {
 	/** Store the private key file's contents as a repository secret, without printing it. */
 	setSecret: (repo: GithubRepo, name: string, privateKeyPath: string) => Promise<void>;
 	removeDir: (dir: string) => void;
+	/** Issue a new velastack.dev API key with this label. */
+	mintApiKey: (label: string) => Promise<{ id: string; key: string }>;
+	/** Store a value as a repository secret, without printing it. */
+	setSecretValue: (repo: GithubRepo, name: string, value: string) => Promise<void>;
+	revokeApiKey: (id: string) => Promise<void>;
+	/** Revoke earlier keys with this label, which the new one replaces. */
+	revokeOtherApiKeys: (label: string, keepId: string) => Promise<void>;
 	/** Print exactly what is about to happen. Called whether or not a question follows. */
 	showPlan: (plan: string[]) => void;
 	/** Ask whether to go ahead with the plan just shown. */
@@ -50,20 +63,41 @@ export interface CiKeyEffects {
 }
 
 export type CiKeyOutcome =
-	{ status: 'declined' } | { status: 'done'; comment: string; installed: 'added' | 'present' };
+	| { status: 'declined' }
+	| {
+			status: 'done';
+			comment: string;
+			installed: 'added' | 'present';
+			/** Whether a velastack.dev API key was issued and stored too. */
+			apiKey: boolean;
+	  };
+
+/** How a CI key shows on velastack.dev/api-keys. One per repository. */
+export function ciApiKeyLabel(repo: GithubRepo): string {
+	return `CI - ${repo.owner}/${repo.repo}`;
+}
 
 export function ciKeyComment(appId: string): string {
 	return `vela-ci ${appId}`;
 }
 
 /** Exactly what will happen, in order, for the confirmation and for `--yes` runs alike. */
-export function ciKeyPlan(input: Pick<CiKeyInput, 'appId' | 'server' | 'repo'>): string[] {
+export function ciKeyPlan(
+	input: Pick<CiKeyInput, 'appId' | 'server' | 'repo' | 'apiKey'>
+): string[] {
 	const repo = `${input.repo.owner}/${input.repo.repo}`;
+	const apiKey = input.apiKey
+		? [
+				`Issue a velastack.dev API key labelled "${input.apiKey.label}" (it acts as your account, like the key \`vela login\` stores) and revoke any earlier key with that label`,
+				`Store it as the ${API_KEY_SECRET} secret of github.com/${repo}, replacing a secret of that name if there is one`
+			]
+		: [];
 	return [
 		`Generate a new ed25519 keypair in a temporary directory (ssh-keygen, comment "${ciKeyComment(input.appId)}", no passphrase)`,
 		`Append its public key to ~/.ssh/authorized_keys on ${input.server}`,
 		`Store its private key as the ${SSH_KEY_SECRET} secret of github.com/${repo} (gh secret set), replacing a secret of that name if there is one`,
-		'Delete the temporary keypair from this machine'
+		'Delete the temporary keypair from this machine',
+		...apiKey
 	];
 }
 
@@ -100,10 +134,41 @@ export async function setupCiKey(input: CiKeyInput, effects: CiKeyEffects): Prom
 				{ cause: error }
 			);
 		}
-		return { status: 'done', comment, installed };
+		const apiKey = input.apiKey
+			? await storeCiApiKey(input.repo, input.apiKey.label, effects)
+			: false;
+		return { status: 'done', comment, installed, apiKey };
 	} finally {
 		effects.removeDir(key.dir);
 	}
+}
+
+/**
+ * A key of its own for CI, never the one in `~/.vela`: `vela login` replaces
+ * that one, and CI would stop being able to deploy the day someone logged in
+ * again. The secret is stored before the keys it replaces are revoked, and a
+ * key that could not be stored is revoked rather than left unused.
+ */
+async function storeCiApiKey(
+	repo: GithubRepo,
+	label: string,
+	effects: CiKeyEffects
+): Promise<boolean> {
+	const minted = await effects.mintApiKey(label);
+	try {
+		await effects.setSecretValue(repo, API_KEY_SECRET, minted.key);
+	} catch (error) {
+		await effects.revokeApiKey(minted.id).catch(() => {});
+		throw new Error(
+			`The deploy key is set up, but storing the velastack.dev API key as the ${API_KEY_SECRET} secret failed:\n\n` +
+				`${error instanceof Error ? error.message : String(error)}\n\n` +
+				'The new API key has been revoked. Fix the problem above and run the command again.',
+			{ cause: error }
+		);
+	}
+	// The old ones only stop working; nothing is lost if this fails.
+	await effects.revokeOtherApiKeys(label, minted.id).catch(() => {});
+	return true;
 }
 
 /** The same steps for someone doing them by hand. */
@@ -143,10 +208,34 @@ echo ADDED`;
 
 export function realCiKeyEffects(
 	sshOptions: SshOptions,
-	ui: Pick<CiKeyEffects, 'showPlan' | 'confirm'>
+	ui: Pick<CiKeyEffects, 'showPlan' | 'confirm'>,
+	/** The key this machine is logged in with, which issues and revokes the CI one. */
+	accountKey: string | null = null
 ): CiKeyEffects {
+	const account = (): string => {
+		if (!accountKey) throw new Error('Not logged in to velastack.dev. Run `vela login`.');
+		return accountKey;
+	};
+	const ghSecretSet = async (repo: GithubRepo, name: string, value: string): Promise<void> => {
+		// On stdin, so the value is never an argument (visible in `ps`) and never
+		// echoed; gh encrypts it for the repository before it leaves this machine.
+		const result = await spawnCapture(
+			'gh',
+			['secret', 'set', name, '--repo', `${repo.owner}/${repo.repo}`],
+			{ stdin: value }
+		);
+		if (result.exitCode !== 0) {
+			throw new Error(result.stderr.trim() || `gh secret set exited with ${result.exitCode}.`);
+		}
+	};
 	return {
 		...ui,
+		mintApiKey: (label) => createApiKey(account(), label),
+		setSecretValue: ghSecretSet,
+		revokeApiKey: (id) => deleteApiKey(account(), id),
+		async revokeOtherApiKeys(label, keepId) {
+			await deleteApiKeysLabelled(account(), label, keepId);
+		},
 		async checkGh(repo) {
 			let version;
 			try {
@@ -200,16 +289,7 @@ export function realCiKeyEffects(
 			});
 		},
 		async setSecret(repo, name, privateKeyPath) {
-			// On stdin, so the key is never an argument (visible in `ps`) and never
-			// echoed; gh encrypts it for the repository before it leaves this machine.
-			const result = await spawnCapture(
-				'gh',
-				['secret', 'set', name, '--repo', `${repo.owner}/${repo.repo}`],
-				{ stdin: fs.readFileSync(privateKeyPath, 'utf8') }
-			);
-			if (result.exitCode !== 0) {
-				throw new Error(result.stderr.trim() || `gh secret set exited with ${result.exitCode}.`);
-			}
+			await ghSecretSet(repo, name, fs.readFileSync(privateKeyPath, 'utf8'));
 		},
 		removeDir(dir) {
 			fs.rmSync(dir, { recursive: true, force: true });

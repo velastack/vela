@@ -2,7 +2,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { buildOrigin, normalizeOrigin, resolveOrigin } from './origin.ts';
+import {
+	buildOrigin,
+	deployHosts,
+	normalizeOrigin,
+	resolveOrigin,
+	shouldAnnounceDeploy
+} from './origin.ts';
 
 let root: string;
 
@@ -142,5 +148,65 @@ describe('resolveOrigin', () => {
 		process.env.VELA_ORIGIN = '';
 
 		expect(resolveOrigin(root, 'prod')).toBeNull();
+	});
+});
+
+describe('deployHosts', () => {
+	// A CI runner without VELA_API_KEY deployed an app that had a managed
+	// hostname; the deploy reported success and the site answered 404.
+	test('keeps the managed hostname the server has when velastack.dev gave no answer', () => {
+		expect(
+			deployHosts({ configured: '', answered: null, existingManaged: 'app.velastack.app' })
+		).toEqual({ direct: [], managed: ['app.velastack.app'], keptManaged: true });
+	});
+
+	test('drops a managed hostname only when velastack.dev answers without it', () => {
+		expect(
+			deployHosts({
+				configured: '',
+				answered: { managed: [], direct: [] },
+				existingManaged: 'app.velastack.app'
+			})
+		).toEqual({ direct: [], managed: [], keptManaged: false });
+	});
+
+	test('takes the answer over what the server has', () => {
+		expect(
+			deployHosts({
+				configured: 'example.com',
+				answered: { managed: ['new.velastack.app'], direct: ['www.example.com', 'example.com'] },
+				existingManaged: 'old.velastack.app'
+			})
+		).toEqual({
+			direct: ['example.com', 'www.example.com'],
+			managed: ['new.velastack.app'],
+			keptManaged: false
+		});
+	});
+
+	test('has nothing to keep on a first deploy without an answer', () => {
+		expect(
+			deployHosts({ configured: 'example.com', answered: undefined, existingManaged: undefined })
+		).toEqual({ direct: ['example.com'], managed: [], keptManaged: false });
+	});
+});
+
+describe('shouldAnnounceDeploy', () => {
+	// velastack.dev records "no managed hostname" for a deploy that names no
+	// server, which would take a live one away over a failed registration.
+	test('a deploy that could not identify its server is not announced when a hostname is at stake', () => {
+		expect(
+			shouldAnnounceDeploy({ serverIdentified: false, existingManaged: 'app.velastack.app' })
+		).toBe(false);
+	});
+
+	test('it is announced when the server is known, or when there is no hostname to lose', () => {
+		expect(
+			shouldAnnounceDeploy({ serverIdentified: true, existingManaged: 'app.velastack.app' })
+		).toBe(true);
+		expect(shouldAnnounceDeploy({ serverIdentified: false, existingManaged: undefined })).toBe(
+			true
+		);
+		expect(shouldAnnounceDeploy({ serverIdentified: false, existingManaged: '' })).toBe(true);
 	});
 });

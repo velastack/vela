@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { enableCi, nextSteps, type EnableCiDeps } from './ci.ts';
+import { apiKeyLines, enableCi, nextSteps, type EnableCiDeps } from './ci.ts';
 import {
 	checkPrerequisites,
 	parseGithubRemote,
@@ -54,6 +54,20 @@ function fakeEffects(overrides: Partial<CiKeyEffects> = {}) {
 		},
 		removeDir: (dir) => {
 			calls.push(`removeDir ${dir}`);
+		},
+		mintApiKey: async (label) => {
+			calls.push(`mintApiKey ${label}`);
+			return { id: 'newkey', key: 'newkey.secret' };
+		},
+		setSecretValue: async (repo, name) => {
+			// The value is a secret: the call is recorded, never what it carried.
+			calls.push(`setSecretValue ${repo.owner}/${repo.repo} ${name}`);
+		},
+		revokeApiKey: async (id) => {
+			calls.push(`revokeApiKey ${id}`);
+		},
+		revokeOtherApiKeys: async (label, keepId) => {
+			calls.push(`revokeOtherApiKeys ${label} keep ${keepId}`);
 		},
 		...overrides
 	};
@@ -153,6 +167,7 @@ describe('prerequisites', () => {
 		gitRoot: '/repo',
 		projectFileTracked: true,
 		github: { owner: 'acme', repo: 'soty' },
+		linked: false,
 		otherRemotes: []
 	};
 	const byId = (facts: ProjectFacts) =>
@@ -220,8 +235,44 @@ describe('setting up the key', () => {
 		expect(outcome).toEqual({
 			status: 'done',
 			comment: 'vela-ci soty-690c70bd',
-			installed: 'added'
+			installed: 'added',
+			apiKey: false
 		});
+	});
+
+	const WITH_API_KEY: CiKeyInput = { ...INPUT, apiKey: { label: 'CI - acme/soty' } };
+
+	test('with an API key: issued after the deploy key, stored, and only then are older ones revoked', async () => {
+		const { effects, calls } = fakeEffects();
+		const outcome = await setupCiKey(WITH_API_KEY, effects);
+		expect(calls).toEqual([
+			'checkGh',
+			'showPlan 6',
+			'confirm',
+			'generateKey vela-ci soty-690c70bd',
+			`installPublicKey root@203.0.113.9 ${PUBLIC_KEY}`,
+			'setSecret acme/soty SSH_PRIVATE_KEY /tmp/fake-key/id_ed25519',
+			'mintApiKey CI - acme/soty',
+			'setSecretValue acme/soty VELA_API_KEY',
+			'revokeOtherApiKeys CI - acme/soty keep newkey',
+			'removeDir /tmp/fake-key'
+		]);
+		expect(outcome).toMatchObject({ status: 'done', apiKey: true });
+		expect(ciKeyPlan(WITH_API_KEY).join('\n')).toMatch(/acts as your account[\s\S]*VELA_API_KEY/);
+	});
+
+	test('an API key that could not be stored is revoked, and the older ones are left working', async () => {
+		const { effects, calls } = fakeEffects({
+			setSecretValue: async () => {
+				throw new Error('HTTP 403: Resource not accessible');
+			}
+		});
+		await expect(setupCiKey(WITH_API_KEY, effects)).rejects.toThrow(
+			/VELA_API_KEY secret failed[\s\S]*403[\s\S]*has been revoked/
+		);
+		expect(calls).toContain('revokeApiKey newkey');
+		expect(calls.some((call) => call.startsWith('revokeOtherApiKeys'))).toBe(false);
+		expect(calls.at(-1)).toBe('removeDir /tmp/fake-key');
 	});
 
 	test('the plan names the server, the repository and the secret', () => {
@@ -455,7 +506,161 @@ describe('vela enable ci', () => {
 		expect(steps).not.toContain('VELA_API_KEY');
 		expect(
 			nextSteps({ branch: 'main', facts: {} as ProjectFacts }, { previews: true }).join('\n')
-		).toContain('gh secret set VELA_API_KEY');
+		).toContain('vela link');
+	});
+
+	// The gap this closes: a linked app on a velastack.app hostname got a
+	// workflow without the key and a checklist that said everything was done;
+	// its first push deployed with no hostname and the site answered 404.
+	describe('a project linked to velastack.dev', () => {
+		function linkedProject() {
+			deployedProject();
+			const file = path.join(dir, '.vela', 'project.json');
+			fs.writeFileSync(
+				file,
+				JSON.stringify({
+					...JSON.parse(fs.readFileSync(file, 'utf8')),
+					projectId: 'proj1',
+					teamId: 'team1',
+					projectName: 'Soty'
+				})
+			);
+		}
+		const yaml = () => fs.readFileSync(path.join(dir, WORKFLOW_PATH), 'utf8');
+
+		test('--yes writes a workflow that passes the key, and issues and stores one', async () => {
+			linkedProject();
+			const { deps: d, calls } = deps({ loggedIn: true });
+			const result = await enableCi(dir, { yes: true }, d);
+			expect(yaml()).toMatch(/^\s+api-key: \$\{\{ secrets\.VELA_API_KEY \}\}$/m);
+			expect(calls).toContain('mintApiKey CI - acme/soty');
+			expect(calls).toContain('setSecretValue acme/soty VELA_API_KEY');
+			expect(result.apiKey).toBe('stored');
+			expect(apiKeyLines(result, {}).join('\n')).toMatch(/done/);
+		});
+
+		test('on a terminal the setup is offered, and a yes does both keys', async () => {
+			linkedProject();
+			const { deps: d, calls } = deps({
+				interactive: true,
+				loggedIn: true,
+				askSetupKey: vi.fn(async () => true)
+			});
+			const result = await enableCi(dir, {}, d);
+			expect(calls).toContain('confirm');
+			expect(result.key).toMatchObject({ status: 'done', apiKey: true });
+		});
+
+		test('without a yes the workflow still passes the key, and the checklist says it is missing', async () => {
+			linkedProject();
+			const { deps: d, calls } = deps({ loggedIn: true, secretExists: async () => false });
+			const result = await enableCi(dir, {}, d);
+			expect(yaml()).toMatch(/^\s+api-key:/m);
+			expect(calls).toEqual([]);
+			expect(result.apiKey).toBe('missing');
+			const line = apiKeyLines(result, {}).join('\n');
+			expect(line).toMatch(/to do/);
+			expect(line).toMatch(/velastack\.app hostname/);
+			expect(line).toContain('vela enable ci --setup-key');
+		});
+
+		test('not logged in: no key is issued, and the checklist says so', async () => {
+			linkedProject();
+			const { deps: d, calls } = deps({ loggedIn: false, secretExists: async () => false });
+			const result = await enableCi(dir, { yes: true }, d);
+			expect(calls.some((call) => call.startsWith('mintApiKey'))).toBe(false);
+			expect(result.key).toMatchObject({ status: 'done', apiKey: false });
+			expect(result.apiKey).toBe('missing');
+			expect(apiKeyLines(result, {}).join('\n')).toContain('vela login');
+		});
+
+		test('--api-key-secret: you bring the key, so none is issued, and a secret that is there counts', async () => {
+			linkedProject();
+			const { deps: d, calls } = deps({ loggedIn: true, secretExists: async () => true });
+			const result = await enableCi(dir, { yes: true, apiKeySecret: true }, d);
+			expect(yaml()).toMatch(/^\s+api-key:/m);
+			expect(calls.some((call) => call.startsWith('mintApiKey'))).toBe(false);
+			expect(result.apiKey).toBe('present');
+		});
+
+		test('--no-api-key leaves velastack.dev out of the workflow and issues nothing', async () => {
+			linkedProject();
+			const { deps: d, calls } = deps({ loggedIn: true });
+			const result = await enableCi(dir, { yes: true, apiKey: false }, d);
+			expect(yaml()).not.toMatch(/^\s+api-key:/m);
+			expect(calls.some((call) => call.startsWith('mintApiKey'))).toBe(false);
+			expect(result.apiKey).toBe('none');
+			expect(apiKeyLines(result, {})).toEqual([]);
+		});
+
+		test('a secret that cannot be seen is reported as unchecked, not as done', async () => {
+			linkedProject();
+			const { deps: d } = deps({ loggedIn: true, secretExists: async () => null });
+			const result = await enableCi(dir, {}, d);
+			expect(result.apiKey).toBe('unknown');
+			expect(apiKeyLines(result, {}).join('\n')).toMatch(/check/);
+		});
+	});
+
+	test('--setup-key on a linked project whose workflow does not pass the key says so', async () => {
+		deployedProject();
+		const file = path.join(dir, '.vela', 'project.json');
+		fs.writeFileSync(
+			file,
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(file, 'utf8')),
+				projectId: 'proj1',
+				teamId: 'team1',
+				projectName: 'Soty'
+			})
+		);
+		// What 0.31 wrote for every project: the key commented out.
+		await enableCi(dir, { apiKey: false }, deps().deps);
+		const { deps: d } = deps({ loggedIn: true });
+		const result = await enableCi(dir, { setupKey: true, yes: true }, d);
+		expect(result.workflow).toBe('kept');
+		expect(result.apiKey).toBe('stored');
+		expect(result.workflowIgnoresApiKey).toBe(true);
+	});
+
+	test('--previews with --no-api-key is refused: previews are named by velastack.dev', async () => {
+		deployedProject();
+		await expect(enableCi(dir, { previews: true, apiKey: false }, deps().deps)).rejects.toThrow(
+			/--previews needs the VELA_API_KEY secret/
+		);
+		expect(fs.existsSync(path.join(dir, WORKFLOW_PATH))).toBe(false);
+	});
+
+	test('--previews on a project that is not linked points at vela link, not vela login', async () => {
+		deployedProject();
+		const { deps: d } = deps({ loggedIn: true, secretExists: async () => false });
+		const result = await enableCi(dir, { previews: true }, d);
+		expect(result.apiKey).toBe('missing');
+		const line = apiKeyLines(result, {}).join('\n');
+		expect(line).toContain('vela link');
+		expect(line).not.toContain('vela login');
+	});
+
+	test('--yes with no gh writes nothing', async () => {
+		deployedProject();
+		const { effects } = fakeEffects({
+			checkGh: async () => {
+				throw new Error('`gh` is not installed.');
+			}
+		});
+		await expect(enableCi(dir, { yes: true }, deps({ keyEffects: effects }).deps)).rejects.toThrow(
+			/gh/
+		);
+		expect(fs.existsSync(path.join(dir, WORKFLOW_PATH))).toBe(false);
+	});
+
+	test('a project that is not linked gets no key, in the workflow or anywhere else', async () => {
+		deployedProject();
+		const { deps: d, calls } = deps({ loggedIn: true });
+		const result = await enableCi(dir, { yes: true }, d);
+		expect(fs.readFileSync(path.join(dir, WORKFLOW_PATH), 'utf8')).toMatch(/^\s+# api-key:/m);
+		expect(calls.some((call) => call.startsWith('mintApiKey'))).toBe(false);
+		expect(result.apiKey).toBe('none');
 	});
 });
 
