@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readAppIdentity, readBinding } from './deploy-config.ts';
 import { PROD_ENV } from './instance.ts';
+import { readProjectConfig } from './project-config.ts';
 import { spawnCapture } from './ssh.ts';
 
 /**
@@ -26,7 +27,7 @@ export interface WorkflowOptions {
 	branch: string;
 	/** The project has PocketBase, so the CLI on the runner wants superuser variables set. */
 	backend: boolean;
-	/** Pass `api-key`, rather than leaving it commented out. */
+	/** Pass `api-key`, rather than leaving it commented out. On for a linked project. */
 	apiKeySecret?: boolean;
 	/** Also deploy a preview of every pull request, and remove it on close. */
 	previews?: boolean;
@@ -116,14 +117,15 @@ export function renderDeployWorkflow(options: WorkflowOptions): string {
 		add(
 			previews
 				? '          # Records each deploy on velastack.dev, and gives previews their hostname.'
-				: '          # Records each deploy on velastack.dev.',
+				: '          # Records each deploy on velastack.dev, which is also where a',
+			...(previews ? [] : ['          # velastack.app hostname comes from.']),
 			`          api-key: \${{ secrets.${API_KEY_SECRET} }}`
 		);
 	} else {
 		add(
-			'          # To record deploys on velastack.dev: create a key at',
-			`          # https://velastack.dev/api-keys/new, store it as the ${API_KEY_SECRET}`,
-			'          # repository secret, and uncomment.',
+			'          # To record deploys on velastack.dev (and get a velastack.app hostname):',
+			'          # `vela link`, then run `vela enable ci --force` again, which issues a',
+			`          # key and stores it as the ${API_KEY_SECRET} secret.`,
 			`          # api-key: \${{ secrets.${API_KEY_SECRET} }}`
 		);
 	}
@@ -180,6 +182,8 @@ export interface ProjectFacts {
 	/** Whether `.vela/project.json` is tracked by git. */
 	projectFileTracked: boolean;
 	github?: GithubRepo;
+	/** Linked to a velastack.dev project, which is what an API key is for. */
+	linked: boolean;
 	/** Remote URLs that are not GitHub's, for the message. */
 	otherRemotes: string[];
 	/** Branch checked out, when there is one. */
@@ -208,6 +212,7 @@ export async function gatherProjectFacts(workspaceRootDir: string): Promise<Proj
 		// with an id for having asked about CI.
 		appId: readAppIdentity(workspaceRootDir)?.appId,
 		projectFileTracked: false,
+		linked: readProjectConfig(workspaceRootDir) !== null,
 		otherRemotes: []
 	};
 
