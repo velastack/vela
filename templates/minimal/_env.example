@@ -5,3 +5,35 @@
 # .env; a deploy creates its own on the server the first time.
 POCKETBASE_SUPERUSER_EMAIL=admin@example.com
 POCKETBASE_SUPERUSER_PASSWORD=change-me
+
+# Email. PocketBase reads these when it starts, and sends through SMTP once
+# PB_SMTP_HOST is set. Uncomment and fill in, or run `vela enable email`.
+# SMTP server to send through. Setting it turns SMTP on.
+# PB_SMTP_HOST=smtp.example.com
+# SMTP port, usually 587 (STARTTLS) or 465 (TLS).
+# PB_SMTP_PORT=587
+# SMTP login name.
+# PB_SMTP_USERNAME=
+# SMTP password. With a provider such as Resend this is the API key.
+# PB_SMTP_PASSWORD=
+# `true` to connect over TLS (port 465); leave unset for STARTTLS.
+# PB_SMTP_TLS=false
+# The address emails are sent from.
+# PB_SENDER_ADDRESS=hello@example.com
+# The name shown next to that address.
+# PB_SENDER_NAME=My App
+
+# File storage on S3 or anything compatible, instead of the local disk.
+# PocketBase reads these when it starts.
+# S3 endpoint, e.g. s3.us-east-1.amazonaws.com or <account>.r2.cloudflarestorage.com.
+# PB_S3_ENDPOINT=
+# Bucket name.
+# PB_S3_BUCKET=
+# Bucket region (`auto` on Cloudflare R2).
+# PB_S3_REGION=
+# Access key id.
+# PB_S3_ACCESS_KEY=
+# Secret access key.
+# PB_S3_SECRET=
+# `true` for providers that address buckets by path (MinIO, some others).
+# PB_S3_FORCE_PATH_STYLE=false

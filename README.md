@@ -24,6 +24,7 @@ That's a running app with a database behind it. No separate PocketBase install, 
 - **Linked from the start.** Logged in to velastack.dev, `vela create` links the new project there (`.vela/project.json`), so `vela deploy` reports to it and a CMS-ready template such as `hearth` reads from the project's free hosted CMS right away. `vela login` first if you are not; `vela link` does the same for a project you already have.
 
 ```sh
+vela templates                                     # every template, by category, and which have a backend
 vela create my-site --template hearth              # linked, CMS endpoint written into src/lib/site.ts
 vela create my-site --template hearth --link none  # keep it local; fill in `cmsEndpoint` later
 vela create my-site --template hearth --cms https://cms.example/v1/projects/<id>/cms
@@ -127,6 +128,22 @@ PocketBase reads its own settings from the same environment — `APP_NAME` (from
 `WHATSAPP_*` / `VELASTACK_*` — and shows them locked in the admin panel. Nothing
 in the repo carries environment but `.env.example`, and there is no project
 config file.
+
+| Variable                                         | What it sets                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------ |
+| `PB_SMTP_HOST`                                   | SMTP server to send email through. Setting it turns SMTP on.       |
+| `PB_SMTP_PORT`                                   | SMTP port, usually `587` or `465`.                                 |
+| `PB_SMTP_USERNAME`                               | SMTP login name.                                                   |
+| `PB_SMTP_PASSWORD`                               | SMTP password. With a provider such as Resend this is the API key. |
+| `PB_SMTP_TLS`                                    | `true` to connect over TLS; unset for STARTTLS.                    |
+| `PB_SENDER_ADDRESS`                              | The address emails are sent from.                                  |
+| `PB_SENDER_NAME`                                 | The name shown next to that address.                               |
+| `PB_S3_ENDPOINT`, `PB_S3_BUCKET`, `PB_S3_REGION` | Where uploads are stored, on S3 or anything compatible.            |
+| `PB_S3_ACCESS_KEY`, `PB_S3_SECRET`               | The credentials for that bucket.                                   |
+| `PB_S3_FORCE_PATH_STYLE`                         | `true` for providers that address buckets by path.                 |
+
+`PB_BACKUPS_S3_*` takes the same six names for where backups go. A new project's
+`.env.example` lists the email and storage variables, commented out.
 
 Same thing from CI with [`velastack/action`](https://github.com/velastack/action).
 

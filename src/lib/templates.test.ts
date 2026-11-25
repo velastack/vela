@@ -14,6 +14,7 @@ import {
 	type TemplateInfo
 } from './templates.ts';
 import { rangeAdmits } from './package-json.ts';
+import { readLocalEnvFile } from './remote-env.ts';
 
 describe('templatesDir', () => {
 	test('resolves the packaged templates directory', () => {
@@ -372,6 +373,41 @@ describe('SvelteKit 3', () => {
 			expect(rangeAdmits(pkg.devDependencies['sveltekit-superforms'], '3.99.0')).toBe(true);
 			expect(pkg.overrides?.formsnap).toBeUndefined();
 		}
+	});
+});
+
+describe('.env.example of the minimal template', () => {
+	const file = path.join(templatesDir(), 'minimal', '_env.example');
+	const text = fs.readFileSync(file, 'utf8');
+
+	test('documents the email and storage variables, commented out', () => {
+		for (const name of [
+			'PB_SMTP_HOST',
+			'PB_SMTP_PORT',
+			'PB_SMTP_USERNAME',
+			'PB_SMTP_PASSWORD',
+			'PB_SMTP_TLS',
+			'PB_SENDER_ADDRESS',
+			'PB_SENDER_NAME',
+			'PB_S3_ENDPOINT',
+			'PB_S3_BUCKET',
+			'PB_S3_REGION',
+			'PB_S3_ACCESS_KEY',
+			'PB_S3_SECRET',
+			'PB_S3_FORCE_PATH_STYLE'
+		]) {
+			expect(text).toMatch(new RegExp(`^# ${name}=`, 'm'));
+		}
+		expect(text).toContain('vela enable email');
+	});
+
+	// `vela deploy` nudges for every key the example sets; a commented one is
+	// documentation, not a key.
+	test('the commented variables are not keys to whatever parses the file', () => {
+		expect(Object.keys(readLocalEnvFile(file))).toEqual([
+			'POCKETBASE_SUPERUSER_EMAIL',
+			'POCKETBASE_SUPERUSER_PASSWORD'
+		]);
 	});
 });
 
