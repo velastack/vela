@@ -1,3 +1,10 @@
+// Setup for the server tests (`vela test:server`): every test gets a request
+// agent for the app, PocketBase clients, and a fresh user.
+//
+// The app's pages are stubbed while these tests run: a response has its
+// status, headers and load data, and an empty HTML body. To test rendered
+// markup, set `VELA_TEST_RENDER_PAGES: '1'` under `test.env` in
+// vitest.config.ts.
 import { beforeEach, afterEach, beforeAll, inject } from 'vitest';
 import supertest, { type Agent } from 'supertest';
 import PocketBase from 'pocketbase-sveltekit';

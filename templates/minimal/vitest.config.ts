@@ -33,6 +33,10 @@ export default mergeConfig(
 						// gets the same servers: `vela test:server`, `vitest`, `vitest --watch`,
 						// an editor's test runner.
 						globalSetup: ['vela/testing'],
+						// Under these servers every page, layout and error component
+						// renders an empty body: server tests check endpoints, actions
+						// and load data, not markup. To assert on rendered HTML, add
+						// `env: { VELA_TEST_RENDER_PAGES: '1' }` here.
 						setupFiles: ['test/setup.ts']
 					}
 				},

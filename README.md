@@ -130,6 +130,30 @@ config file.
 
 Same thing from CI with [`velastack/action`](https://github.com/velastack/action).
 
+## Testing
+
+```sh
+vela test:server                    # the server tests, against a throwaway PocketBase and the app
+vela test:server src/routes/api     # extra arguments go to vitest
+npx vitest                          # the same servers, in watch mode or from an editor
+```
+
+Server tests are the files named `server.test.ts` or `*.server.test.ts`. The
+`vela/testing` global setup in `vitest.config.ts` starts a throwaway PocketBase
+(migrated, with your hooks, seeds and fixtures) and the app before the first
+test file, and removes them after the last.
+
+Under those servers every page is stubbed: each `+page.svelte`, `+layout.svelte`
+and `+error.svelte` renders an empty body. Server tests check endpoints, form
+actions, redirects and load data, and skipping the components keeps them fast.
+A response therefore has its status, headers and serialized load data, but no
+markup. To test rendered HTML, set `VELA_TEST_RENDER_PAGES=1`, in the environment
+or under `test.env` in `vitest.config.ts`:
+
+```ts
+test: { globalSetup: ['vela/testing'], env: { VELA_TEST_RENDER_PAGES: '1' } }
+```
+
 ## Already have a project?
 
 ```sh

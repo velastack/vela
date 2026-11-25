@@ -17,6 +17,16 @@
  * the environment `vela test:server` always set: `POCKETBASE_URL`,
  * `POCKETBASE_SUPERUSER_EMAIL`, `POCKETBASE_SUPERUSER_PASSWORD`,
  * `VELA_DATA_DIR`, `VITE_TEST_URL` and `TEST=true`.
+ *
+ * Pages are stubbed under the harness: every `+page.svelte`, `+layout.svelte`
+ * and `+error.svelte` renders an empty body, so a response carries its status,
+ * headers and serialized load data but no markup. Server tests are about
+ * endpoints, form actions and loads. A suite that needs the real HTML sets
+ * `VELA_TEST_RENDER_PAGES=1`, most simply in the config:
+ *
+ * ```ts
+ * test: { globalSetup: ['vela/testing'], env: { VELA_TEST_RENDER_PAGES: '1' } }
+ * ```
  */
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -29,7 +39,10 @@ import type { TestProject } from 'vitest/node';
 export interface TestServers {
 	/** The throwaway PocketBase, migrated and loaded with seeds and fixtures. */
 	pocketbaseUrl: string;
-	/** The app, served by Vite in test mode with its pages stubbed out. */
+	/**
+	 * The app, served by Vite in test mode. Its pages render an empty body
+	 * unless `VELA_TEST_RENDER_PAGES=1`.
+	 */
 	appUrl: string;
 	/** The superuser the harness created in the throwaway database. */
 	superuser: { email: string; password: string };
