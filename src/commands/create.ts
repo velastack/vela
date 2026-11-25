@@ -34,6 +34,7 @@ import { writeEnvFile } from '../lib/env.ts';
 import { emailFlag, passwordFlag, requireSuperuser } from '../lib/superuser.ts';
 import pkg from '../../package.json' with { type: 'json' };
 import { applyTemplateFiles } from '../lib/template-files.ts';
+import { blockingEntries, summarizeEntries } from '../lib/create-target.ts';
 import { applyGallerySchema, findGallerySchema, gallerySlugs } from '../lib/schema-create.ts';
 import { reportResult } from '../lib/result-report.ts';
 import { readApiKey, requireApiKey } from '../lib/config.ts';
@@ -86,6 +87,7 @@ export function optionsSchema(listing: TemplateListing) {
 			true
 		),
 		template: v.optional(v.picklist(names, choices)),
+		force: v.optional(v.boolean()),
 		schema: v.optional(v.picklist(gallerySlugs(), `must be one of: ${gallerySlugs().join(', ')}`)),
 		name: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1, 'must not be empty'))),
 		email: emailFlag,
@@ -143,6 +145,10 @@ export const create = new Command('create')
 	.option(
 		'--schema <slug>',
 		'start from a schema in the gallery (https://velastack.dev/schemas), e.g. gym-memberships'
+	)
+	.option(
+		'--force',
+		'create in a directory that is not empty without asking; files the template also contains are overwritten'
 	)
 	.option('--no-install', 'skip installing dependencies')
 	.option('--name <name>', 'app name, written to src/lib/site.ts')
@@ -416,13 +422,18 @@ async function scaffoldProject(
 		directory = path.resolve(answer as string);
 	}
 
-	if (
-		fs.existsSync(directory) &&
-		fs.readdirSync(directory).filter((f) => !f.startsWith('.git')).length > 0
-	) {
-		if (!interactive) throw new Error(`${directory} is not empty.`);
+	// Decided against this template's own files: a README or a `.vscode` is no
+	// obstacle until the template would overwrite it.
+	const blocking = blockingEntries(directory, resolved.dir);
+	if (blocking.length > 0 && !options.force) {
+		const found = summarizeEntries(blocking);
+		if (!interactive) {
+			throw new Error(
+				`${directory} is not empty (found ${found}). Pass --force to create the project there anyway; files the template also contains are overwritten.`
+			);
+		}
 		const force = await p.confirm({
-			message: 'Directory not empty. Continue?',
+			message: `Directory not empty (found ${found}). Continue? Files the template also contains are overwritten.`,
 			initialValue: false
 		});
 		if (p.isCancel(force) || !force) onCancel();

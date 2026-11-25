@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TEMPLATE_INDEX_URL } from './constants.ts';
 import { restoreTemplateNames } from './template-files.ts';
+import { mergeGitignore } from './create-target.ts';
 import {
 	downloadTemplate,
 	fetchTemplateIndex,
@@ -281,9 +282,17 @@ export async function resolveTemplate(
 	};
 }
 
-/** Copy a template's tree into `target`, restoring the names npm cannot publish. */
+/**
+ * Copy a template's tree into `target`, restoring the names npm cannot publish.
+ * A `.gitignore` already in `target` is kept and gains the template's lines it
+ * lacks; every other file the template also contains is overwritten.
+ */
 export function copyTemplate(template: ProjectTemplate, target: string): void {
 	fs.mkdirSync(target, { recursive: true });
+	const gitignorePath = path.join(target, '.gitignore');
+	const gitignore = fs.existsSync(gitignorePath)
+		? fs.readFileSync(gitignorePath, 'utf8')
+		: undefined;
 	fs.cpSync(template.dir, target, {
 		recursive: true,
 		// The manifest describes the template to the CLI; it isn't part of the project.
@@ -291,6 +300,14 @@ export function copyTemplate(template: ProjectTemplate, target: string): void {
 			path.basename(src) !== '.DS_Store' && path.relative(template.dir, src) !== TEMPLATE_MANIFEST
 	});
 	restoreTemplateNames(target);
+	if (gitignore !== undefined) {
+		const fromTemplate = fs.readFileSync(gitignorePath, 'utf8');
+		// Unchanged by the copy means the template ships none.
+		fs.writeFileSync(
+			gitignorePath,
+			fromTemplate === gitignore ? gitignore : mergeGitignore(gitignore, fromTemplate)
+		);
+	}
 }
 
 function readManifest(root: string, name: string): ProjectTemplate | undefined {
