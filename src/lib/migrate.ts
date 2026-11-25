@@ -18,9 +18,9 @@ export function migrateRoot(): string {
 }
 
 async function pocketbaseMigrateArgs(cwd: string, args: string[]): Promise<[string, string[]]> {
-	const { getBinaryPath } = await import('pocketbase-server');
+	const { pocketbaseBinaryPath } = await import('./pocketbase.ts');
 	return [
-		getBinaryPath(),
+		pocketbaseBinaryPath(),
 		[
 			'--dir',
 			path.join(cwd, DATA_DIR),

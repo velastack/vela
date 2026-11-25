@@ -424,6 +424,7 @@ export const deploy = addLockWaitOption(
 									`your own instead, ${pc.cyan('vela env set POCKETBASE_SUPERUSER_PASSWORD')}\n` +
 									`and deploy again.`
 							);
+							p.log.info(`No app users yet: ${pc.cyan(`vela users create -t ${ctx.targetName}`)}`);
 						}
 
 						if (!primaryHost) {

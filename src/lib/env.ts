@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export function addEnvVar(content: string, key: string, value: string): string {
-	if (content.includes(`${key}=`)) return content;
+	// At the start of a line: `# KEY=` in a commented-out example is not the
+	// variable being set.
+	if (content.split('\n').some((line) => line.trimStart().startsWith(`${key}=`))) return content;
 	return appendLine(content, `${key}=${value}`);
 }
 

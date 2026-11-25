@@ -31,6 +31,7 @@ import { dev } from './commands/dev.ts';
 import { build } from './commands/build.ts';
 import { preview } from './commands/preview.ts';
 import { sync } from './commands/sync.ts';
+import { hasLocalDatabase } from './lib/pocketbase.ts';
 import { provision } from './commands/provision.ts';
 import { deploy } from './commands/deploy.ts';
 import { link } from './commands/link.ts';
@@ -197,6 +198,11 @@ program.hook('preAction', (_thisCommand, actionCommand) => {
 	// The visual schema editor runs on a throwaway database with its own
 	// superuser; the project's credentials are not read.
 	if (path === 'generate migration' && actionCommand.opts().ai) return;
+
+	// `vela sync` with no local database has nothing to sign in to: it says so
+	// in one line and exits 0 (the scaffold's `prepare` script runs it on every
+	// install, a fresh CI checkout included).
+	if (path === 'sync' && !hasLocalDatabase(findWorkspaceRoot() ?? process.cwd())) return;
 
 	if (!hasSuperuserCredentials()) {
 		p.log.error(missingCredentialsMessage());

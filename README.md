@@ -38,6 +38,7 @@ Off a terminal nothing is created on velastack.dev unless `--link new` or `--lin
 ```sh
 vela enable auth                                     # sign-in, sessions, OAuth scaffold
 vela enable whatsapp                                 # sign in with a code on WhatsApp, next to email
+vela enable email                                    # SMTP for verification and reset emails, by provider
 vela generate scaffold post title:text body:editor   # model, forms, list and detail pages
 vela migrate up                                      # schema, versioned and in git
 vela ui add button card dialog                       # shadcn-svelte components, into your project
@@ -54,7 +55,7 @@ Changed your mind? `vela destroy` and `vela disable` take it back out.
 Deploys go to a server you own, over SSH. Prepare the box once, then deploy as often as you like.
 
 ```sh
-vela provision root@your-server                        # Caddy, Node, PocketBase, systemd, TLS
+vela provision root@your-server                        # Caddy, Node, PocketBase, systemd, TLS, swap on a small box
 vela deploy --server root@your-server --domain example.com
 ```
 
@@ -65,8 +66,11 @@ config: a server needs `@sveltejs/adapter-node`, so a project still on `adapter-
 installed, and you are asked to commit the change. At a terminal the deploy asks before
 it edits the config file and `package.json`; in CI it goes ahead. A project on
 `adapter-static` or a hosting platform's adapter is left alone and told why. The server
-installs dependencies with npm, so a pnpm, yarn or bun project should commit a
-`package-lock.json` for a reproducible deploy; the deploy warns when it finds only theirs.
+installs only what the app needs at runtime, with npm: an app with no `dependencies`
+(a scaffolded one bundles everything) gets no install at all. A pnpm, yarn or bun
+project with runtime dependencies should commit a `package-lock.json` for a reproducible
+deploy; the deploy warns when it finds only theirs and prints the command that writes one.
+When both lockfiles are present, vela builds with npm.
 Nothing on the server assumes a database: run `vela enable backend` whenever you want
 one and deploy again, and the same instance gains its PocketBase.
 
@@ -77,7 +81,8 @@ machine again. Every command takes the same selector — `-t local`, `-t product
 ```sh
 vela targets                       # what exists, and where
 vela env set STRIPE_SECRET_KEY -t production
-vela admin create -t production    # a login for the admin panel
+vela admin create -t production    # a PocketBase superuser, for the admin panel
+vela users create -t production    # an account in the app itself
 vela seeds load -t production      # the records in data/seeds, where missing
 ```
 
@@ -145,7 +150,58 @@ config file.
 `PB_BACKUPS_S3_*` takes the same six names for where backups go. A new project's
 `.env.example` lists the email and storage variables, commented out.
 
-Same thing from CI with [`velastack/action`](https://github.com/velastack/action).
+### Email
+
+`vela enable email` fills in the SMTP variables for a provider (`resend`,
+`postmark`, `sendgrid`, `mailgun`, `ses`, or `smtp` for anything else), asking
+only for the key and the sender:
+
+```sh
+vela enable email --provider resend --from hello@example.com   # into .env
+vela enable email -t production                                # into a target, and restarts it
+```
+
+A provider's API key is the SMTP password, so it is stored once, as
+`PB_SMTP_PASSWORD`. Values in `.env` are not deployed: run the command once per
+target. `vela disable email` removes the variables again.
+
+## App users
+
+`vela admin create` makes a PocketBase superuser: a login for `/admin`. It is not
+an account in your app. A fresh deploy has no app users, so create the first one:
+
+```sh
+vela users create -t production                                   # asks for email, password, name
+vela users create -t production --email ada@example.com --set admin=true
+```
+
+Leave the password empty and one is generated and printed once. The account is
+marked verified. `--set key=value` sets any other field of the collection,
+`--collection <name>` picks an auth collection other than `users`, and `--update`
+changes an existing account instead of failing.
+
+## Deploy on push
+
+```sh
+vela deploy --server root@your-server --domain example.com   # once, from your machine
+vela enable ci
+```
+
+`vela enable ci` writes `.github/workflows/deploy.yml` for
+[`velastack/action`](https://github.com/velastack/action): every push to the
+current branch deploys production. The workflow names no server, domain or
+target; the action reads them from the committed `.vela/project.json`. The
+command lists what the workflow needs and what is missing.
+
+The workflow needs one secret, `SSH_PRIVATE_KEY`. `vela enable ci --setup-key`
+makes it: a new ed25519 keypair for CI, the public key appended to the server's
+`authorized_keys`, the private key stored as the repository secret with the `gh`
+CLI. It shows that plan and asks first. Without the flag it prints the same steps
+to run by hand. `--previews` also deploys a preview of every pull request.
+
+The app's environment lives on the server, not in GitHub secrets:
+`vela env import <file> -t production`. Only what the build reads at build time
+has to be on the runner too.
 
 ## Testing
 
