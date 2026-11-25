@@ -123,3 +123,20 @@ export function deployHosts(input: {
 	const managed = splitHosts(input.existingManaged);
 	return { direct, managed, keptManaged: managed.length > 0 };
 }
+
+/**
+ * Whether to announce a deploy to velastack.dev when the server could not be
+ * identified to it first.
+ *
+ * velastack.dev gives a managed hostname only to a deploy that names a
+ * registered server, and records the environment as having none otherwise. An
+ * environment that already has one must not be announced that way: the
+ * hostname would be taken away over a failed registration call. Such a deploy
+ * goes unrecorded instead, and keeps what the server has.
+ */
+export function shouldAnnounceDeploy(input: {
+	serverIdentified: boolean;
+	existingManaged: string | null | undefined;
+}): boolean {
+	return input.serverIdentified || splitHosts(input.existingManaged).length === 0;
+}

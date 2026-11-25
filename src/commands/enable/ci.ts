@@ -147,6 +147,11 @@ export async function enableCi(
 	flags: EnableCiFlags,
 	deps: EnableCiDeps
 ): Promise<EnableCiResult> {
+	if (flags.previews && flags.apiKey === false) {
+		throw new Error(
+			`--previews needs the ${API_KEY_SECRET} secret (velastack.dev names each preview), so it cannot be combined with --no-api-key.`
+		);
+	}
 	const facts = await gatherProjectFacts(workspaceRootDir);
 	const branch = flags.branch?.trim() || facts.branch || 'main';
 
@@ -190,6 +195,10 @@ export async function enableCi(
 				`--setup-key changes a server and a GitHub repository, and there is no terminal to confirm on. Pass ${pc.cyan('--yes')} to go ahead.`
 			);
 		}
+	}
+	// Before the workflow is written, on every path that will set secrets up
+	// without another question: a run that cannot finish leaves nothing behind.
+	if (canSetUpKey && (flags.setupKey || flags.yes)) {
 		await deps.keyEffects.checkGh(facts.github!);
 	}
 
@@ -422,7 +431,9 @@ export function apiKeyLines(
 				`  ${pc.yellow('to do')}  ${API_KEY_SECRET} repository secret is not set, so deploys would not be recorded on velastack.dev and no velastack.app hostname given: ` +
 					(flags.apiKeySecret
 						? byHand
-						: `\`vela login\`, then \`vela enable ci --setup-key\` issues and stores one (or ${byHand})`)
+						: result.facts.linked
+							? `\`vela login\`, then \`vela enable ci --setup-key\` issues and stores one (or ${byHand})`
+							: `\`vela link\` the project, then \`vela enable ci --setup-key\` issues and stores one (or ${byHand})`)
 			];
 	}
 }

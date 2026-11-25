@@ -2,7 +2,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { buildOrigin, deployHosts, normalizeOrigin, resolveOrigin } from './origin.ts';
+import {
+	buildOrigin,
+	deployHosts,
+	normalizeOrigin,
+	resolveOrigin,
+	shouldAnnounceDeploy
+} from './origin.ts';
 
 let root: string;
 
@@ -182,5 +188,25 @@ describe('deployHosts', () => {
 		expect(
 			deployHosts({ configured: 'example.com', answered: undefined, existingManaged: undefined })
 		).toEqual({ direct: ['example.com'], managed: [], keptManaged: false });
+	});
+});
+
+describe('shouldAnnounceDeploy', () => {
+	// velastack.dev records "no managed hostname" for a deploy that names no
+	// server, which would take a live one away over a failed registration.
+	test('a deploy that could not identify its server is not announced when a hostname is at stake', () => {
+		expect(
+			shouldAnnounceDeploy({ serverIdentified: false, existingManaged: 'app.velastack.app' })
+		).toBe(false);
+	});
+
+	test('it is announced when the server is known, or when there is no hostname to lose', () => {
+		expect(
+			shouldAnnounceDeploy({ serverIdentified: true, existingManaged: 'app.velastack.app' })
+		).toBe(true);
+		expect(shouldAnnounceDeploy({ serverIdentified: false, existingManaged: undefined })).toBe(
+			true
+		);
+		expect(shouldAnnounceDeploy({ serverIdentified: false, existingManaged: '' })).toBe(true);
 	});
 });

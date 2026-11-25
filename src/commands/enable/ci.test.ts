@@ -623,6 +623,37 @@ describe('vela enable ci', () => {
 		expect(result.workflowIgnoresApiKey).toBe(true);
 	});
 
+	test('--previews with --no-api-key is refused: previews are named by velastack.dev', async () => {
+		deployedProject();
+		await expect(enableCi(dir, { previews: true, apiKey: false }, deps().deps)).rejects.toThrow(
+			/--previews needs the VELA_API_KEY secret/
+		);
+		expect(fs.existsSync(path.join(dir, WORKFLOW_PATH))).toBe(false);
+	});
+
+	test('--previews on a project that is not linked points at vela link, not vela login', async () => {
+		deployedProject();
+		const { deps: d } = deps({ loggedIn: true, secretExists: async () => false });
+		const result = await enableCi(dir, { previews: true }, d);
+		expect(result.apiKey).toBe('missing');
+		const line = apiKeyLines(result, {}).join('\n');
+		expect(line).toContain('vela link');
+		expect(line).not.toContain('vela login');
+	});
+
+	test('--yes with no gh writes nothing', async () => {
+		deployedProject();
+		const { effects } = fakeEffects({
+			checkGh: async () => {
+				throw new Error('`gh` is not installed.');
+			}
+		});
+		await expect(enableCi(dir, { yes: true }, deps({ keyEffects: effects }).deps)).rejects.toThrow(
+			/gh/
+		);
+		expect(fs.existsSync(path.join(dir, WORKFLOW_PATH))).toBe(false);
+	});
+
 	test('a project that is not linked gets no key, in the workflow or anywhere else', async () => {
 		deployedProject();
 		const { deps: d, calls } = deps({ loggedIn: true });
