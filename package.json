@@ -13,8 +13,8 @@
 		"node": ">=22.22"
 	},
 	"bin": {
-		"vela": "./dist/bin.js",
-		"velastack": "./dist/bin.js"
+		"vela": "dist/bin.js",
+		"velastack": "dist/bin.js"
 	},
 	"exports": {
 		"./testing": {
