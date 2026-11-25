@@ -421,7 +421,7 @@ describe('test/setup.ts of the minimal template', () => {
 	// Posting the /login form broke every authenticated test once an app
 	// replaced that page.
 	test('authenticateUser signs in against PocketBase and sets the cookie', () => {
-		expect(helper).toContain('new PocketBase(process.env.POCKETBASE_URL!)');
+		expect(helper).toContain('new PocketBase(servers.pocketbaseUrl)');
 		expect(helper).toContain(".collection('users').authWithPassword(user.email, testUserPassword)");
 		expect(helper).toContain(
 			"agent.set('Cookie', client.authStore.exportToCookie().split(';')[0])"
@@ -430,7 +430,13 @@ describe('test/setup.ts of the minimal template', () => {
 		expect(setup).not.toContain("'/login'");
 	});
 
-	test('says that pages are stubbed and how to render them', () => {
-		expect(setup).toContain('VELA_TEST_RENDER_PAGES');
+	// In the vitest config, where the variable is set. The setup file is kept
+	// identical to the copy `vela enable backend` writes from @velastack/patterns.
+	test('the vitest config says that pages are stubbed and how to render them', () => {
+		const config = fs.readFileSync(
+			path.join(templatesDir(), 'minimal', 'vitest.config.ts'),
+			'utf8'
+		);
+		expect(config).toContain('VELA_TEST_RENDER_PAGES');
 	});
 });
