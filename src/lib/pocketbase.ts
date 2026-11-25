@@ -380,11 +380,37 @@ export async function launchPocketbase(
 		host,
 		stdio: 'pipe'
 	});
+	const output = drainOutput(proc);
 
 	return {
 		stop: () => proc.kill(),
-		url
+		url,
+		/** The last of what PocketBase printed, for a failure report. */
+		output
 	};
+}
+
+/** How much of a piped process's output `drainOutput` keeps. */
+const OUTPUT_TAIL_BYTES = 64 * 1024;
+
+/**
+ * Keep reading a child's piped stdout and stderr, and return a function that
+ * gives the last of it.
+ *
+ * A pipe nobody reads fills up (64 KB on Linux), and the child then blocks on
+ * its next write. PocketBase writes a line for every mail it cannot send and
+ * every error it logs, so a test run that produced enough of them froze the
+ * database part-way through: every request after that hung until the test
+ * timed out.
+ */
+export function drainOutput(proc: ChildProcess): () => string {
+	let tail = '';
+	const keep = (chunk: Buffer | string) => {
+		tail = (tail + chunk.toString()).slice(-OUTPUT_TAIL_BYTES);
+	};
+	proc.stdout?.on('data', keep);
+	proc.stderr?.on('data', keep);
+	return () => tail;
 }
 
 /**

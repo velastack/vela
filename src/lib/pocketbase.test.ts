@@ -6,7 +6,8 @@ import {
 	createSuperuser,
 	exposePocketbaseBinary,
 	pocketbaseBinaryPath,
-	upsertSuperuser
+	upsertSuperuser,
+	drainOutput
 } from './pocketbase.ts';
 
 describe('the PocketBase binary', () => {
@@ -71,4 +72,23 @@ describe('superuser commands', () => {
 		await expect(again).rejects.toThrow(/could not create the superuser admin@example\.com/);
 		await expect(again).rejects.not.toThrow(/correct-horse-battery/);
 	}, 30_000);
+});
+
+describe('drainOutput', () => {
+	// A child that prints more than a pipe holds (64 KB on Linux) blocks on the
+	// write unless somebody reads. That is how a test run froze PocketBase.
+	test('lets a child that prints more than a pipe holds finish, and keeps the tail', async () => {
+		const { spawn } = await import('node:child_process');
+		const proc = spawn(
+			process.execPath,
+			['-e', "process.stdout.write('x'.repeat(300000) + 'END'); process.stderr.write('ERR');"],
+			{ stdio: 'pipe' }
+		);
+		const output = drainOutput(proc);
+		const code = await new Promise((resolve) => proc.once('close', resolve));
+		expect(code).toBe(0);
+		expect(output().length).toBeLessThanOrEqual(64 * 1024);
+		expect(output()).toContain('END');
+		expect(output()).toContain('ERR');
+	});
 });
