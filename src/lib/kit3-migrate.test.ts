@@ -680,7 +680,7 @@ describe('vela steps', () => {
 				'test',
 				'vite.config.ts',
 				'vitest.config.ts',
-				'.svelte-kit/types/pocketbase/*.d.ts'
+				'.svelte-kit/pocketbase/*.d.ts'
 			]
 		});
 	});

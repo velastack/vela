@@ -17,6 +17,12 @@ import { createPocketbaseLogFilter } from '../lib/pocketbase-log-filter.ts';
 import { readSite, SITE_FILE } from '../lib/site.ts';
 import { findWorkspaceRoot, hasBackend, localDataDir } from '../lib/workspace.ts';
 import { loadVite } from '../lib/vite.ts';
+import {
+	createRegenerator,
+	watchPocketbaseTypes,
+	writePocketbaseTypes
+} from '../lib/pocketbase-types.ts';
+import { migrateTsconfigTypesInclude, TSCONFIG_TYPES_MOVED } from '../lib/config-merge.ts';
 
 /**
  * Vite dev-server flags worth forwarding, spelled exactly as vite's own CLI
@@ -196,39 +202,27 @@ export const dev = new Command('dev')
 
 async function startWatchingTypes(cwd: string, pb: PocketBase): Promise<void> {
 	const { processTypes } = await import('@velastack/pocketbase-codegen');
+	const root = path.resolve(cwd);
 
-	const typesDir = path.resolve(cwd, '.svelte-kit', 'types');
-	const pocketbaseDir = path.join(typesDir, 'pocketbase');
-	const pocketbaseTypes = path.join(pocketbaseDir, '$types.d.ts');
-
-	const regenerate = () => processTypes(pb, typesDir).catch(() => {});
+	// Both locations, from one fetch of the schema (see lib/pocketbase-types.ts).
+	const regenerate = () => writePocketbaseTypes(root, (dir) => processTypes(pb, dir));
 
 	// Never let a first-run failure escape: this runs inside an async
 	// `listening` listener, where a rejection takes the process down, and it
 	// would also leave the session with no watcher at all. Both SvelteKit and
 	// handlePocketbase rely on that watcher to rebuild $types.d.ts after they
 	// delete it, so losing it silently disables type sync for the session.
-	await regenerate();
+	const written = await regenerate().then(
+		() => true,
+		() => false
+	);
+	// Only once the file it points at exists: until then the old include entry
+	// still finds whatever an earlier vela left at the old path.
+	if (written && migrateTsconfigTypesInclude(root)) console.log(pc.dim(TSCONFIG_TYPES_MOVED));
 
-	// Re-arm on failure: the watch is bound to the directory's inode, so
-	// `rm -rf .svelte-kit` would otherwise kill it permanently.
-	void (async () => {
-		for (;;) {
-			try {
-				await fs.promises.mkdir(pocketbaseDir, { recursive: true });
-				for await (const event of fs.promises.watch(pocketbaseDir)) {
-					if (
-						event.eventType === 'rename' &&
-						event.filename === '$types.d.ts' &&
-						!fs.existsSync(pocketbaseTypes)
-					) {
-						setTimeout(regenerate, 100);
-					}
-				}
-			} catch {
-				// directory vanished or the watch broke — rebuild and re-watch
-				await new Promise((r) => setTimeout(r, 200));
-			}
-		}
-	})();
+	// Either copy disappearing means "write them again": handlePocketbase
+	// unlinks them when the schema changes, and SvelteKit deletes the copy
+	// under `.svelte-kit/types` whenever it rewrites its manifest. One
+	// regeneration per disappearance, however many files went.
+	watchPocketbaseTypes(root, createRegenerator(regenerate));
 }
