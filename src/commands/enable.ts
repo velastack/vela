@@ -6,10 +6,12 @@ import { auth } from './enable/auth.ts';
 import { api } from './enable/api.ts';
 import { apiKeys } from './enable/api-keys.ts';
 import { backend } from './enable/backend.ts';
+import { ci } from './enable/ci.ts';
 import { i18n } from './enable/i18n.ts';
 import { teams } from './enable/teams.ts';
 import { payments } from './enable/payments.ts';
 import { ecommerce } from './enable/ecommerce.ts';
+import { email } from './enable/email.ts';
 import { subscriptions } from './enable/subscriptions.ts';
 import { orders } from './enable/orders.ts';
 import { notifications } from './enable/notifications.ts';
@@ -29,11 +31,13 @@ export const enable = new Command('enable')
 	.addCommand(api)
 	.addCommand(apiKeys)
 	.addCommand(backend)
+	.addCommand(ci)
 	.addCommand(contentNegotiation)
 	.addCommand(i18n)
 	.addCommand(teams)
 	.addCommand(payments)
 	.addCommand(ecommerce)
+	.addCommand(email)
 	.addCommand(subscriptions)
 	.addCommand(orders)
 	.addCommand(notifications)

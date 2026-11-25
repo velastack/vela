@@ -39,6 +39,7 @@ import { status } from './commands/status.ts';
 import { rollback } from './commands/rollback.ts';
 import { logs } from './commands/logs.ts';
 import { admin } from './commands/admin.ts';
+import { users } from './commands/users.ts';
 import { backup } from './commands/backup.ts';
 import { restore } from './commands/restore.ts';
 import { targets } from './commands/targets.ts';
@@ -85,6 +86,12 @@ const NO_BACKEND_COMMMANDS = new Set([
 	// its `requires` says, so a static project is refused there instead.
 	'enable ecommerce',
 	'disable ecommerce',
+	// Writes PB_SMTP_* to `.env` or to a target's environment; the database is
+	// never opened, and the command says so itself when there is no backend.
+	'enable email',
+	'disable email',
+	// Writes a GitHub Actions workflow and reads `.vela/project.json`.
+	'enable ci',
 	// Only wires hooks, reroute and the root layout; no collections involved.
 	'enable content-negotiation',
 	'disable content-negotiation',
@@ -106,6 +113,9 @@ const NO_BACKEND_COMMMANDS = new Set([
 	'rollback',
 	'logs',
 	'admin',
+	// Acts on whichever target `-t` names; the local path reads the project's own
+	// credentials itself, like `admin create`.
+	'users',
 	'targets',
 	'link',
 	// Acts on whichever target `-t` names; the local path reads the project's
@@ -234,6 +244,7 @@ for (const command of [
 	logs,
 	env,
 	admin,
+	users,
 	backup,
 	restore,
 	targets,
