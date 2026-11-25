@@ -4,11 +4,5 @@
 		"strict": true,
 		"sourceMap": true
 	},
-	"include": [
-		"src",
-		"test",
-		"vite.config.ts",
-		"vitest.config.ts",
-		".svelte-kit/pocketbase/*.d.ts"
-	]
+	"include": ["src", "test", "vite.config.ts", "vitest.config.ts", ".svelte-kit/pocketbase/*.d.ts"]
 }
