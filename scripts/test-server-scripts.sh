@@ -269,6 +269,96 @@ else
 	bad "install failure: 137 names the out-of-memory killer, the memory and the way out" "$killed"
 fi
 
+# apply.sh's install_deps itself, lifted out of the script and run against a
+# stand-in npm that records how it was called and exits as told. Root-only
+# commands are stubbed; the decisions and the layout left behind are real.
+fake_npm_dir="$SCRATCH/fake-npm"; mkdir -p "$fake_npm_dir"
+cat > "$fake_npm_dir/npm" <<'NPM'
+#!/bin/sh
+if [ "$1" = "-v" ]; then echo 11.6.2; exit 0; fi
+printf '%s\n' "$*" > "$NPM_CALL_LOG"
+cp package.json "$NPM_CALL_LOG.package.json"
+mkdir -p node_modules/argon2
+exit "${FAKE_NPM_EXIT:-0}"
+NPM
+chmod +x "$fake_npm_dir/npm"
+# usage: run_install <name> <npm-exit> <package.json> [lockfile-name]
+# Leaves $SCRATCH/install/<name>/{app,calls}, prints install_deps' stderr.
+run_install() {
+	local name=$1 npm_exit=$2 manifest=$3 lockfile=${4:-}
+	local base="$SCRATCH/install/$name"
+	mkdir -p "$base/app/releases/r1" "$base/app/deps"
+	printf '%s' "$manifest" > "$base/app/releases/r1/package.json"
+	if [ -n "$lockfile" ]; then printf 'lock' > "$base/app/releases/r1/$lockfile"; fi
+	(
+		set -Eeuo pipefail
+		APP="$base/app" RELEASE_DIR="$base/app/releases/r1"
+		export NPM_CALL_LOG="$base/calls" FAKE_NPM_EXIT=$npm_exit PATH="$fake_npm_dir:$PATH"
+		chown() { :; }
+		runuser() { shift 3; "$@"; }
+		command -v sha256sum >/dev/null 2>&1 || sha256sum() { shasum -a 256; }
+		# BSD mv has no -T; the link being replaced does not exist yet here.
+		mv --version >/dev/null 2>&1 || mv() { shift; command mv -f "$@"; }
+		eval "$(sed -n '/^install_deps() {$/,/^}$/p' "$ROOT/templates/server/apply.sh")"
+		install_deps
+	) 2>&1
+}
+installed_dir() { dirname "$(readlink "$SCRATCH/install/$1/app/releases/r1/node_modules")"; }
+
+dev_only='{"scripts":{"prepare":"svelte-kit sync"},"devDependencies":{"vite":"^8.0.0"}}'
+with_dep='{"scripts":{"prepare":"svelte-kit sync"},"dependencies":{"argon2":"^0.44.0"},"devDependencies":{"vite":"^8.0.0"}}'
+
+out=$(run_install skip 0 "$dev_only" pnpm-lock.yaml); code=$?
+d=$(installed_dir skip)
+if [ "$code" = 0 ] && [ ! -e "$SCRATCH/install/skip/calls" ] && grep -q 'no runtime dependencies - skipping' <<<"$out" \
+	&& [ -d "$d/node_modules" ] && [ -z "$(ls -A "$d/node_modules")" ] && [ -f "$d/.vela-installed" ] \
+	&& [ "$(cat "$SCRATCH/install/skip/app/releases/r1/.vela-deps")" = "$(basename "$d")" ]; then
+	ok "install: no runtime dependencies - npm never starts, and the keyed tree is in place"
+else
+	bad "install: no runtime dependencies - npm never starts, and the keyed tree is in place" "$out"
+fi
+out=$(run_install skip 0 "$dev_only" pnpm-lock.yaml)
+grep -q 'dependencies already installed' <<<"$out" \
+	&& ok "install: the skipped tree is reused by the next deploy" \
+	|| bad "install: the skipped tree is reused by the next deploy" "$out"
+
+out=$(run_install skip-lock 0 "$dev_only" package-lock.json); code=$?
+[ "$code" = 0 ] && [ ! -e "$SCRATCH/install/skip-lock/calls" ] \
+	&& ok "install: no runtime dependencies with a package-lock.json skips npm ci too" \
+	|| bad "install: no runtime dependencies with a package-lock.json skips npm ci too" "$out"
+
+out=$(run_install locked 0 "$with_dep" package-lock.json); code=$?
+if [ "$code" = 0 ] && grep -q '^ci --omit=dev ' "$SCRATCH/install/locked/calls" \
+	&& [ "$(jq -c 'del(.scripts)' "$SCRATCH/install/locked/calls.package.json")" = '{"dependencies":{"argon2":"^0.44.0"},"devDependencies":{"vite":"^8.0.0"}}' ] \
+	&& [ "$(jq -r '.scripts.prepare // "gone"' "$SCRATCH/install/locked/calls.package.json")" = gone ] \
+	&& [ -d "$(installed_dir locked)/node_modules/argon2" ] && [ -f "$(installed_dir locked)/.vela-installed" ]; then
+	ok "install: with a package-lock.json it is npm ci on the manifest the lockfile describes"
+else
+	bad "install: with a package-lock.json it is npm ci on the manifest the lockfile describes" "$out $(cat "$SCRATCH/install/locked/calls" 2>&1)"
+fi
+
+out=$(run_install foreign 0 "$with_dep" pnpm-lock.yaml); code=$?
+if [ "$code" = 0 ] && grep -q '^install --omit=dev ' "$SCRATCH/install/foreign/calls" \
+	&& [ "$(jq -c 'del(.scripts)' "$SCRATCH/install/foreign/calls.package.json")" = '{"dependencies":{"argon2":"^0.44.0"}}' ]; then
+	ok "install: without one it is npm install on a manifest with no devDependencies"
+else
+	bad "install: without one it is npm install on a manifest with no devDependencies" "$out"
+fi
+
+out=$(run_install killed 137 "$with_dep" pnpm-lock.yaml); code=$?
+if [ "$code" = 1 ] && grep -q 'error: dependency install failed: npm was killed (exit 137)' <<<"$out" \
+	&& grep -q 'out-of-memory killer' <<<"$out" \
+	&& [ ! -e "$SCRATCH/install/killed/app/releases/r1/node_modules" ] \
+	&& [ -z "$(find "$SCRATCH/install/killed/app/deps" -name .vela-installed)" ]; then
+	ok "install: a killed npm fails the deploy, names the cause and leaves no finished tree"
+else
+	bad "install: a killed npm fails the deploy, names the cause and leaves no finished tree" "code=$code $out"
+fi
+out=$(run_install failed 1 "$with_dep" package-lock.json); code=$?
+[ "$code" = 1 ] && grep -q 'error: dependency install failed (exit 1)$' <<<"$out" \
+	&& ok "install: any other failure keeps its message, with the exit code" \
+	|| bad "install: any other failure keeps its message, with the exit code" "code=$code $out"
+
 # What `vela status` reports as runtimeDependencies, and `vela provision` reads
 # to name the apps a new Node major leaves needing a redeploy.
 rel="$SCRATCH/rel"; mkdir -p "$rel/empty" "$rel/bookkeeping" "$rel/full" "$rel/linked" "$rel/none" "$rel/deps/node_modules/argon2"
