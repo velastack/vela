@@ -18,7 +18,10 @@ export const TEST_DATA_DIR = 'test-data';
 export interface TestServers {
 	/** The throwaway PocketBase, migrated and loaded with seeds and fixtures. */
 	pocketbaseUrl: string;
-	/** The app, served by Vite in test mode with its pages stubbed out. */
+	/**
+	 * The app, served by Vite in test mode. Its pages render nothing unless
+	 * `VELA_TEST_RENDER_PAGES=1` (see `testPlugins`).
+	 */
 	appUrl: string;
 	/** The superuser the harness created in the throwaway database. */
 	superuser: { email: string; password: string };
@@ -47,6 +50,11 @@ export class HarnessError extends Error {}
  * fixtures, and the app under Vite in test mode. Sets the environment the app
  * reads before Vite starts, so the app sees the throwaway database and
  * `TEST=true`.
+ *
+ * Pages are stubbed: every `+page.svelte`, `+layout.svelte` and
+ * `+error.svelte` renders an empty body, because server tests exercise
+ * endpoints, form actions and load data. `VELA_TEST_RENDER_PAGES=1` serves
+ * the real pages instead (see `testPlugins`).
  *
  * Each run gets its own directory under `test-data/`, named after the
  * process, so an editor's test runner and a terminal run do not share a
@@ -135,7 +143,7 @@ export async function startTestHarness(
 		const { createServer } = await loadVite(cwd);
 		vite = await createServer({
 			mode: 'test',
-			plugins: [stubPagesPlugin()],
+			plugins: testPlugins(),
 			optimizeDeps: { noDiscovery: true },
 			// This config differs from `vela dev`'s, so sharing node_modules/.vite
 			// would make Vite re-optimize dependencies under a running dev server,
@@ -203,12 +211,34 @@ function describeLoadFailure(e: unknown): string {
 	return `Failed to load test data: ${(e as Error).message}`;
 }
 
+/** Set to `1` (or `true`) to serve real pages under the test harness. */
+export const RENDER_PAGES_ENV = 'VELA_TEST_RENDER_PAGES';
+
+/**
+ * The Vite plugins the harness adds to the app's own.
+ *
+ * By default that is `stub-pages`, which replaces every page, layout and
+ * error component with an empty one: a response is a status, headers and the
+ * serialized load data, and the HTML body is empty. That is deliberate.
+ * Server tests are about endpoints, actions and loads, and not compiling the
+ * app's components keeps them fast and independent of the UI.
+ *
+ * A suite that asserts on rendered markup sets `VELA_TEST_RENDER_PAGES=1`,
+ * in the environment or under `test.env` in `vitest.config.ts` (the harness
+ * inherits it), and the pages are served as `vela dev` serves them.
+ */
+export function testPlugins(env: NodeJS.ProcessEnv = process.env): Plugin[] {
+	const value = env[RENDER_PAGES_ENV]?.trim().toLowerCase();
+	const renderPages = value === '1' || value === 'true';
+	return renderPages ? [] : [stubPagesPlugin()];
+}
+
 /**
  * Server tests exercise endpoints and actions, so pages render nothing. A
  * layout stub still renders its children: SvelteKit 3 warns
  * (`layout_children_missing`) about a layout that does not, once per layout.
  */
-function stubPagesPlugin(): Plugin {
+export function stubPagesPlugin(): Plugin {
 	const stub = `<script>export const render = () => '';</script>`;
 	const layoutStub = `<script>let { children } = $props(); export const render = () => '';</script>{@render children?.()}`;
 	// `+page@.svelte` and `+layout@(app).svelte` reset the layout they sit

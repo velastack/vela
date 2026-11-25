@@ -3,7 +3,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import pc from 'picocolors';
-import { findWorkspaceRoot, localDataDir } from './workspace.ts';
+import { findWorkspaceRoot, localDataDir, noProjectMessage } from './workspace.ts';
 
 /**
  * The slice of `@velastack/cms/backend` the CLI drives.
@@ -80,7 +80,7 @@ export async function withCmsBackend<T>(
 ): Promise<T> {
 	const root = findWorkspaceRoot(cwd);
 	if (!root) {
-		throw new Error('Could not find workspace root (no package.json found)');
+		throw new Error(noProjectMessage(cwd));
 	}
 
 	const { createCmsBackend } = await loadBackendModule(root);

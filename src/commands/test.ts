@@ -5,7 +5,21 @@ import { x } from 'tinyexec';
 import { localExecCommand } from '../lib/package-manager.ts';
 import { helpConfig } from '../lib/help.ts';
 import { warnIfKit2 } from '../lib/kit-version.ts';
-import { HarnessError, startTestHarness, type TestHarness } from '../lib/test-harness.ts';
+import {
+	HarnessError,
+	RENDER_PAGES_ENV,
+	startTestHarness,
+	type TestHarness
+} from '../lib/test-harness.ts';
+
+export const TEST_SERVER_HELP = `
+Runs vitest's "server" project against a throwaway PocketBase and the app.
+Extra arguments go to vitest, e.g. \`vela test:server src/routes/api\`.
+
+Pages are stubbed: every +page.svelte, +layout.svelte and +error.svelte
+renders an empty body, so tests see status codes, redirects, headers and
+load data, but no markup. Set ${RENDER_PAGES_ENV}=1 to serve the real
+pages, in the environment or under \`test.env\` in vitest.config.ts.`;
 
 /**
  * Run the server tests. The servers they need come up inside vitest, through
@@ -18,6 +32,7 @@ export const testServer = new Command('test:server')
 	.allowUnknownOption(true)
 	.allowExcessArguments(true)
 	.configureHelp(helpConfig)
+	.addHelpText('after', TEST_SERVER_HELP)
 	.action(async (_opts, cmd) => {
 		const cwd = process.cwd();
 		warnIfKit2(cwd, (m) => console.warn(pc.yellow(`▲ ${m}`)));

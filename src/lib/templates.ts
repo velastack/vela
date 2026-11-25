@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TEMPLATE_INDEX_URL } from './constants.ts';
 import { restoreTemplateNames } from './template-files.ts';
+import { mergeGitignore } from './create-target.ts';
 import {
 	downloadTemplate,
 	fetchTemplateIndex,
@@ -202,6 +203,61 @@ export function templateChoicesMessage(templates: TemplateInfo[]): string {
 	return [...groups].map(([category, names]) => `${category}: ${names.join(', ')}`).join('; ');
 }
 
+/** What `vela templates --json` prints for one template. */
+export interface TemplateSummary {
+	name: string;
+	category: string;
+	description: string;
+	backend: boolean;
+	source: TemplateSource;
+	title?: string;
+	price?: number;
+	cms?: boolean;
+}
+
+export function summarizeTemplates(templates: TemplateInfo[]): TemplateSummary[] {
+	return [...templates].sort(compareTemplates).map((template) => ({
+		name: template.name,
+		category: template.category,
+		description: template.description,
+		backend: template.backend,
+		source: template.source,
+		...(template.title ? { title: template.title } : {}),
+		...((template.price ?? 0) > 0 ? { price: template.price } : {}),
+		...(template.cms ? { cms: true } : {})
+	}));
+}
+
+/**
+ * Every template, one per line under its category, for `vela templates`:
+ * the name `--template` takes, what it has (a backend, a price) and its
+ * one-line description. Plain text, so it reads the same piped to a file.
+ */
+export function formatTemplateList(templates: TemplateInfo[]): string {
+	const summaries = summarizeTemplates(templates);
+	const tags = (template: TemplateSummary) =>
+		[
+			template.backend ? 'backend' : 'no backend',
+			...(template.price ? [`US$${template.price}`] : [])
+		].join(', ');
+	const nameWidth = Math.max(0, ...summaries.map((template) => template.name.length));
+	const tagWidth = Math.max(0, ...summaries.map((template) => tags(template).length));
+
+	const lines: string[] = [];
+	let category: string | undefined;
+	for (const template of summaries) {
+		if (template.category !== category) {
+			if (category !== undefined) lines.push('');
+			category = template.category;
+			lines.push(category);
+		}
+		lines.push(
+			`  ${template.name.padEnd(nameWidth)}  ${tags(template).padEnd(tagWidth)}  ${template.description}`
+		);
+	}
+	return lines.join('\n');
+}
+
 /**
  * Put a template's files on disk. A built-in is already there; a registry
  * template is downloaded and unpacked into a temporary directory that
@@ -226,9 +282,17 @@ export async function resolveTemplate(
 	};
 }
 
-/** Copy a template's tree into `target`, restoring the names npm cannot publish. */
+/**
+ * Copy a template's tree into `target`, restoring the names npm cannot publish.
+ * A `.gitignore` already in `target` is kept and gains the template's lines it
+ * lacks; every other file the template also contains is overwritten.
+ */
 export function copyTemplate(template: ProjectTemplate, target: string): void {
 	fs.mkdirSync(target, { recursive: true });
+	const gitignorePath = path.join(target, '.gitignore');
+	const gitignore = fs.existsSync(gitignorePath)
+		? fs.readFileSync(gitignorePath, 'utf8')
+		: undefined;
 	fs.cpSync(template.dir, target, {
 		recursive: true,
 		// The manifest describes the template to the CLI; it isn't part of the project.
@@ -236,6 +300,14 @@ export function copyTemplate(template: ProjectTemplate, target: string): void {
 			path.basename(src) !== '.DS_Store' && path.relative(template.dir, src) !== TEMPLATE_MANIFEST
 	});
 	restoreTemplateNames(target);
+	if (gitignore !== undefined) {
+		const fromTemplate = fs.readFileSync(gitignorePath, 'utf8');
+		// Unchanged by the copy means the template ships none.
+		fs.writeFileSync(
+			gitignorePath,
+			fromTemplate === gitignore ? gitignore : mergeGitignore(gitignore, fromTemplate)
+		);
+	}
 }
 
 function readManifest(root: string, name: string): ProjectTemplate | undefined {

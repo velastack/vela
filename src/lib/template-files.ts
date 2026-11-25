@@ -23,6 +23,18 @@ export function templateName(projectRelPath: string): string {
 	return dir === '.' ? safe : path.join(dir, safe);
 }
 
+/**
+ * The project-relative path a template file ends up at: the reverse of
+ * `templateName` for the publish-safe names (restored at the root only, as
+ * `restoreTemplateNames` does), and `x.template.ext` as `x.ext`.
+ */
+export function projectFileName(templateRelPath: string): string {
+	const withoutInfix = templateRelPath.replace(TEMPLATE_SOURCE, '.$1');
+	if (path.dirname(withoutInfix) !== '.') return withoutInfix;
+	const real = Object.entries(PUBLISH_SAFE_NAMES).find(([, safe]) => safe === withoutInfix);
+	return real ? real[0] : withoutInfix;
+}
+
 /** Restore publish-safe names to their real ones after copying a template tree. */
 export function restoreTemplateNames(target: string): void {
 	for (const [real, safe] of Object.entries(PUBLISH_SAFE_NAMES)) {

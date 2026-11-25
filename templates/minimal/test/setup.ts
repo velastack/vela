@@ -1,3 +1,10 @@
+// Setup for the server tests (`vela test:server`): every test gets a request
+// agent for the app, PocketBase clients, and a fresh user.
+//
+// The app's pages are stubbed while these tests run: a response has its
+// status, headers and load data, and an empty HTML body. To test rendered
+// markup, set `VELA_TEST_RENDER_PAGES: '1'` under `test.env` in
+// vitest.config.ts.
 import { beforeEach, afterEach, beforeAll, inject } from 'vitest';
 import supertest, { type Agent } from 'supertest';
 import PocketBase from 'pocketbase-sveltekit';
@@ -17,17 +24,18 @@ const pb = new PocketBase(servers.pocketbaseUrl) as App.Locals['pb'];
 
 const testUserPassword = 'password';
 
+// Signs in against PocketBase and carries the session the way the browser
+// does, in the `pb_auth` cookie. Nothing goes through the app's own /login
+// page, so replacing that page does not break authenticated tests.
 async function authenticateUser(agent: Agent, user: { email?: string }) {
 	// Logs in with the password, so it needs the email (made optional by
 	// enable-whatsapp, for accounts that sign in with a phone number).
 	if (!user.email) {
 		throw new Error('authenticateUser needs a user with an email');
 	}
-	await agent.post('/login').type('form').send({
-		type: 'password',
-		email: user.email,
-		password: testUserPassword
-	});
+	const client = new PocketBase(process.env.POCKETBASE_URL!);
+	await client.collection('users').authWithPassword(user.email, testUserPassword);
+	agent.set('Cookie', client.authStore.exportToCookie().split(';')[0]);
 }
 
 beforeAll(async () => {

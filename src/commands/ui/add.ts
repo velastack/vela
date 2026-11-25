@@ -1,11 +1,11 @@
 import { Command } from 'commander';
-import * as p from '@clack/prompts';
 import { installComponents, type InstallComponentsResult } from '@velastack/patterns';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
 import { assertShadcn } from '../../lib/require-ui.ts';
 import { reportResult } from '../../lib/result-report.ts';
+import { taskLog } from '../../lib/task-log.ts';
 import { uiAddReport } from '../../lib/ui-add.ts';
 
 export const add = new Command('add')
@@ -21,7 +21,7 @@ export const add = new Command('add')
 			// One installer for patterns and this command: vela's own components
 			// (data-table, multiselect, ...) are copied in, everything else goes to
 			// `shadcn-svelte add`, and the dependencies of both are resolved.
-			const log = p.taskLog({ title: 'Adding UI components...' });
+			const log = taskLog({ title: 'Adding UI components...' });
 			let outcome: InstallComponentsResult;
 			try {
 				outcome = await installComponents({

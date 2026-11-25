@@ -7,6 +7,12 @@ import { scaffold } from './generate/scaffold.ts';
 import { migration } from './generate/migration.ts';
 import { workflow } from './generate/workflow.ts';
 import { shop } from './generate/shop.ts';
+import { withFieldSyntaxHelp } from '../lib/field-syntax.ts';
+
+// The generators that take field definitions print the syntax after their help.
+for (const command of [form, schema, resource, scaffold, migration]) {
+	withFieldSyntaxHelp(command);
+}
 
 export const generate = new Command('generate')
 	.description('generate scaffolding for database models and forms')

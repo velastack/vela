@@ -2,7 +2,9 @@ name: Canary
 
 # What a user gets from `vela create` today: both built-in templates scaffolded
 # from this checkout, installed with no lockfile, type-checked, built and
-# tested (scripts/canary.sh).
+# tested, and then `vela enable auth` and `vela generate scaffold` run in the
+# minimal one, with and without `--remote`, and checked the same way
+# (scripts/canary.sh).
 #
 # Daily, because no template ships a lockfile: a new project resolves the
 # newest release each range admits, so a release upstream can break
@@ -33,7 +35,9 @@ concurrency:
 jobs:
   canary:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Three check/build/test rounds for the minimal template since the generators
+    # joined, one for the static one.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:

@@ -37,8 +37,9 @@ export const migration = new Command('migration')
 					{
 						summary: `Created ${op} migration for ${collection}.`,
 						nextSteps: [
-							'Review the generated migration file in migrations/.',
-							'Run `vela migrate up` to apply the migration.'
+							'The change is already applied to the local database. There is no need to run `vela migrate up` here.',
+							'Commit the migration file in migrations/. It is what applies the change to other environments.',
+							'The zod schema in src/lib/schemas/ is updated when the collection has one. Run `vela generate schema <model>` to rebuild it.'
 						],
 						task: {
 							title: 'Generating migration',

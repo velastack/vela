@@ -5,12 +5,16 @@ import {
 	DEFAULT_TEMPLATE,
 	TEMPLATE_MANIFEST,
 	findProjectTemplate,
+	formatTemplateList,
 	listProjectTemplates,
 	projectTemplateNames,
+	summarizeTemplates,
 	templateChoicesMessage,
-	templatesDir
+	templatesDir,
+	type TemplateInfo
 } from './templates.ts';
 import { rangeAdmits } from './package-json.ts';
+import { readLocalEnvFile } from './remote-env.ts';
 
 describe('templatesDir', () => {
 	test('resolves the packaged templates directory', () => {
@@ -121,6 +125,83 @@ describe('categories', () => {
 			{ name: 'minimal', description: '', backend: true, source: 'builtin', category: 'starter' }
 		]);
 		expect(message).toBe('starter: minimal, static; blog: broadsheet, confetti');
+	});
+});
+
+describe('vela templates listing', () => {
+	const templates: TemplateInfo[] = [
+		{
+			name: 'broadsheet',
+			description: 'A newspaper blog',
+			backend: false,
+			source: 'remote',
+			category: 'blog',
+			price: 49
+		},
+		{
+			name: 'static',
+			description: 'Frontend only',
+			backend: false,
+			source: 'builtin',
+			category: 'starter'
+		},
+		{
+			name: 'minimal',
+			description: 'With PocketBase',
+			backend: true,
+			source: 'builtin',
+			category: 'starter'
+		}
+	];
+
+	test('groups by category, starters first, and marks the backend', () => {
+		expect(formatTemplateList(templates)).toBe(
+			[
+				'starter',
+				'  minimal     backend            With PocketBase',
+				'  static      no backend         Frontend only',
+				'',
+				'blog',
+				'  broadsheet  no backend, US$49  A newspaper blog'
+			].join('\n')
+		);
+	});
+
+	test('is plain text: no escape sequences', () => {
+		expect(formatTemplateList(templates)).not.toContain('\x1b');
+	});
+
+	test('the JSON form carries the same facts', () => {
+		expect(summarizeTemplates(templates)).toEqual([
+			{
+				name: 'minimal',
+				category: 'starter',
+				description: 'With PocketBase',
+				backend: true,
+				source: 'builtin'
+			},
+			{
+				name: 'static',
+				category: 'starter',
+				description: 'Frontend only',
+				backend: false,
+				source: 'builtin'
+			},
+			{
+				name: 'broadsheet',
+				category: 'blog',
+				description: 'A newspaper blog',
+				backend: false,
+				source: 'remote',
+				price: 49
+			}
+		]);
+	});
+
+	test('the built-in templates list without the registry', () => {
+		const text = formatTemplateList(listProjectTemplates());
+		expect(text).toMatch(/^starter\n {2}minimal +backend /);
+		expect(text).toMatch(/\n {2}static +no backend /);
 	});
 });
 
@@ -292,5 +373,64 @@ describe('SvelteKit 3', () => {
 			expect(rangeAdmits(pkg.devDependencies['sveltekit-superforms'], '3.99.0')).toBe(true);
 			expect(pkg.overrides?.formsnap).toBeUndefined();
 		}
+	});
+});
+
+describe('.env.example of the minimal template', () => {
+	const file = path.join(templatesDir(), 'minimal', '_env.example');
+	const text = fs.readFileSync(file, 'utf8');
+
+	test('documents the email and storage variables, commented out', () => {
+		for (const name of [
+			'PB_SMTP_HOST',
+			'PB_SMTP_PORT',
+			'PB_SMTP_USERNAME',
+			'PB_SMTP_PASSWORD',
+			'PB_SMTP_TLS',
+			'PB_SENDER_ADDRESS',
+			'PB_SENDER_NAME',
+			'PB_S3_ENDPOINT',
+			'PB_S3_BUCKET',
+			'PB_S3_REGION',
+			'PB_S3_ACCESS_KEY',
+			'PB_S3_SECRET',
+			'PB_S3_FORCE_PATH_STYLE'
+		]) {
+			expect(text).toMatch(new RegExp(`^# ${name}=`, 'm'));
+		}
+		expect(text).toContain('vela enable email');
+	});
+
+	// `vela deploy` nudges for every key the example sets; a commented one is
+	// documentation, not a key.
+	test('the commented variables are not keys to whatever parses the file', () => {
+		expect(Object.keys(readLocalEnvFile(file))).toEqual([
+			'POCKETBASE_SUPERUSER_EMAIL',
+			'POCKETBASE_SUPERUSER_PASSWORD'
+		]);
+	});
+});
+
+describe('test/setup.ts of the minimal template', () => {
+	const setup = fs.readFileSync(path.join(templatesDir(), 'minimal', 'test', 'setup.ts'), 'utf8');
+	const helper = setup.slice(
+		setup.indexOf('async function authenticateUser'),
+		setup.indexOf('beforeAll(')
+	);
+
+	// Posting the /login form broke every authenticated test once an app
+	// replaced that page.
+	test('authenticateUser signs in against PocketBase and sets the cookie', () => {
+		expect(helper).toContain('new PocketBase(process.env.POCKETBASE_URL!)');
+		expect(helper).toContain(".collection('users').authWithPassword(user.email, testUserPassword)");
+		expect(helper).toContain(
+			"agent.set('Cookie', client.authStore.exportToCookie().split(';')[0])"
+		);
+		expect(helper).not.toMatch(/\.post\(/);
+		expect(setup).not.toContain("'/login'");
+	});
+
+	test('says that pages are stubbed and how to render them', () => {
+		expect(setup).toContain('VELA_TEST_RENDER_PAGES');
 	});
 });

@@ -10,6 +10,7 @@ import { assertShadcn } from './require-ui.ts';
 import { assertRequires } from './require-features.ts';
 import { assertKit3 } from './kit-version.ts';
 import { MIGRATIONS_DIR } from './constants.ts';
+import { taskLog } from './task-log.ts';
 
 export interface PatternReport {
 	summary?: string;
@@ -121,7 +122,7 @@ export async function runPattern(
 
 	const migrationsBefore = listMigrations(workspaceRootDir);
 
-	const log = p.taskLog({ title: report.task.title });
+	const log = taskLog({ title: report.task.title });
 
 	// Patterns that run PocketBase (to write a migration, say) spawn vela's own.
 	exposePocketbaseBinary();

@@ -20,10 +20,11 @@ That's a running app with a database behind it. No separate PocketBase install, 
 - **Describe it instead.** Pass `--ai "a blog post with tags and a cover image"` and review the collection it designs before anything is written.
 - **shadcn-svelte components** on tap, and fixtures and seeds for realistic data while you work.
 - **The app's name in code.** Every project keeps its name and public URL in `src/lib/site.ts`; canonical links, Open Graph images and feeds are built from it, and `vela dev` / `vela deploy` hand the name to PocketBase as `APP_NAME` for the emails it sends. Nothing is written into its settings behind the admin panel's back.
-- **Themed templates.** `vela create --template broadsheet` pulls a finished blog design from the template registry; `--template` lists what is available, grouped by category.
+- **Themed templates.** `vela create --template broadsheet` pulls a finished blog design from the template registry; `vela templates` lists what is available, grouped by category, and says which have a backend.
 - **Linked from the start.** Logged in to velastack.dev, `vela create` links the new project there (`.vela/project.json`), so `vela deploy` reports to it and a CMS-ready template such as `hearth` reads from the project's free hosted CMS right away. `vela login` first if you are not; `vela link` does the same for a project you already have.
 
 ```sh
+vela templates                                     # every template, by category, and which have a backend
 vela create my-site --template hearth              # linked, CMS endpoint written into src/lib/site.ts
 vela create my-site --template hearth --link none  # keep it local; fill in `cmsEndpoint` later
 vela create my-site --template hearth --cms https://cms.example/v1/projects/<id>/cms
@@ -128,7 +129,47 @@ PocketBase reads its own settings from the same environment — `APP_NAME` (from
 in the repo carries environment but `.env.example`, and there is no project
 config file.
 
+| Variable                                         | What it sets                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------ |
+| `PB_SMTP_HOST`                                   | SMTP server to send email through. Setting it turns SMTP on.       |
+| `PB_SMTP_PORT`                                   | SMTP port, usually `587` or `465`.                                 |
+| `PB_SMTP_USERNAME`                               | SMTP login name.                                                   |
+| `PB_SMTP_PASSWORD`                               | SMTP password. With a provider such as Resend this is the API key. |
+| `PB_SMTP_TLS`                                    | `true` to connect over TLS; unset for STARTTLS.                    |
+| `PB_SENDER_ADDRESS`                              | The address emails are sent from.                                  |
+| `PB_SENDER_NAME`                                 | The name shown next to that address.                               |
+| `PB_S3_ENDPOINT`, `PB_S3_BUCKET`, `PB_S3_REGION` | Where uploads are stored, on S3 or anything compatible.            |
+| `PB_S3_ACCESS_KEY`, `PB_S3_SECRET`               | The credentials for that bucket.                                   |
+| `PB_S3_FORCE_PATH_STYLE`                         | `true` for providers that address buckets by path.                 |
+
+`PB_BACKUPS_S3_*` takes the same six names for where backups go. A new project's
+`.env.example` lists the email and storage variables, commented out.
+
 Same thing from CI with [`velastack/action`](https://github.com/velastack/action).
+
+## Testing
+
+```sh
+vela test:server                    # the server tests, against a throwaway PocketBase and the app
+vela test:server src/routes/api     # extra arguments go to vitest
+npx vitest                          # the same servers, in watch mode or from an editor
+```
+
+Server tests are the files named `server.test.ts` or `*.server.test.ts`. The
+`vela/testing` global setup in `vitest.config.ts` starts a throwaway PocketBase
+(migrated, with your hooks, seeds and fixtures) and the app before the first
+test file, and removes them after the last.
+
+Under those servers every page is stubbed: each `+page.svelte`, `+layout.svelte`
+and `+error.svelte` renders an empty body. Server tests check endpoints, form
+actions, redirects and load data, and skipping the components keeps them fast.
+A response therefore has its status, headers and serialized load data, but no
+markup. To test rendered HTML, set `VELA_TEST_RENDER_PAGES=1`, in the environment
+or under `test.env` in `vitest.config.ts`:
+
+```ts
+test: { globalSetup: ['vela/testing'], env: { VELA_TEST_RENDER_PAGES: '1' } }
+```
 
 ## Already have a project?
 

@@ -4,6 +4,7 @@ import process from 'node:process';
 import { exec, execSync } from 'tinyexec';
 import { Option } from 'commander';
 import * as p from '@clack/prompts';
+import { taskLog } from './task-log.ts';
 import {
 	AGENTS,
 	COMMANDS,
@@ -183,9 +184,9 @@ export async function installDependencies(
 		return false;
 	}
 
-	const task = p.taskLog({
+	const task = taskLog({
 		title: `Installing dependencies with ${agent}...`,
-		limit: Math.ceil(process.stdout.rows / 2),
+		halfScreen: true,
 		spacing: 0,
 		retainLog: true
 	});

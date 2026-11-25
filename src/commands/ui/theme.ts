@@ -1,11 +1,11 @@
 import { Command } from 'commander';
-import * as p from '@clack/prompts';
 import { applyTheme } from '@velastack/patterns';
 import { helpConfig } from '../../lib/help.ts';
 import { runCommand } from '../../lib/run.ts';
 import { getWorkspace } from '../../lib/workspace.ts';
 import { assertShadcn } from '../../lib/require-ui.ts';
 import { reportResult } from '../../lib/result-report.ts';
+import { taskLog } from '../../lib/task-log.ts';
 import { THEMES } from '../../lib/ui-add.ts';
 
 export const theme = new Command('theme')
@@ -17,7 +17,7 @@ export const theme = new Command('theme')
 			const { workspaceRootDir } = await getWorkspace();
 			assertShadcn('vela ui theme', workspaceRootDir);
 
-			const log = p.taskLog({ title: `Applying the ${accent} accent...` });
+			const log = taskLog({ title: `Applying the ${accent} accent...` });
 			let outcome;
 			try {
 				outcome = await applyTheme({ root: workspaceRootDir, theme: accent });
