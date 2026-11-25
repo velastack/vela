@@ -59,6 +59,7 @@ const EXPECTED_ENABLE_SUBCOMMANDS = [
 	'auth',
 	'api',
 	'api-keys',
+	'ci',
 	'i18n',
 	'teams',
 	'payments',

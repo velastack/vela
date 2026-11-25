@@ -88,6 +88,8 @@ const NO_BACKEND_COMMMANDS = new Set([
 	// never opened, and the command says so itself when there is no backend.
 	'enable email',
 	'disable email',
+	// Writes a GitHub Actions workflow and reads `.vela/project.json`.
+	'enable ci',
 	// Only wires hooks, reroute and the root layout; no collections involved.
 	'enable content-negotiation',
 	'disable content-negotiation',
