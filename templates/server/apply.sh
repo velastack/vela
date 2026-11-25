@@ -263,7 +263,7 @@ fi
 
 install_deps() {
 	local lock="$RELEASE_DIR/package-lock.json"
-	local key foreign="" name runtime
+	local key foreign="" name runtime drop_dev install_status=0
 	local -a install_cmd
 	runtime="abi$(node -p process.versions.modules 2>/dev/null)-npm$(npm -v 2>/dev/null | cut -d. -f1)"
 	[[ $runtime =~ ^abi[0-9]+-npm[0-9]+$ ]] || die "could not read the Node and npm versions ($runtime)"
@@ -294,7 +294,21 @@ install_deps() {
 	# node_modules behind, and the next deploy with the same key must not take
 	# it for a complete tree.
 	local done_marker="$deps/.vela-installed"
-	if [ ! -f "$done_marker" ]; then
+	if [ -f "$done_marker" ]; then
+		log "dependencies already installed ($key)"
+	elif package_without_runtime_deps "$RELEASE_DIR/package.json"; then
+		# Nothing for npm to do, and starting it anyway is not free: on a server
+		# with half a gigabyte of memory an `npm install` can be the process the
+		# kernel kills, along with whichever neighbour it picks next. The tree is
+		# left in the shape an install gives it - a keyed directory holding
+		# node_modules and the marker - so the link below, a rollback and the
+		# pruner treat this release like any other.
+		log "package.json has no runtime dependencies - skipping the npm install ($key)"
+		rm -rf "$deps"
+		mkdir -p "$deps/node_modules"
+		chown -R "$VELA_USER:$VELA_USER" "$deps"
+		: > "$done_marker"
+	else
 		log "installing dependencies ($key)"
 		rm -rf "$deps"
 		mkdir -p "$deps"
@@ -302,18 +316,11 @@ install_deps() {
 		if [ -f "$lock" ]; then cp "$lock" "$deps/"; fi
 		# npm reads a yarn.lock beside package.json for resolution hints.
 		if [ "${foreign##*/}" = "yarn.lock" ]; then cp "$foreign" "$deps/"; fi
-		# `prepare` is a development hook (`svelte-kit sync`, husky) whose tools
-		# are devDependencies, which are not installed here: it can only print
-		# "svelte-kit: not found". Dependencies' own install scripts still run.
-		node -e '
-			const fs = require("fs");
-			const file = process.argv[1];
-			const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
-			if (pkg.scripts && pkg.scripts.prepare) {
-				delete pkg.scripts.prepare;
-				fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
-			}
-		' "$deps/package.json" || die "could not read package.json"
+		# Without a package-lock.json the devDependencies are dropped as well, so
+		# npm never resolves them; with one, package.json stays as the lockfile
+		# describes it. See prepare_install_manifest.
+		if [ -f "$lock" ]; then drop_dev=0; else drop_dev=1; fi
+		prepare_install_manifest "$deps/package.json" "$drop_dev" || die "could not read package.json"
 		if [ -f "$RELEASE_DIR/.npmrc" ]; then cp "$RELEASE_DIR/.npmrc" "$deps/"; fi
 		chown -R "$VELA_USER:$VELA_USER" "$deps"
 		# npm needs a writable HOME and cache; $VELA_ROOT itself stays root-owned
@@ -324,10 +331,9 @@ install_deps() {
 		# behind would hold it after this script has exited.
 		( cd "$deps" && runuser -u "$VELA_USER" -- env \
 			HOME="$deps" npm_config_cache="$VELA_ROOT/cache/npm" \
-			"${install_cmd[@]}" >&2 8>&- ) || die "dependency install failed"
+			"${install_cmd[@]}" >&2 8>&- ) || install_status=$?
+		[ "$install_status" -eq 0 ] || die "$(install_failure_message "$install_status")"
 		: > "$done_marker"
-	else
-		log "dependencies already installed ($key)"
 	fi
 	ln -sfn "$deps/node_modules" "$RELEASE_DIR/.node_modules.tmp"
 	mv -Tf "$RELEASE_DIR/.node_modules.tmp" "$RELEASE_DIR/node_modules"

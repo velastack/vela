@@ -5,7 +5,8 @@ import { helpConfig } from '../lib/help.ts';
 import { runCommand } from '../lib/run.ts';
 import { getWorkspace } from './../lib/workspace.ts';
 import { readAppIdentity, readBindings } from '../lib/deploy-config.ts';
-import { instanceId } from '../lib/instance.ts';
+import { instanceId, PROD_ENV } from '../lib/instance.ts';
+import { PRODUCTION_TARGET } from '../lib/target.ts';
 import { addSshOptions, sshOptionsFrom, SSH_OPTION_SCHEMA } from '../lib/ssh-options.ts';
 import { parseOptions } from '../lib/options.ts';
 import { withSsh } from '../lib/ssh.ts';
@@ -19,7 +20,7 @@ const OptionsSchema = v.object({
 	offline: v.optional(v.boolean())
 });
 
-interface Row {
+export interface Row {
 	target: string;
 	kind: 'local' | 'remote';
 	server: string;
@@ -103,7 +104,38 @@ export const targets = addSshOptions(
 		}, 'Failed to list targets.')
 	);
 
+/**
+ * A target as every other command names it. The default one is stored, and
+ * its instance named, under the short tag `prod`, but it is `production` in
+ * `vela deploy`'s output and `-t production` on the command line (`-t prod`
+ * works too). Display only: `--json` keeps the stored key.
+ */
+export function targetLabel(envTag: string): string {
+	return envTag === PROD_ENV ? PRODUCTION_TARGET : envTag;
+}
+
+/** The table's rows as text: the header, then one line per target. */
+export function targetsTable(rows: Row[]): { header: string; lines: string[] } {
+	const shown = rows.map((row) =>
+		row.kind === 'remote' ? { ...row, target: targetLabel(row.target) } : row
+	);
+	return tableOf(shown);
+}
+
 function report(rows: Row[], offline: boolean): void {
+	const { header, lines } = targetsTable(rows);
+	p.log.info(`${pc.dim(header)}\n${lines.join('\n')}`);
+
+	const unreachable = rows.filter((row) => row.kind === 'remote' && !row.reachable);
+	if (!offline && unreachable.length > 0) {
+		p.log.warn(
+			`Could not reach ${unreachable.map((row) => row.server).join(', ')}.\n` +
+				`Release and domain are shown from what this project recorded.`
+		);
+	}
+}
+
+function tableOf(rows: Row[]): { header: string; lines: string[] } {
 	// The header is part of the column, or a short value leaves it hanging over
 	// the rows beneath it.
 	const width = (heading: string, pick: (row: Row) => string) =>
@@ -119,13 +151,5 @@ function report(rows: Row[], offline: boolean): void {
 			`${row.server.padEnd(server)}  ${row.domain.padEnd(domain)}  ${row.release}`
 	);
 
-	p.log.info(`${pc.dim(header)}\n${lines.join('\n')}`);
-
-	const unreachable = rows.filter((row) => row.kind === 'remote' && !row.reachable);
-	if (!offline && unreachable.length > 0) {
-		p.log.warn(
-			`Could not reach ${unreachable.map((row) => row.server).join(', ')}.\n` +
-				`Release and domain are shown from what this project recorded.`
-		);
-	}
+	return { header, lines };
 }

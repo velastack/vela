@@ -2,8 +2,7 @@ import process from 'node:process';
 import * as p from '@clack/prompts';
 import { Command } from 'commander';
 import { x } from 'tinyexec';
-import { detect } from 'package-manager-detector';
-import { resolveCommand } from 'package-manager-detector/commands';
+import { localExecCommand } from '../lib/package-manager.ts';
 import { helpConfig } from '../lib/help.ts';
 import {
 	describeOutcome,
@@ -23,11 +22,8 @@ async function runWuchale(extraArgs: string[]): Promise<void> {
 	if (!findWuchaleConfig(cwd)) {
 		throw new Error('No wuchale config found. Run `vela enable i18n` to set up i18n.');
 	}
-	const pm = (await detect({ cwd }))?.name ?? 'npm';
-	const resolved = resolveCommand(pm, 'execute', ['wuchale', ...extraArgs])!;
-	const args = resolved.args.slice();
-	if (pm === 'npm') args.unshift('--yes');
-	await x(resolved.command, args, {
+	const { command, args } = await localExecCommand(cwd, ['wuchale', ...extraArgs]);
+	await x(command, args, {
 		nodeOptions: { cwd, stdio: 'inherit' },
 		throwOnError: true
 	});

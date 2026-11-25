@@ -2,8 +2,7 @@ import process from 'node:process';
 import { Command } from 'commander';
 import pc from 'picocolors';
 import { x } from 'tinyexec';
-import { detect } from 'package-manager-detector';
-import { resolveCommand } from 'package-manager-detector/commands';
+import { localExecCommand } from '../lib/package-manager.ts';
 import { helpConfig } from '../lib/help.ts';
 import { warnIfKit2 } from '../lib/kit-version.ts';
 import { HarnessError, startTestHarness, type TestHarness } from '../lib/test-harness.ts';
@@ -30,8 +29,7 @@ export const testServer = new Command('test:server')
 		const filtered = extraArgs.some((arg) => !arg.startsWith('-'));
 
 		try {
-			const pm = (await detect({ cwd }))?.name ?? 'npm';
-			const resolved = resolveCommand(pm, 'execute', [
+			const { command, args } = await localExecCommand(cwd, [
 				'vitest',
 				'run',
 				'--project',
@@ -39,10 +37,8 @@ export const testServer = new Command('test:server')
 				'--reporter=dot',
 				...(filtered ? [] : ['--passWithNoTests']),
 				...extraArgs
-			])!;
-			const resolvedArgs = resolved.args.slice();
-			if (pm === 'npm') resolvedArgs.unshift('--yes');
-			const result = await x(resolved.command, resolvedArgs, {
+			]);
+			const result = await x(command, args, {
 				nodeOptions: { cwd, stdio: 'inherit', env: { ...process.env, CI: '1' } }
 			});
 			// A failing suite is this command failing: CI reads the exit code.
