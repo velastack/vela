@@ -5,9 +5,10 @@ import { workflowsRun } from './workflows/run.ts';
 import { workflowsCancel } from './workflows/cancel.ts';
 
 /**
- * The local project's workflow runs. Talks to the dev server's PocketBase
- * when one is running, or starts a throwaway one; the dashboard's Workflows
- * tab shows the same runs with their steps.
+ * Workflow runs in whichever copy of the app `-t` names, `local` by default.
+ * Locally that is the dev server's PocketBase when one is running, or one
+ * started for the command; on a deployed target it is that instance's, over
+ * SSH. The dashboard's Workflows tab shows the same runs with their steps.
  */
 export const workflows = new Command('workflows')
 	.description('list, start and cancel background workflow runs')

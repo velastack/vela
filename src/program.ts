@@ -124,6 +124,7 @@ const NO_BACKEND_COMMMANDS = new Set([
 	'backup',
 	'restore',
 	'seeds load',
+	'workflows',
 	// Removes a copy from its server. `destroy resource` and `destroy scaffold`
 	// drop collections and stay gated.
 	'destroy deployment'

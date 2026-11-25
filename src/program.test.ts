@@ -305,6 +305,9 @@ describe('target selection', () => {
 		['admin create', 'local'],
 		['users create', 'local'],
 		['seeds load', 'local'],
+		['workflows list', 'local'],
+		['workflows run', 'local'],
+		['workflows cancel', 'local'],
 		['backup create', 'production'],
 		['backup list', 'production'],
 		['backup download', 'production'],
@@ -544,6 +547,13 @@ describe('backend gate', () => {
 		expect(written).toContain('vela create');
 		expect(written).not.toContain('vela enable backend');
 	});
+
+	test.each([['list'], ['run', 'send-digest'], ['cancel', 'abc123']])(
+		'workflows %s is not held to local credentials',
+		async (sub, ...args) => {
+			expect(await runs(['workflows', sub, ...args, '-t', 'production'])).toBe(true);
+		}
+	);
 
 	test.each(['save', 'clear'])('seeds %s still needs a backend', async (sub) => {
 		vi.spyOn(console, 'log').mockImplementation(() => {});
